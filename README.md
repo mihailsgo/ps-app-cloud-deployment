@@ -291,6 +291,3 @@ docker compose ps
 - Regularly back up the `keycloak_data` volume and any persistent stores you configure.
 
 ---
-
-If you want, I can tailor the configuration templates in this repo to a specific hostname and environment (local, staging, prod) and provide a safe diff for review.
-
