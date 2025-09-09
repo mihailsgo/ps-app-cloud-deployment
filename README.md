@@ -1,4 +1,4 @@
-# PS App Cloud Deployment — Deployment Guide
+﻿# PS App Cloud Deployment â€” Deployment Guide
 
 This repository contains a complete, containerized deployment of the PS App platform behind an HTTPS reverse proxy with Keycloak-based authentication and a set of DMSS services for document archiving, container creation, and digital signatures.
 
@@ -31,11 +31,11 @@ Services defined in `docker-compose.yml`:
 
 High-level routing:
 
-- `https://<host>/portal/...` → `ps-client`
-- `https://<host>/auth/...` → `keycloak`
-- `https://<host>/api/...` → `ps-server`
-- `https://<host>/container/api/...` → `dmss-container-and-signature-services`
-- `https://<host>/archive/api/...` → `dmss-archive-services` (fallback to `dmss-archive-services-fallback` as configured)
+- `https://<host>/portal/...` â†’ `ps-client`
+- `https://<host>/auth/...` â†’ `keycloak`
+- `https://<host>/api/...` â†’ `ps-server`
+- `https://<host>/container/api/...` â†’ `dmss-container-and-signature-services`
+- `https://<host>/archive/api/...` â†’ `dmss-archive-services` (fallback to `dmss-archive-services-fallback` as configured)
 
 ---
 
@@ -45,7 +45,7 @@ High-level routing:
 - A DNS name you control (production) or a local hostname mapping (development).
 - TLS certificate and key for your hostname (PEM). Self-signed is acceptable for local testing.
 - Open host ports: `80`, `443`, `8080`, `3001`, `84`, `86`, `93`.
-- Sufficient resources (suggested): 4 vCPU, 6–8 GB RAM.
+- Sufficient resources (suggested): 4 vCPU, 6â€“8 GB RAM.
 
 Optional (local):
 
@@ -74,7 +74,7 @@ Local option (Windows):
 
 3) DNS or hosts entry
 
-- Production: Point your domain’s A/AAAA record to the host running this stack.
+- Production: Point your domainâ€™s A/AAAA record to the host running this stack.
 - Local: Add a hosts entry mapping your hostname to `127.0.0.1` (or the Docker host IP) and use a locally trusted cert.
 
 ---
@@ -86,7 +86,7 @@ Review and adjust these files before running:
 - `docker-compose.yml`
   - `KC_HOSTNAME` should match your hostname.
   - Host ports 80/443, 8080, 3001, 84, 86, 93 must be free.
-  - Note: `ps-client` defines a bind mount `./client/docker/nginx.conf`. If you don’t intend to override the client image’s NGINX, remove this mount or create the file.
+  - Note: `ps-client` defines a bind mount `./client/docker/nginx.conf`. If you donâ€™t intend to override the client imageâ€™s NGINX, remove this mount or create the file.
 
 - `nginx/nginx.conf`
   - Update `server_name` and TLS files.
@@ -106,7 +106,7 @@ Review and adjust these files before running:
 - `dmss-container-and-signature-services/application.yml`
   - `archive-services.baseUrl` and `fallbackUrl` point to internal service names and typically do not need changes.
   - `digidoc4j.configuration.mode`: switch `PROD`/`TEST` as appropriate.
-  - Smart‑ID/Mobile‑ID endpoints: point to demo or production as needed (update Relying Party IDs and Names for production).
+  - Smartâ€‘ID/Mobileâ€‘ID endpoints: point to demo or production as needed (update Relying Party IDs and Names for production).
   - LVRTC settings (if used): provide correct URIs, keystores, and credentials.
   - Trust stores and certificate files referenced under `/confs` must exist in `dmss-container-and-signature-services/`.
 
@@ -200,7 +200,7 @@ docker compose logs -f ps-server
 ```sh
 docker compose down
 # Keep volumes (e.g., Keycloak DB) by default
-# Add -v to remove named volumes if you know what you’re doing
+# Add -v to remove named volumes if you know what youâ€™re doing
 ```
 
 ---
@@ -209,7 +209,7 @@ docker compose down
 
 - Hosts entry: map your chosen hostname to `127.0.0.1`.
 - Certificates: use `mkcert` to create a locally trusted cert and point `nginx/nginx.conf` to it.
-- `host.docker.internal`: The public NGINX forwards to `84` and `86` on the host for container/signature and archive services; these are published by compose. This is intentional for Windows/macOS; Linux users may prefer service‑name routing (requires editing `nginx/nginx.conf`).
+- `host.docker.internal`: The public NGINX forwards to `84` and `86` on the host for container/signature and archive services; these are published by compose. This is intentional for Windows/macOS; Linux users may prefer serviceâ€‘name routing (requires editing `nginx/nginx.conf`).
 - Client NGINX override: If `./client/docker/nginx.conf` does not exist locally, remove that bind mount from `docker-compose.yml` or create the file to avoid a bind error.
 
 ---
@@ -233,14 +233,14 @@ docker compose down
 
 ```mermaid
 flowchart TD
-  U[User Browser] -->|HTTPS 443| N[NGINX]
-  N -->|/portal/*| C[ps-client (SPA)]
-  N -->|/auth/*| K[Keycloak]
-  N -->|/api/*| B[ps-server]
-  B -->|REST| CS[DMSS Container/Signature]
-  B -->|REST| AR[DMSS Archive]
-  CS -->|fallback on error| FB[DMSS Archive Fallback]
-  C -->|OIDC redirects| K
+  U[User Browser] -->|HTTPS 443| N[NGINX];
+  N -->|/portal/*| C[ps-client (SPA)];
+  N -->|/auth/*| K[Keycloak];
+  N -->|/api/*| B[ps-server];
+  B -->|REST| CS[DMSS Container/Signature];
+  B -->|REST| AR[DMSS Archive];
+  CS -->|fallback on error| FB[DMSS Archive Fallback];
+  C -->|OIDC redirects| K;
 ```
 
 ```mermaid
@@ -258,7 +258,7 @@ sequenceDiagram
   Keycloak-->>Browser: Authorization code
   Browser->>Keycloak: Exchange code + PKCE for tokens
   Keycloak-->>Browser: Access token (JWT)
-  Browser->>NGINX: GET /api/resource (Authorization: Bearer …)
+  Browser->>NGINX: GET /api/resource (Authorization: Bearer â€¦)
   NGINX->>Backend: Proxy /api/*
   Backend->>Backend: Verify JWT (Keycloak realm config)
   Backend-->>NGINX: 200 OK / data
@@ -346,5 +346,6 @@ docker compose ps
 - Regularly back up the `keycloak_data` volume and any persistent stores you configure.
 
 ---
+
 
 
