@@ -1,0 +1,324 @@
+# Standard spring configurations avaialble
+server:
+  # Server port container and signature service published
+  port: 8092
+spring:
+  sleuth:
+    propagation:
+      type: B3
+  application:
+    name: dmss-container-and-signature-services
+  zipkin:
+    enabled: false
+  servlet:
+    multipart:
+      maxFileSize: 1000MB
+      maxRequestSize: 1000MB
+      max-file-size: 1000MB
+      max-request-size: 1000MB
+  main:
+    allow-bean-definition-overriding: true
+springdoc:
+  swagger-ui:
+    use-root-path: true
+management:
+  health:
+    probes:
+      enabled: true
+request:
+  correlation:
+    # sets the position in the filter chain for the Request Correlation Filter (Ordered.HIGHEST_PRECEDENCE by default)
+    filter-order: 102
+    # sets the starting position for the filter order. Defaults to "zero"
+    filter-order-from: highest_precedence
+    # sets the header name to be used for session identification (X-Session-Id by default)
+    session-header-name: X-Session-Id
+    # sets the header name to be used for request identification (X-Request-Id by default)
+    request-header-name: X-Request-Id
+    client:
+      http:
+        # enables the RestTemplate header propagation (true by default)
+        enabled: true
+trustlynx:
+  # use proxy or not for internal applications (archive, stamping, process, fallback, document generation) communication
+  useProxyForInternalServices: false        
+signatureServices:
+  # Time to wait signing process can take. Example: How long pin2 insert for id card can take
+  timeout: 40000
+  cors:
+    disabled: true
+  documentSigningProfiles: file:/confs/documentsigningprofiles.json  
+containerController:
+  # Illegal charcters will be replaced in attachments file name if container created
+  illegalChars: "[\\\\/:*?\"<>|\\^\\&]"
+  illegalCharsObjectName: "[\\\\/:*?\"<>|\\^\\&]"
+  # PDF generation and container ceration parameters
+  createNewContainer:
+    documentData:
+      # Container creation parameters json mappings
+      containerExtensionJsonKey: "containerExtension"
+      certInHexJsonKey: "certInHex"
+      signatureProfileJsonKey: "signatureProfile"
+      documentFilenameJsonKey: "documentFilename"
+      documentMimeTypeJsonKey: "contentType"
+      containerMimeTypeJsonKey: "containerContentType"
+      documentTypeJsonKey: "documentType"
+      objectNameJsonKey: "objectName"
+# DMSS Process and Audit Service url
+dmss-process-and-auditing-service:
+  enabled: true
+  baseUrl: "http://dmss-process-and-auditing-service:8765"
+# DMSS Archive Services configuation url
+archive-services:
+  # DMSS Archive Services url
+  baseUrl: http://dmss-archive-services:8090/api
+  # DMSS Archive Services Fallback url, used if main archive service not accessable
+  fallbackUrl: http://dmss-archive-services-fallback:8095/api
+  # HTTP headrers passed through to archive service from container services request headers
+  forwardHttpHeaders: Authorization, OTCSTICKET, x-user-context, x-request-id, x-session-id
+  configuration:
+    container:
+      # Default mime type set for created container and sent to archive service
+      defaultMimeType: application/vnd.etsi.asic-e+zip
+      # Default file extension for created container on pdf creation and sent to archive service
+      defaultContainerExtension: .asice
+      # Default document type sent archive service if not specified in documentData JSON section in request body
+      defaultDocumentType: Document
+  # mime tyoes and extensions mappins collection, returned files content type in http response
+  fileMimeTypesAndExtensions: classpath:mime.types
+# Smart-ID configuration
+smartId:
+  #hostUrl: https://rp-api.smart-id.com/v2/
+  hostUrl: https://sid.demo.sk.ee/smart-id-rp/v2/
+  #relyingPartyUUID: e18e72f7-4e7d-4e13-a309-82695135de2c
+  relyingPartyUUID: 00000000-0000-0000-0000-000000000000
+  #relyingPartyName: Digital Signing
+  relyingPartyName: DEMO
+  # Smart-ID delay between return control code and app actiovation
+  delay: 3000
+  #trustedCertificates: classpath:trusted_certificates.jks
+  # Interaction in Smart-ID app. More information https://github.com/SK-EID/smart-id-documentation#3-use-case-realization-models
+  interactions:
+    -
+      interactionName: "Interaction.confirmationMessageAndVerificationCodeChoice"
+      # Current interaction specific default text. Can be overriden by input json field: if maxsize 200 json parameter "displayTextLong", if maxsize < 200 json paameter "displayText"
+      defaultText: "TrustLynx SignBox"
+      # Technical constant, please do not change
+      maxsize: 200
+      # Enabled current ineraction or not
+      enabled: false
+    -
+      interactionName: "Interaction.confirmationMessage"
+      defaultText: "TrustLynx SignBox"
+      maxsize: 200
+      enabled: false
+    -
+      interactionName: "Interaction.verificationCodeChoice"
+      defaultText: "TrustLynx SignBox"
+      maxsize: 60
+      enabled: false
+    -
+      interactionName: "Interaction.displayTextAndPIN"
+      defaultText: "TrustLynx SignBox"
+      maxsize: 60
+      enabled: true
+# EE and LT Mobile-ID settings
+mobile-id:
+  delay: 3000
+  countries:
+    EE:
+      relyingPartyName: Digital Signing
+      hostUrl: https://mid.sk.ee/mid-api
+      relyingPartyUUID: 00000000-0000-0000-0000-000000000000
+      displayText: "TEST Allkirjasta dokument?"
+    LT:
+      relyingPartyName: Digital Signing
+      hostUrl: https://mid.sk.ee/mid-api
+      relyingPartyUUID: 00000000-0000-0000-0000-000000000000
+      displayText: "Pasirašai dokumentą?"
+dmss-document-generation-service:
+  # Document generation service URL
+  baseUrl: http://localhost:8083/api
+  # Document generation default settings
+  configuration:
+    defaultMimeType: application/pdf
+    defaultExtension: .pdf
+# DMSS USB token access service URL
+digital-stamping-service:
+  baseUrl: http://host.docker.internal:8084/api
+# baseUrl: http://riga-app.digitalmind.local:8084/api
+hystrix:
+  command:
+    default:
+      execution:
+        isolation:
+          thread:
+            timeoutInMilliseconds: 100000
+# Digidoc4 settings, more info https://github.com/open-eid/digidoc4j
+digidoc4j:
+  configuration:
+    # Digidoc4j mode, PROD or TEST
+    mode: PROD
+    file: "/confs/digidoc4j-custom.yaml"
+    # Custom digidoc4j configuration file, more info http://open-eid.github.io/digidoc4j/org/digidoc4j/Configuration.html
+    #    file: "./src/main/resources/digidoc4j-custom.yaml"
+    #   file: "/confs/digidoc4j-custom.yaml"
+    # Preferred AIA ocsp source or SK payed service. true - AIA OCSP, false SK payed service
+    preferAiaOcsp: true
+    #issuers:
+pdf:
+  defaultSignatureLevel: PAdES_BASELINE_LT
+  cakeystorepath: /confs/dmssrootca.p12
+  cakeystorepassword: livelink
+  caCertAlias: digital mind root ca
+  signature:
+    defaults:
+      numberOfSignaturesInRow: 3
+      dateFormat: "dd.MM.yyyy HH:mm:ss z"
+      xAxis: 10
+      yAxis: 10
+      zoomPrecent: 50
+      signatureText: "Digitally signed by: {g} {sn} \nAt date: {date}"
+      sigMod2XIndent: 200
+      sigMod2YIndent: 300
+      font: classpath:OpenSans-Bold.ttf
+      signerTextVerticalPosition: BOTTOM
+      signatureImageScaling: ZOOM_AND_CENTER
+    textImage:
+      by: "Signed By"
+      in: "In"
+      at: "At"
+  watermark:
+    defaults:
+      xAxis: 100
+      yAxis: 700
+      transparency: 1
+      colour:
+        r: 255
+        g: 0
+        b: 0
+      font: "classpath:Pacifico-Regular.ttf"
+      fontsize: 50
+hazelcast:
+  expireInminutes: 3
+  members: localhost:5777
+  port: 5777
+  kubernetes:
+    enabled: false
+    service-dns: dmss-container-headless.default.svc.cluster.local
+idCard:
+  # Use Container UD Signing session id or not. false - use autogenerated uid as sesison id; true use document id as signing session id
+  useContainerIdAsSession: false
+# LVRTC (ePM) settings
+lvrtc:
+  baseUri: https://eidas.eparaksts.lv/
+  clientId: 000000000000000000
+  clientSecret: 00000000-0000-0000-0000-000000000000
+  authRedirectUri: https://esign.trustlynx.com/extportal/signing/lvrtc/signature
+  signRedirectUri: https://esign.trustlynx.com/extportal/signing/lvrtc/signature
+  defaultLocale: lv
+  # LV ID card PDF signing related settings
+  # Timestamp service url for PDF signing with ID card (LV)
+  tspUrl: https://tsa.eparaksts.lv/
+  # Keystore password for client certificate authentication to LVRTC services
+  keystorePassword: DigitalMind
+  # Certificate alias client certificate authentication to LVRTC services
+  certAlias: ecm.digitalmind.lv (eparaksts ica 2017)
+  # keystore path including client certificate authentication to LVRTC services
+  keystorePath: classpath:digitalmind.jks
+  # keystore path including additional CA certs accepted by lvrtc signing libarary
+  certtruststorePath: classpath:test.cert.truststore.jks
+
+logging:
+  pattern:
+    console: '%d{yyyy-MM-dd HH:mm:ss.SSS} [%X{traceId}/%X{spanId}] %-5p [%t] %logger{36} - %msg%n'
+  #    console: '%d{yyyy-MM-dd HH:mm:ss.SSS} [%X{X-Session-ID}/%X{X-Request-ID}] %-5p [%t] %logger{36} - %msg%n'
+  level:
+    root: debug
+    ee:
+      digitalmind: debug
+#http proxy settings
+#http:
+# proxy host name
+# proxyhost: "localhost"
+# proxy host port
+# proxyport: 8088
+pdfConverter:
+  baseUrl: http://pdf-converter:3000/forms/libreoffice/convert
+  conversionMediaTypes:
+    - "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    - "application/msword"
+    - "application/vnd.ms-excel"
+    - "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    - "application/vnd.ms-powerpoint"
+    - "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+logRequests: false
+asseco:
+  apiUri: https://model.simplysign.webnotarius.pl
+  clientId: 00000000-0000-0000-0000-000000000000
+  clientSecret: 00000000-0000-0000-0000-000000000000
+  redirectUri: https://esign.trustlynx.com/extportal/signing/simplysign
+infobip:
+#  baseUrl: https://yrj6yg.api.infobip.com
+#  apiKey: 00000000-0000-0000-0000-000000000000
+  baseUrl: https://yrj6yg.api.infobip.com
+  apiKey: 00000000-0000-0000-0000-000000000000
+smsSigning:
+  otpLength: 6
+  expireInMinutes: 1
+  maxAttempts: 3
+  messageTemplate: "Your code for accessing SigningServices external portal: %s%nDo not share it with anybody"
+  sender: Digitalmind
+zealId:
+  apiUri: https://core-hermes.zealid.com/api/csc/v1/v2.0
+  clientId: 00000000-0000-0000-0000-000000000000
+  clientSecret: 00000000-0000-0000-0000-000000000000
+  accountId: 00000000-0000-0000-0000-000000000000
+  redirectUri: https://esign.trustlynx.com/extportal/signing/zealid
+pdf-fill-form:
+  application:
+    [
+      {
+        name: application,
+        templateResource: ./tmp/template.pdf
+      },
+      {
+        name: applicationLV,
+        templateResource: ./tmp/template_LV.pdf
+      },
+      {
+        name: applicationEN,
+        templateResource: ./tmp/template_EN.pdf
+      }      
+    ]
+timestamp:
+  timestampProviders:
+    -
+      tspSource:  http://tsa.sk.ee
+    #-
+    #  tspSource: https://tsa-com.eparaksts.lv/
+    #  authentications:
+    #    - protocol: https
+    #      host: tsa-com.eparaksts.lv
+    #      port: 443
+    #      scheme: Basic
+    #      realm: KeyOneSystem
+    #      username: username
+    #      password: password
+offline-mode:
+  enabled: false
+  signatureProfile: B
+  documentTypes:
+    - DMSSDoc
+  methods:
+    # ID_CARD, E_SEAL,
+    #    SMART_ID,
+    #    ASSECO_SIMPLY_SIGN,
+    #    LVRTC_EPM_BANKIG_API,
+    #    MOBILE_ID, OUTH2, EID_EASY, LT_ID, SMS, LVRTC_EPM
+    - ID_CARD
+    - SMART_ID
+  cert-validation-url: https://www.ee
+  autht-type: basic
+  user-name: usrname
+  password: password

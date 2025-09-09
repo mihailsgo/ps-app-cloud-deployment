@@ -1,0 +1,44 @@
+spring:
+  application:
+    name: dmss-archive-services-fallback
+  zipkin:
+    enabled: false
+  sleuth:
+    propagation:
+      type: B3
+  servlet:
+    multipart:
+      maxFileSize: 1000MB
+      maxRequestSize: 1000MB
+      max-file-size: 1000MB
+      max-request-size: 1000MB
+server:
+  port: 8095
+
+fallback:
+  directoryDepth: 3
+  tempDirectory: /docs
+  documentsDirectory: /docs
+  actAsMainService: true
+  tempDocumentType: 'temp'
+
+archiveServices:
+  baseUrl: http://dmss-archive-services:8090/api
+
+management:
+  health:
+    probes:
+      enabled: true
+
+springdoc:
+  swagger-ui:
+    use-root-path: true
+
+logging:
+#  config: ./src/main/resources/logback.xml
+  pattern:
+    console: '%d{yyyy-MM-dd HH:mm:ss.SSS} [%X{traceId}/%X{spanId}] %-5p [%t] %logger{36} - %msg%n'
+  level:
+    root: INFO
+    ee:
+      digitalmind: info
