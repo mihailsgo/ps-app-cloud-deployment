@@ -214,6 +214,61 @@ docker compose down
 
 ---
 
+## Security & Route Protection
+
+- TLS termination: All external traffic enters via NGINX on 443; HTTP 80 redirects to HTTPS.
+- Public routes:
+  - `/portal/*` serves the SPA. The SPA itself gates features by user auth state.
+  - `/auth/*` proxies to Keycloak for login, tokens, and account management.
+  - `/api/*` proxies to the backend (`ps-server`). This route requires a valid Bearer token.
+  - `/container/api/*` and `/archive/api/*` proxy to DMSS services. For production, restrict these (IP allowlist, mTLS) or enforce JWT on the services.
+- SPA authentication (frontend): Uses Keycloak (public client). Recommended flow is Authorization Code with PKCE. The SPA obtains an access token and attaches it as `Authorization: Bearer <token>` to API calls.
+- Backend enforcement (ps-server): Configured as a bearer-only confidential client. It validates incoming JWTs from Keycloak and only serves `/api/*` when a valid token is present. CORS should be restricted to known origins in `config/config.js`.
+- Header forwarding (DMSS): `dmss-container-and-signature-services` is configured to forward `Authorization` and other headers to the archive service. Align DMSS auth to your policy.
+- Enabling JWT on DMSS Archive (recommended for prod): In `dmss-archive-services/application.yml` set `authentication.jwt.enabled: true` and configure either `useCert: true` with a public key/cert or a shared `secret`, and set `validation: true`.
+- NGINX hardening: If DMSS endpoints should not be directly reachable from the internet, remove or restrict the `/container/api` and `/archive/api` locations, or protect them with allowlists or client certificates.
+- Keycloak admin: Limit admin console access (IP allowlist/VPN) and change the default admin password immediately.
+
+## Data Flow
+
+```mermaid
+flowchart TD
+  U[User Browser] -->|HTTPS 443| N[NGINX]
+  N -->|/portal/*| C[ps-client (SPA)]
+  N -->|/auth/*| K[Keycloak]
+  N -->|/api/*| B[ps-server]
+  B -->|REST| CS[DMSS Container/Signature]
+  B -->|REST| AR[DMSS Archive]
+  CS -->|fallback on error| FB[DMSS Archive Fallback]
+  C -->|OIDC redirects| K
+```
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant Browser
+  participant NGINX
+  participant Keycloak
+  participant Backend as ps-server
+  participant DMSSCS as DMSS Container/Signature
+  participant DMSSAR as DMSS Archive
+
+  Browser->>NGINX: GET /portal/*
+  Browser->>Keycloak: OIDC login (via /auth/*)
+  Keycloak-->>Browser: Authorization code
+  Browser->>Keycloak: Exchange code + PKCE for tokens
+  Keycloak-->>Browser: Access token (JWT)
+  Browser->>NGINX: GET /api/resource (Authorization: Bearer …)
+  NGINX->>Backend: Proxy /api/*
+  Backend->>Backend: Verify JWT (Keycloak realm config)
+  Backend-->>NGINX: 200 OK / data
+  NGINX-->>Browser: 200 OK / data
+  Backend->>DMSSCS: Call container/signature API (forward Authorization)
+  DMSSCS->>DMSSAR: Call archive API (forward headers)
+  DMSSAR-->>DMSSCS: Response
+  DMSSCS-->>Backend: Response
+```
+
 ## Production Hardening
 
 - Replace all sample secrets and keystore passwords.
@@ -291,3 +346,5 @@ docker compose ps
 - Regularly back up the `keycloak_data` volume and any persistent stores you configure.
 
 ---
+
+
