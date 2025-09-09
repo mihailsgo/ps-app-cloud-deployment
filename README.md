@@ -105,9 +105,6 @@ Review and adjust these files before running:
 
 - `dmss-container-and-signature-services/application.yml`
   - `archive-services.baseUrl` and `fallbackUrl` point to internal service names and typically do not need changes.
-  - `digidoc4j.configuration.mode`: switch `PROD` or `TEST` as appropriate.
-  - Smart-ID/Mobile-ID endpoints: point to demo or production as needed (update Relying Party IDs and Names for production).
-  - LVRTC settings (if used): provide correct URIs, keystores, and credentials.
   - Trust stores and certificate files referenced under `/confs` must exist in `dmss-container-and-signature-services/`.
 
 - `dmss-archive-services/application.yml`
