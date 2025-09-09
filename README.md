@@ -1,4 +1,4 @@
-﻿# PS App Cloud Deployment â€” Deployment Guide
+# PS App Cloud Deployment â€” Deployment Guide
 
 This repository contains a complete, containerized deployment of the PS App platform behind an HTTPS reverse proxy with Keycloak-based authentication and a set of DMSS services for document archiving, container creation, and digital signatures.
 
@@ -234,9 +234,9 @@ docker compose down
 ```mermaid
 flowchart TD
   U[User Browser] -->|HTTPS 443| N[NGINX];
-  N -->|/portal/*| C[ps-client (SPA)];
-  N -->|/auth/*| K[Keycloak];
-  N -->|/api/*| B[ps-server];
+  N -->|portal| C[ps-client SPA];
+  N -->|auth| K[Keycloak];
+  N -->|api| B[ps-server];
   B -->|REST| CS[DMSS Container/Signature];
   B -->|REST| AR[DMSS Archive];
   CS -->|fallback on error| FB[DMSS Archive Fallback];
