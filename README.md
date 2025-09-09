@@ -1,4 +1,4 @@
-# PS App Cloud Deployment â€” Deployment Guide
+# PS App Cloud Deployment - Deployment Guide
 
 This repository contains a complete, containerized deployment of the PS App platform behind an HTTPS reverse proxy with Keycloak-based authentication and a set of DMSS services for document archiving, container creation, and digital signatures.
 
@@ -9,11 +9,11 @@ Use this guide to configure, run, and operate the stack in local, staging, or pr
 ## Overview
 
 - Reverse proxy and TLS termination via NGINX.
-- Authentication/authorization via Keycloak.
+- Authentication and authorization via Keycloak.
 - PS Client (SPA) served via container.
 - PS Server (Node.js backend) with configurable endpoints and Keycloak integration.
 - DMSS services for archive, container/signature, and a local fallback archive.
-- Docker Compose orchestration with persistent volume for Keycloak data.
+- Docker Compose orchestration with a persistent volume for Keycloak data.
 
 ---
 
@@ -25,17 +25,17 @@ Services defined in `docker-compose.yml`:
 - Keycloak: Identity provider; exposed on port 8080 and proxied at `/auth` through NGINX.
 - PS Client: SPA served by its own NGINX; proxied by the public NGINX at `/portal`.
 - PS Server: Backend API consumed by PS Client; proxied by the public NGINX at `/api`.
-- DMSS Container & Signature Services: PDF/container operations, signing flows, Smart-ID/Mobile-ID.
+- DMSS Container and Signature Services: PDF/container operations, signing flows, Smart-ID/Mobile-ID.
 - DMSS Archive Services: Archive API; configured with in-memory DB by default.
 - DMSS Archive Services Fallback: Filesystem-based fallback archive; stores files in `./docs`.
 
 High-level routing:
 
-- `https://<host>/portal/...` â†’ `ps-client`
-- `https://<host>/auth/...` â†’ `keycloak`
-- `https://<host>/api/...` â†’ `ps-server`
-- `https://<host>/container/api/...` â†’ `dmss-container-and-signature-services`
-- `https://<host>/archive/api/...` â†’ `dmss-archive-services` (fallback to `dmss-archive-services-fallback` as configured)
+- `https://<host>/portal/...` -> `ps-client`
+- `https://<host>/auth/...` -> `keycloak`
+- `https://<host>/api/...` -> `ps-server`
+- `https://<host>/container/api/...` -> `dmss-container-and-signature-services`
+- `https://<host>/archive/api/...` -> `dmss-archive-services` (fallback to `dmss-archive-services-fallback` as configured)
 
 ---
 
@@ -44,8 +44,8 @@ High-level routing:
 - Docker Desktop 4.x (Docker Engine 20+; Compose v2).
 - A DNS name you control (production) or a local hostname mapping (development).
 - TLS certificate and key for your hostname (PEM). Self-signed is acceptable for local testing.
-- Open host ports: `80`, `443`, `8080`, `3001`, `84`, `86`, `93`.
-- Sufficient resources (suggested): 4 vCPU, 6â€“8 GB RAM.
+- Open host ports: 80, 443, 8080, 3001, 84, 86, 93.
+- Suggested resources: 4 vCPU, 6-8 GB RAM.
 
 Optional (local):
 
@@ -74,7 +74,7 @@ Local option (Windows):
 
 3) DNS or hosts entry
 
-- Production: Point your domainâ€™s A/AAAA record to the host running this stack.
+- Production: Point your domain's A/AAAA record to the host running this stack.
 - Local: Add a hosts entry mapping your hostname to `127.0.0.1` (or the Docker host IP) and use a locally trusted cert.
 
 ---
@@ -86,7 +86,7 @@ Review and adjust these files before running:
 - `docker-compose.yml`
   - `KC_HOSTNAME` should match your hostname.
   - Host ports 80/443, 8080, 3001, 84, 86, 93 must be free.
-  - Note: `ps-client` defines a bind mount `./client/docker/nginx.conf`. If you donâ€™t intend to override the client imageâ€™s NGINX, remove this mount or create the file.
+  - Note: `ps-client` defines a bind mount `./client/docker/nginx.conf`. If you don't intend to override the client image's NGINX, remove this mount or create the file.
 
 - `nginx/nginx.conf`
   - Update `server_name` and TLS files.
@@ -105,8 +105,8 @@ Review and adjust these files before running:
 
 - `dmss-container-and-signature-services/application.yml`
   - `archive-services.baseUrl` and `fallbackUrl` point to internal service names and typically do not need changes.
-  - `digidoc4j.configuration.mode`: switch `PROD`/`TEST` as appropriate.
-  - Smartâ€‘ID/Mobileâ€‘ID endpoints: point to demo or production as needed (update Relying Party IDs and Names for production).
+  - `digidoc4j.configuration.mode`: switch `PROD` or `TEST` as appropriate.
+  - Smart-ID/Mobile-ID endpoints: point to demo or production as needed (update Relying Party IDs and Names for production).
   - LVRTC settings (if used): provide correct URIs, keystores, and credentials.
   - Trust stores and certificate files referenced under `/confs` must exist in `dmss-container-and-signature-services/`.
 
@@ -126,48 +126,68 @@ Secrets and credentials
 
 ---
 
-## Keycloak Setup
+## Security and Route Protection
 
-Keycloak is started in dev mode and proxied at `https://<host>/auth`.
+- TLS termination: All external traffic enters via NGINX on 443; HTTP 80 redirects to HTTPS.
+- Public routes:
+  - `/portal/*` serves the SPA. The SPA itself gates features by user auth state.
+  - `/auth/*` proxies to Keycloak for login, tokens, and account management.
+  - `/api/*` proxies to the backend (ps-server). This route requires a valid Bearer token.
+  - `/container/api/*` and `/archive/api/*` proxy to DMSS services. For production, restrict these (IP allowlist, mTLS) or enforce JWT on the services.
+- SPA authentication (frontend): Uses Keycloak (public client). Recommended flow is Authorization Code with PKCE. The SPA obtains an access token and attaches it as `Authorization: Bearer <token>` to API calls.
+- Backend enforcement (ps-server): Configured as a bearer-only confidential client. It validates incoming JWTs from Keycloak and only serves `/api/*` when a valid token is present. CORS should be restricted to known origins in `config/config.js`.
+- Header forwarding (DMSS): `dmss-container-and-signature-services` is configured to forward `Authorization` and other headers to the archive service. Align DMSS auth to your policy.
+- Enabling JWT on DMSS Archive (recommended for prod): In `dmss-archive-services/application.yml` set `authentication.jwt.enabled: true` and configure either `useCert: true` with a public key/cert or a shared `secret`, and set `validation: true`.
+- NGINX hardening: If DMSS endpoints should not be directly reachable from the internet, remove or restrict the `/container/api` and `/archive/api` locations, or protect them with allowlists or client certificates.
+- Keycloak admin: Limit admin console access (IP allowlist/VPN) and change the default admin password immediately.
 
-Quick setup steps:
+## Data Flow
 
-1) Access admin console
+```mermaid
+flowchart TD
+  U[User Browser] -->|HTTPS 443| N[NGINX];
+  N -->|portal| C[ps-client SPA];
+  N -->|auth| K[Keycloak];
+  N -->|api| B[ps-server];
+  B -->|REST| CS[DMSS Container/Signature];
+  B -->|REST| AR[DMSS Archive];
+  CS -->|fallback on error| FB[DMSS Archive Fallback];
+  C -->|OIDC redirects| K;
+```
 
-- URL: `https://<host>/auth/`
-- Initial admin: `admin` / `admin` (from compose). Change this immediately.
+Legend: portal = /portal/*, auth = /auth/*, api = /api/*
 
-2) Create realm
+```mermaid
+sequenceDiagram
+  autonumber
+  participant Browser
+  participant NGINX
+  participant Keycloak
+  participant Backend as ps-server
+  participant DMSSCS as DMSS Container/Signature
+  participant DMSSAR as DMSS Archive
 
-- Create a realm, e.g. `padsign` (to match defaults in configs).
-
-3) Create clients
-
-- Public SPA client (frontend)
-  - Client ID: `padsign-client`
-  - Type: Public
-  - Valid Redirect URIs: `https://<host>/portal/*`
-  - Web Origins: `https://<host>` (or `+` for dev)
-
-- Confidential client (backend)
-  - Client ID: `padsign-backend`
-  - Type: Confidential
-  - Enable `Service Accounts` if needed or bearer-only usage
-  - Generate a client secret and copy it into `config/config.js` under `KEYCLOAK_CONFIG.credentials.secret`.
-
-4) Users and roles
-
-- Create test users and roles as required by your application.
-
-5) Update application configs
-
-- Ensure `config/constants.json` and `config/config.js` use the correct realm, URLs, and client IDs.
+  Browser->>NGINX: GET /portal/*
+  Browser->>Keycloak: OIDC login (via /auth/*)
+  Keycloak-->>Browser: Authorization code
+  Browser->>Keycloak: Exchange code + PKCE for tokens
+  Keycloak-->>Browser: Access token (JWT)
+  Browser->>NGINX: GET /api/resource (Authorization: Bearer <token>)
+  NGINX->>Backend: Proxy /api/*
+  Backend->>Backend: Verify JWT (Keycloak realm config)
+  Backend-->>NGINX: 200 OK / data
+  NGINX-->>Browser: 200 OK / data
+  Backend->>DMSSCS: Call container/signature API (forward Authorization)
+  DMSSCS->>DMSSAR: Call archive API (forward headers)
+  DMSSAR-->>DMSSCS: Response
+  DMSSCS-->>Backend: Response
+```
 
 ---
 
 ## Running the Stack
 
-1) Clone repo and prepare folders
+1) Prepare folders
 
 - Ensure `./nginx/certs` contains your TLS cert and key.
 - Ensure `./docs` exists (used by fallback archive service).
@@ -175,7 +195,6 @@ Quick setup steps:
 2) Start services
 
 ```sh
-# From the repository root
 docker compose up -d
 ```
 
@@ -199,80 +218,24 @@ docker compose logs -f ps-server
 
 ```sh
 docker compose down
-# Keep volumes (e.g., Keycloak DB) by default
-# Add -v to remove named volumes if you know what youâ€™re doing
+# Add -v to remove named volumes if required
 ```
 
 ---
 
 ## Local Development Tips
 
-- Hosts entry: map your chosen hostname to `127.0.0.1`.
-- Certificates: use `mkcert` to create a locally trusted cert and point `nginx/nginx.conf` to it.
-- `host.docker.internal`: The public NGINX forwards to `84` and `86` on the host for container/signature and archive services; these are published by compose. This is intentional for Windows/macOS; Linux users may prefer serviceâ€‘name routing (requires editing `nginx/nginx.conf`).
+- Hosts entry: map your chosen hostname to 127.0.0.1.
+- Certificates: use mkcert to create a locally trusted cert and point `nginx/nginx.conf` to it.
+- `host.docker.internal`: The public NGINX forwards to 84 and 86 on the host for container/signature and archive services; these are published by compose. This is intentional for Windows/macOS; Linux users may prefer service-name routing (requires editing `nginx/nginx.conf`).
 - Client NGINX override: If `./client/docker/nginx.conf` does not exist locally, remove that bind mount from `docker-compose.yml` or create the file to avoid a bind error.
 
 ---
 
-## Security & Route Protection
-
-- TLS termination: All external traffic enters via NGINX on 443; HTTP 80 redirects to HTTPS.
-- Public routes:
-  - `/portal/*` serves the SPA. The SPA itself gates features by user auth state.
-  - `/auth/*` proxies to Keycloak for login, tokens, and account management.
-  - `/api/*` proxies to the backend (`ps-server`). This route requires a valid Bearer token.
-  - `/container/api/*` and `/archive/api/*` proxy to DMSS services. For production, restrict these (IP allowlist, mTLS) or enforce JWT on the services.
-- SPA authentication (frontend): Uses Keycloak (public client). Recommended flow is Authorization Code with PKCE. The SPA obtains an access token and attaches it as `Authorization: Bearer <token>` to API calls.
-- Backend enforcement (ps-server): Configured as a bearer-only confidential client. It validates incoming JWTs from Keycloak and only serves `/api/*` when a valid token is present. CORS should be restricted to known origins in `config/config.js`.
-- Header forwarding (DMSS): `dmss-container-and-signature-services` is configured to forward `Authorization` and other headers to the archive service. Align DMSS auth to your policy.
-- Enabling JWT on DMSS Archive (recommended for prod): In `dmss-archive-services/application.yml` set `authentication.jwt.enabled: true` and configure either `useCert: true` with a public key/cert or a shared `secret`, and set `validation: true`.
-- NGINX hardening: If DMSS endpoints should not be directly reachable from the internet, remove or restrict the `/container/api` and `/archive/api` locations, or protect them with allowlists or client certificates.
-- Keycloak admin: Limit admin console access (IP allowlist/VPN) and change the default admin password immediately.
-
-## Data Flow
-
-```mermaid
-flowchart TD
-  U[User Browser] -->|HTTPS 443| N[NGINX];
-  N -->|portal| C[ps-client SPA];
-  N -->|auth| K[Keycloak];
-  N -->|api| B[ps-server];
-  B -->|REST| CS[DMSS Container/Signature];
-  B -->|REST| AR[DMSS Archive];
-  CS -->|fallback on error| FB[DMSS Archive Fallback];
-  C -->|OIDC redirects| K;
-```
-
-```mermaid
-sequenceDiagram
-  autonumber
-  participant Browser
-  participant NGINX
-  participant Keycloak
-  participant Backend as ps-server
-  participant DMSSCS as DMSS Container/Signature
-  participant DMSSAR as DMSS Archive
-
-  Browser->>NGINX: GET /portal/*
-  Browser->>Keycloak: OIDC login (via /auth/*)
-  Keycloak-->>Browser: Authorization code
-  Browser->>Keycloak: Exchange code + PKCE for tokens
-  Keycloak-->>Browser: Access token (JWT)
-  Browser->>NGINX: GET /api/resource (Authorization: Bearer â€¦)
-  NGINX->>Backend: Proxy /api/*
-  Backend->>Backend: Verify JWT (Keycloak realm config)
-  Backend-->>NGINX: 200 OK / data
-  NGINX-->>Browser: 200 OK / data
-  Backend->>DMSSCS: Call container/signature API (forward Authorization)
-  DMSSCS->>DMSSAR: Call archive API (forward headers)
-  DMSSAR-->>DMSSCS: Response
-  DMSSCS-->>Backend: Response
-```
-
 ## Production Hardening
 
 - Replace all sample secrets and keystore passwords.
-- Use managed TLS (e.g., certbot/ACME or cloud LB) and rotate certificates.
+- Use managed TLS (for example, certbot/ACME or cloud load balancer) and rotate certificates.
 - Enable persistent databases for DMSS Archive Services and other stateful components.
 - Configure Keycloak for production (HTTPS, hostname, external DB if needed).
 - Tighten CORS in `config/config.js` and `config/constants.json` to explicit origins.
@@ -283,25 +246,12 @@ sequenceDiagram
 
 ## Troubleshooting
 
-- Port conflicts
-  - Ensure host ports 80/443/8080/3001/84/86/93 are free before starting.
-
-- TLS/hostname mismatch
-  - Align `server_name`, certificate CN/SANs, and all application URLs with your actual hostname.
-
-- Keycloak login issues
-  - Check SPA client redirect URIs and Web Origins.
-  - Verify `KEYCLOAK_CONFIG` in `config/config.js` (backend client secret and realm).
-
-- Bind mount errors for ps-client
-  - If Docker reports a missing `./client/docker/nginx.conf`, either create the file or remove the bind from `docker-compose.yml`.
-
-- Self-signed certificate warnings
-  - Trust the local root (mkcert) or install a valid certificate.
-
-- DMSS service connectivity
-  - Review `dmss-container-and-signature-services/application.yml` for endpoints and modes (TEST vs PROD).
-  - Check that truststores and referenced files exist under `dmss-container-and-signature-services/`.
+- Port conflicts: Ensure host ports 80/443/8080/3001/84/86/93 are free before starting.
+- TLS/hostname mismatch: Align `server_name`, certificate CN/SANs, and all application URLs with your actual hostname.
+- Keycloak login issues: Check SPA client redirect URIs and Web Origins. Verify `KEYCLOAK_CONFIG` in `config/config.js` (backend client secret and realm).
+- Bind mount errors for ps-client: If Docker reports a missing `./client/docker/nginx.conf`, either create the file or remove the bind from `docker-compose.yml`.
+- Self-signed certificate warnings: Trust the local root (mkcert) or install a valid certificate.
+- DMSS service connectivity: Review `dmss-container-and-signature-services/application.yml` for endpoints and modes (TEST vs PROD). Check that truststores and referenced files exist under `dmss-container-and-signature-services/`.
 
 ---
 
@@ -311,31 +261,10 @@ sequenceDiagram
 - Public NGINX: `nginx/nginx.conf`, `nginx/certs/`
 - PS Server config: `config/config.js`
 - PS Client config: `config/constants.json`
-- DMSS Container & Signature Service config: `dmss-container-and-signature-services/application.yml`
-- DMSS Container & Signature ancillary files: `dmss-container-and-signature-services/*.p12`, `dmss-container-and-signature-services/*.yaml`, `dmss-container-and-signature-services/documentsigningprofiles.json`
+- DMSS Container and Signature Service config: `dmss-container-and-signature-services/application.yml`
+- DMSS Container and Signature ancillary files: `dmss-container-and-signature-services/*.p12`, `dmss-container-and-signature-services/*.yaml`, `dmss-container-and-signature-services/documentsigningprofiles.json`
 - DMSS Archive Services config: `dmss-archive-services/application.yml`, `dmss-archive-services/mappings.json`
 - DMSS Archive Fallback config: `dmss-archive-services-fallback/application.yml`, host data dir `./docs`
-
----
-
-## Common Commands
-
-```sh
-# Start stack
-docker compose up -d
-
-# Tail logs of a service
-docker compose logs -f ps-server
-
-# Restart a single service
-docker compose up -d ps-server
-
-# Stop stack
-docker compose down
-
-# Inspect running containers
-docker compose ps
-```
 
 ---
 
@@ -344,8 +273,4 @@ docker compose ps
 - Treat any secrets present in this repository as placeholders only; rotate them prior to deployment.
 - Restrict admin endpoints and Keycloak admin console to trusted networks.
 - Regularly back up the `keycloak_data` volume and any persistent stores you configure.
-
----
-
-
 
