@@ -1,3 +1,337 @@
+## Keycloak Configuration
+
+# Keycloak Integration Guide for PadSign Application
+
+This guide provides step-by-step instructions for setting up Keycloak authentication for the PadSign application in a containerized environment.
+
+## Table of Contents
+
+1. [Overview](#overview)
+2. [Prerequisites](#prerequisites)
+3. [Keycloak Setup](#keycloak-setup)
+4. [Client Configuration](#client-configuration)
+5. [Server Configuration](#server-configuration)
+6. [Environment Variables](#environment-variables)
+7. [Testing the Integration](#testing-the-integration)
+8. [Troubleshooting](#troubleshooting)
+
+## Overview
+
+The PadSign application uses Keycloak for authentication and authorization. The setup includes:
+- **Keycloak Server**: Containerized authentication server
+- **Client Application**: React frontend with Keycloak integration
+- **Server Application**: Node.js backend with Keycloak middleware
+
+## Prerequisites
+
+- Docker and Docker Compose installed
+- Domain name configured (e.g., `padsign.trustlynx.com`)
+- SSL certificates for HTTPS
+- Access to Keycloak admin panel
+
+## Keycloak Setup
+
+### 1. Start Keycloak Container
+
+The Keycloak container is defined in `docker-compose.yml`:
+
+```yaml
+keycloak:
+  image: quay.io/keycloak/keycloak:26.3.2
+  environment:
+    - KEYCLOAK_ADMIN=admin
+    - KEYCLOAK_ADMIN_PASSWORD=admin
+    - KC_HOSTNAME=padsign.trustlynx.com
+    - KC_HTTP_RELATIVE_PATH=/auth
+    - KC_PROXY=edge
+    - KC_HOSTNAME_STRICT=false
+    - KC_HOSTNAME_STRICT_HTTPS=false
+    - KC_PROXY_HEADERS=xforwarded
+  command: start-dev
+  ports:
+    - "8080:8080"
+  restart: unless-stopped
+  volumes:
+    - keycloak_data:/opt/keycloak/data
+```
+
+### 2. Access Keycloak Admin Panel
+
+1. Start the containers:
+   ```bash
+   docker-compose up -d
+   ```
+
+2. Access Keycloak admin panel:
+   ```
+   https://padsign.trustlynx.com/auth/
+   ```
+   - Username: `admin`
+   - Password: `admin`
+
+### 3. Create Realm
+
+1. Log in to Keycloak admin panel
+2. Click "Create Realm"
+3. Enter realm name: `padsign`
+4. Click "Create"
+
+### 4. Create Client for Frontend
+
+1. In the `padsign` realm, go to "Clients" ? "Create"
+2. Configure the client:
+   - **Client ID**: `padsign-client`
+   - **Client Protocol**: `openid-connect`
+   - **Root URL**: `https://padsign.trustlynx.com/portal/`
+
+3. Go to "Settings" tab and configure:
+   - **Access Type**: `public`
+   - **Valid Redirect URIs**: 
+     - `https://padsign.trustlynx.com/portal/*`
+     - `https://padsign.trustlynx.com/portal/`
+     - `https://padsign.trustlynx.com/portal`
+   - **Valid Post Logout Redirect URIs**:
+     - `https://padsign.trustlynx.com/portal/*`
+     - `https://padsign.trustlynx.com/portal/`
+     - `https://padsign.trustlynx.com/portal`
+   - **Web Origins**:
+     - `https://padsign.trustlynx.com/portal/`
+     - `https://padsign.trustlynx.com/portal`
+     - `https://padsign.trustlynx.com`
+
+4. Save the configuration
+
+### 5. Create Client for Backend
+
+1. Create another client for the backend:
+   - **Client ID**: `padsign-backend`
+   - **Client Protocol**: `openid-connect`
+   - **Access Type**: `confidential`
+
+2. Go to "Credentials" tab and copy the client secret
+
+3. Configure settings:
+   - **Valid Redirect URIs**: `https://padsign.trustlynx.com/auth/realms/padsign/protocol/openid-connect/auth`
+
+## Client Configuration
+
+### 1. Update Constants File
+
+Edit `client/public/constants.json` to match your domain:
+
+```json
+{
+  "KEYCLOAK_URL": "https://padsign.trustlynx.com/auth",
+  "KEYCLOAK_REALM": "padsign",
+  "KEYCLOAK_CLIENT_ID": "padsign-client",
+  "KEYCLOAK_REDIRECT_URI": "https://padsign.trustlynx.com/portal/",
+  "KEYCLOAK_POST_LOGOUT_REDIRECT_URI": "https://padsign.trustlynx.com/portal/"
+}
+```
+
+### 2. Environment Variables (Optional)
+
+You can override constants using environment variables:
+
+```bash
+# Development
+VITE_HOST=padsign.trustlynx.com
+VITE_PORT=5173
+
+# Production
+# Set these in your deployment environment
+```
+
+## Server Configuration
+
+### 1. Update Server Config
+
+Edit `server/config.js` to include Keycloak configuration:
+
+```javascript
+module.exports = {
+  // ... other config
+  keycloak: {
+    realm: "padsign",
+    "auth-server-url": "https://padsign.trustlynx.com/auth",
+    resource: "padsign-backend",
+    "credentials": {
+      "secret": "YOUR_CLIENT_SECRET_HERE"
+    }
+  }
+};
+```
+
+### 2. Replace Client Secret
+
+Replace `YOUR_CLIENT_SECRET_HERE` with the actual client secret from the `padsign-backend` client in Keycloak.
+
+## Environment Variables
+
+### Keycloak Container Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `KEYCLOAK_ADMIN` | Admin username | `admin` |
+| `KEYCLOAK_ADMIN_PASSWORD` | Admin password | `admin` |
+| `KC_HOSTNAME` | Keycloak hostname | `padsign.trustlynx.com` |
+| `KC_HTTP_RELATIVE_PATH` | Auth path | `/auth` |
+| `KC_PROXY` | Proxy mode | `edge` |
+
+### Client Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `VITE_HOST` | Development host | `padsign.trustlynx.com` |
+| `VITE_PORT` | Development port | `5173` |
+
+## Testing the Integration
+
+### 1. Build and Deploy
+
+```bash
+# Build client
+cd client
+npm run build
+
+# Restart containers
+docker-compose restart nginx
+```
+
+### 2. Test Authentication Flow
+
+1. Access the application: `https://padsign.trustlynx.com/portal/`
+2. You should be redirected to Keycloak login
+3. Log in with valid credentials
+4. You should be redirected back to the application
+5. Test logout functionality
+
+### 3. Verify Configuration
+
+Check these URLs are accessible:
+- Keycloak admin: `https://padsign.trustlynx.com/auth/`
+- Application: `https://padsign.trustlynx.com/portal/`
+
+## Troubleshooting
+
+### Common Issues
+
+#### 1. "Invalid redirect URI" Error
+
+**Cause**: Redirect URI doesn't match Keycloak client configuration
+
+**Solution**:
+1. Check Keycloak client settings
+2. Ensure URIs in `constants.json` match Keycloak configuration
+3. Verify domain name is correct
+
+#### 2. CORS Errors
+
+**Cause**: Web origins not configured properly
+
+**Solution**:
+1. Add your domain to "Web Origins" in Keycloak client
+2. Include both with and without trailing slash
+
+#### 3. Authentication Fails
+
+**Cause**: Client secret mismatch or configuration error
+
+**Solution**:
+1. Verify client secret in `server/config.js`
+2. Check realm name matches
+3. Ensure client IDs are correct
+
+#### 4. Container Communication Issues
+
+**Cause**: Network configuration problems
+
+**Solution**:
+1. Check Docker network configuration
+2. Verify nginx proxy settings
+3. Ensure containers can reach each other
+
+### Debug Steps
+
+1. **Check Keycloak Logs**:
+   ```bash
+   docker-compose logs keycloak
+   ```
+
+2. **Check Application Logs**:
+   ```bash
+   docker-compose logs ps-server
+   docker-compose logs nginx
+   ```
+
+3. **Verify Network Connectivity**:
+   ```bash
+   docker-compose exec keycloak ping ps-server
+   ```
+
+4. **Test Keycloak Endpoints**:
+   ```bash
+   curl https://padsign.trustlynx.com/auth/realms/padsign/.well-known/openid_configuration
+   ```
+
+## Security Considerations
+
+1. **Change Default Passwords**: Update `KEYCLOAK_ADMIN_PASSWORD`
+2. **Use Strong Client Secrets**: Generate secure secrets for backend clients
+3. **Enable HTTPS**: Always use HTTPS in production
+4. **Regular Updates**: Keep Keycloak updated
+5. **Monitor Logs**: Regularly check authentication logs
+
+## Production Deployment
+
+### 1. Environment Variables
+
+Set production environment variables:
+
+```bash
+# Keycloak
+KEYCLOAK_ADMIN_PASSWORD=your_secure_password
+KC_HOSTNAME=your-production-domain.com
+
+# Client
+VITE_HOST=your-production-domain.com
+```
+
+### 2. SSL Certificates
+
+Ensure SSL certificates are properly configured in nginx:
+
+```nginx
+ssl_certificate     /etc/nginx/certs/your-domain.crt;
+ssl_certificate_key /etc/nginx/certs/your-domain.key;
+```
+
+### 3. Database Persistence
+
+For production, use a persistent database instead of the default H2:
+
+```yaml
+keycloak:
+  environment:
+    - KC_DB=postgres
+    - KC_DB_URL=jdbc:postgresql://postgres:5432/keycloak
+    - KC_DB_USERNAME=keycloak
+    - KC_DB_PASSWORD=your_db_password
+```
+
+## Support
+
+For issues related to:
+- **Keycloak Configuration**: Check Keycloak documentation
+- **Application Integration**: Review this guide
+- **Container Issues**: Check Docker and Docker Compose logs
+
+## Additional Resources
+
+- [Keycloak Documentation](https://www.keycloak.org/documentation)
+- [Keycloak JavaScript Adapter](https://www.keycloak.org/docs/latest/securing_apps/#_javascript_adapter)
+- [Docker Compose Documentation](https://docs.docker.com/compose/)
+
 # PS App Cloud Deployment - Deployment Guide
 
 This repository contains a complete, containerized deployment of the PS App platform behind an HTTPS reverse proxy with Keycloak-based authentication and a set of DMSS services for document archiving, container creation, and digital signatures.
