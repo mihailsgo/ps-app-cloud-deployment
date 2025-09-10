@@ -83,8 +83,12 @@ keycloak:
    - **Client ID**: `padsign-client`
    - **Client Protocol**: `openid-connect`
    - **Root URL**: `https://padsign.trustlynx.com/portal/`
+   - create user, as user role setup the company name.
 
-3. Go to "Settings" tab and configure:
+<img width="2252" height="774" alt="image" src="https://github.com/user-attachments/assets/adc1cea1-ba42-415e-bd13-73697c35ff0b" />
+
+
+4. Go to "Settings" tab and configure:
    - **Access Type**: `public`
    - **Valid Redirect URIs**: 
      - `https://padsign.trustlynx.com/portal/*`
@@ -99,7 +103,7 @@ keycloak:
      - `https://padsign.trustlynx.com/portal`
      - `https://padsign.trustlynx.com`
 
-4. Save the configuration
+5. Save the configuration
 
 ### 5. Create Client for Backend
 
