@@ -535,7 +535,7 @@ docker compose up -d
 - API: `https://<host>/api/health` (if exposed by ps-server) or check container logs
 - Keycloak: `https://<host>/auth/`
 - DMSS health (Spring Boot): `/actuator/health` on the service base paths if enabled
-- run /registerPDF API and recieve status code = 200
+- run /registerPDF API and recieve status code = 201
   
 ![alt text](image.png)
 
