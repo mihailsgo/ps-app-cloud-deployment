@@ -276,21 +276,7 @@ zealId:
   accountId: 00000000-0000-0000-0000-000000000000
   redirectUri: https://esign.trustlynx.com/extportal/signing/zealid
 pdf-fill-form:
-  application:
-    [
-      {
-        name: application,
-        templateResource: ./tmp/template.pdf
-      },
-      {
-        name: applicationLV,
-        templateResource: ./tmp/template_LV.pdf
-      },
-      {
-        name: applicationEN,
-        templateResource: ./tmp/template_EN.pdf
-      }      
-    ]
+  application: []
 timestamp:
   timestampProviders:
     -
