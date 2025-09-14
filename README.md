@@ -1,5 +1,3 @@
-## Keycloak Configuration
-
 # Keycloak Integration Guide for PadSign Application
 
 This guide provides step-by-step instructions for setting up Keycloak authentication for the PadSign application in a containerized environment.
@@ -14,6 +12,16 @@ This guide provides step-by-step instructions for setting up Keycloak authentica
 6. [Environment Variables](#environment-variables)
 7. [Testing the Integration](#testing-the-integration)
 8. [Troubleshooting](#troubleshooting)
+9. [Configuration Constants Reference](#configuration-constants-reference)
+   - [Cloud Essentials (TL;DR)](#cloud-essentials-tldr)
+   - [Cloud minimal examples](#cloud-minimal-examples)
+   - [How configuration is loaded](#how-configuration-is-loaded)
+   - [Client: config/constants.json](#client-configconstantsjson)
+   - [Server: config/config.js](#server-configconfigjs)
+   - [Cloud Flow: /api/registerPDF](#cloud-flow-apiregisterpdf)
+   - [Changing values safely](#changing-values-safely)
+   - [Quick verification](#quick-verification)
+   - [Notes](#notes)
 
 ## Overview
 
@@ -253,7 +261,7 @@ Check these URLs are accessible:
 **Solution**:
 1. Check Docker network configuration
 
-# Configuration Constants Reference
+## Configuration Constants Reference
 
 This document describes all configurable values exposed in the two runtime configuration files used by this project:
 
@@ -265,7 +273,7 @@ It explains what each constant does, default values present in the repo, and how
 Cloud usage note
 - This deployment primarily uses the upload flow via `/api/registerPDF` and then renders via `/api/latestUser?email=...&company=...`. Any item below explicitly marked “API is not relevant for cloud instance” is not used in this flow and can be ignored for cloud deployments.
 
-## Cloud Essentials (TL;DR)
+### Cloud Essentials (TL;DR)
 
 Client essentials (constants.json)
 - `KEYCLOAK_URL`, `KEYCLOAK_REALM`, `KEYCLOAK_CLIENT_ID`, `KEYCLOAK_REDIRECT_URI`, `KEYCLOAK_POST_LOGOUT_REDIRECT_URI`
@@ -288,7 +296,7 @@ Server essentials (config.js)
 - `VISUAL_SIGNATURE_API_TEMPLATE`
 - `STAMP_API_TEMPLATE` (optional)
 
-### Cloud minimal examples
+#### Cloud minimal examples
 
 Client `constants.json` (essential keys only; keep TRANSLATIONS from default)
 ```json
@@ -355,7 +363,7 @@ module.exports = {
 };
 ```
 
-## How configuration is loaded
+### How configuration is loaded
 
 - Client (SPA): On load, the SPA fetches `/portal/constants.json` at runtime and merges it into the app. In Docker, this is provided by the `ps-client` container and is volume‑mounted from `./config/constants.json`. Changing this file takes effect on next page load (no rebuild required).
 - Server (Node backend): The server reads `config.js` at startup. In Docker, this is provided to the `ps-server` container as `/usr/src/app/config.js` and volume‑mounted from `./config/config.js`. Changing this file requires a container restart.
@@ -368,7 +376,7 @@ Docker Compose mappings (see `docker-compose.yml`):
 
 ---
 
-## Client: config/constants.json
+### Client: config/constants.json
 
 Branding and UI
 - `PS_PAGE_TITLE`: Window title and logo alt text. Default: `"TrustLynx"`.
@@ -441,7 +449,7 @@ Misc
 
 ---
 
-## Server: config/config.js
+### Server: config/config.js
 
 Service endpoints and templates
 - `CONTAINER_API_BASE_URL`: Base URL for container/signature service. Default: `"https://padsign.trustlynx.com/container/api/"`.
@@ -465,7 +473,7 @@ Server and CORS
 
 ---
 
-## Cloud Flow: /api/registerPDF
+### Cloud Flow: /api/registerPDF
 
 Purpose
 - Upload a ready PDF to Archive and make it available to the SPA for viewing and signing.
@@ -536,17 +544,17 @@ Authentication and security
 
 ---
 
-## Changing values safely
+### Changing values safely
 
 - Update `config/constants.json` to tune client behavior, UI, and runtime endpoints. Most changes apply on page reload. Avoid committing real secrets (e.g., Syncfusion license) to VCS.
 - Update `config/config.js` to point the backend to your DMSS services, tune storage paths, and set auth. Restart `ps-server` after changes. Treat the Keycloak secret and API key as sensitive.
 
-## Quick verification
+### Quick verification
 
 - Client loads `constants.json`: Open the browser DevTools network tab and verify `/portal/constants.json` loads and values match your changes.
 - Backend uses `config.js`: Check `ps-server` logs on startup. You should see the configured port, output folder, and realm printed.
 
-## Notes
+### Notes
 
 - Some keys in `constants.json` are currently legacy or reserved for future functionality (e.g., `PDF_TEMPLATE_ID`, `PS_PAGE_REFRESH_TIME`, `STAMP_COMPANY_NAME`, parts of `HIDDEN_FIELDS`). They are documented above for completeness.
 - If you need environment‑based switching, consider generating these files at deploy time (e.g., mounting environment‑specific variants) rather than baking many conditionals into the code.
