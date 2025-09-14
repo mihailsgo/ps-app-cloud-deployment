@@ -252,6 +252,304 @@ Check these URLs are accessible:
 
 **Solution**:
 1. Check Docker network configuration
+
+# Configuration Constants Reference
+
+This document describes all configurable values exposed in the two runtime configuration files used by this project:
+
+- Client runtime config: `config/constants.json`
+- Backend server config: `config/config.js`
+
+It explains what each constant does, default values present in the repo, and how deployers can change them for their environment.
+
+Cloud usage note
+- This deployment primarily uses the upload flow via `/api/registerPDF` and then renders via `/api/latestUser?email=...&company=...`. Any item below explicitly marked “API is not relevant for cloud instance” is not used in this flow and can be ignored for cloud deployments.
+
+## Cloud Essentials (TL;DR)
+
+Client essentials (constants.json)
+- `KEYCLOAK_URL`, `KEYCLOAK_REALM`, `KEYCLOAK_CLIENT_ID`, `KEYCLOAK_REDIRECT_URI`, `KEYCLOAK_POST_LOGOUT_REDIRECT_URI`
+- `PS_API_ACTUAL_USER` (polls `/api/latestUser`)
+- `USER_POLLING_FREQUENCY`
+- `PS_DOWNLOAD_API` (viewer downloads archive doc)
+- `PDF_RENDER_SYNCFUSION_SECRET_KEY`
+- `PDF_SIGNATURE_X`, `PDF_SIGNATURE_Y`, `PDF_SIGNATURE_ZOOM`, `PDF_SIGNATURE_PAGE`
+- `PDF_ZOOM_VALUE`, `MAX_ZOOM`, `MIN_ZOOM`, `DEFAULT_PAGE_SIZE`, `EXTRA_HEIGHT_MARGIN_PX`, `OPACITY_DELAY`
+- `CANVA_WIDTH`, `CANVA_HEIGHT`
+- `RUN_STAMPING_REQUEST` (optional)
+- `PDF_SIGNING_STATUS_CALLBACK`, `PDF_SIGNING_STATUS_CALLBACK_ENABLED` (optional)
+- Branding: `PS_PAGE_TITLE`, `PS_LOGO_PATH`, `PS_DEFAULT_LOGO_PATH`, `SHOW_USER_DATA_BOX`
+
+Server essentials (config.js)
+- `KEYCLOAK_CONFIG`, `ALLOWED_ORIGINS`, `PORT`
+- `REGISTER_PDF_API_KEY`
+- `ARCHIVE_API_BASE_URL`, `CONTAINER_API_BASE_URL`
+- `CREATE_DOCUMENT_API_URL`, `DEFAULT_DOCUMENT_JSON`
+- `VISUAL_SIGNATURE_API_TEMPLATE`
+- `STAMP_API_TEMPLATE` (optional)
+
+### Cloud minimal examples
+
+Client `constants.json` (essential keys only; keep TRANSLATIONS from default)
+```json
+{
+  "PS_PAGE_TITLE": "TrustLynx",
+  "PS_LOGO_PATH": "/portal/logo.png",
+  "PS_DEFAULT_LOGO_PATH": "/portal/logo.png",
+  "KEYCLOAK_URL": "https://padsign.trustlynx.com/auth",
+  "KEYCLOAK_REALM": "padsign",
+  "KEYCLOAK_CLIENT_ID": "padsign-client",
+  "KEYCLOAK_REDIRECT_URI": "https://padsign.trustlynx.com/portal/",
+  "KEYCLOAK_POST_LOGOUT_REDIRECT_URI": "https://padsign.trustlynx.com/portal/",
+  "PS_API_ACTUAL_USER": "/api/latestUser",
+  "USER_POLLING_FREQUENCY": 5000,
+  "PS_DOWNLOAD_API": "https://padsign.trustlynx.com/archive/api/document/",
+  "PDF_RENDER_SYNCFUSION_SECRET_KEY": "<your-syncfusion-license>",
+  "PDF_SIGNATURE_X": -250,
+  "PDF_SIGNATURE_Y": -100,
+  "PDF_SIGNATURE_ZOOM": 100,
+  "PDF_SIGNATURE_PAGE": 10000,
+  "PDF_ZOOM_VALUE": "125",
+  "MAX_ZOOM": 125,
+  "MIN_ZOOM": 125,
+  "DEFAULT_PAGE_SIZE": "7800px",
+  "EXTRA_HEIGHT_MARGIN_PX": 2500,
+  "OPACITY_DELAY": 4000,
+  "CANVA_WIDTH": 300,
+  "CANVA_HEIGHT": 100,
+  "RUN_STAMPING_REQUEST": false,
+  "PDF_SIGNING_STATUS_CALLBACK": "",
+  "PDF_SIGNING_STATUS_CALLBACK_ENABLED": false,
+  "SHOW_USER_DATA_BOX": false
+  /* Keep TRANSLATIONS, DEFAULT_LANGUAGE from default file */
+}
+```
+
+Server `config.js` (cloud-focused)
+```js
+module.exports = {
+  PORT: 3001,
+  CONTAINER_API_BASE_URL: "https://padsign.trustlynx.com/container/api/",
+  ARCHIVE_API_BASE_URL: "https://padsign.trustlynx.com/archive/api/",
+  CREATE_DOCUMENT_API_URL: "https://padsign.trustlynx.com/archive/api/document/create",
+  VISUAL_SIGNATURE_API_TEMPLATE: "https://padsign.trustlynx.com/container/api/signing/visual/pdf/{docid}/sign",
+  STAMP_API_TEMPLATE: "https://padsign.trustlynx.com/container/api/stamping/pdf/stamp/{docid}/as/{company}",
+  ALLOWED_ORIGINS: [
+    'https://padsign.trustlynx.com:5173',
+    'https://padsign.trustlynx.com'
+  ],
+  DEFAULT_DOCUMENT_JSON: {
+    objectName: "template",
+    contentType: "application/pdf",
+    documentType: "DMSSDoc",
+    documentFilename: "template.pdf"
+  },
+  KEYCLOAK_CONFIG: {
+    realm: "padsign",
+    "auth-server-url": "https://padsign.trustlynx.com/auth",
+    resource: "padsign-backend",
+    credentials: { secret: "<backend-client-secret>" },
+    "bearer-only": true
+  },
+  REGISTER_PDF_API_KEY: "<strong-api-key>"
+};
+```
+
+## How configuration is loaded
+
+- Client (SPA): On load, the SPA fetches `/portal/constants.json` at runtime and merges it into the app. In Docker, this is provided by the `ps-client` container and is volume‑mounted from `./config/constants.json`. Changing this file takes effect on next page load (no rebuild required).
+- Server (Node backend): The server reads `config.js` at startup. In Docker, this is provided to the `ps-server` container as `/usr/src/app/config.js` and volume‑mounted from `./config/config.js`. Changing this file requires a container restart.
+
+Docker Compose mappings (see `docker-compose.yml`):
+- `./config/constants.json` → `ps-client:/usr/share/nginx/html/portal/constants.json`
+- `./config/config.js` → `ps-server:/usr/src/app/config.js`
+
+> Note: There is a second `server/config.js` kept for local development of the backend; production deployments should use `config/config.js` via Compose.
+
+---
+
+## Client: config/constants.json
+
+Branding and UI
+- `PS_PAGE_TITLE`: Window title and logo alt text. Default: `"TrustLynx"`.
+- `PS_LOGO_PATH`: Path to logo used in header. Default: `"/portal/logo.png"`.
+- `PS_DEFAULT_LOGO_PATH`: Fallback logo if `PS_LOGO_PATH` missing. Default: `"/portal/logo.png"`.
+- `SHOW_USER_DATA_BOX`: Toggle small user-info box for authenticated users. Default: `false`.
+
+Authentication (Keycloak)
+- `KEYCLOAK_URL`: Base URL to Keycloak auth server. Default: `"https://padsign.trustlynx.com/auth"`.
+- `KEYCLOAK_REALM`: Realm name. Default: `"padsign"`.
+- `KEYCLOAK_CLIENT_ID`: Public client ID used by the SPA. Default: `"padsign-client"`.
+- `KEYCLOAK_REDIRECT_URI`: SPA redirect URI after login. Default: `"https://padsign.trustlynx.com/portal/"`.
+- `KEYCLOAK_POST_LOGOUT_REDIRECT_URI`: Redirect URI after logout. Default: `"https://padsign.trustlynx.com/portal/"`.
+
+Data polling and backend endpoints
+- `PS_API_ACTUAL_USER`: Path to latest user API (proxied by nginx to backend). Used by polling worker. Default: `"/api/latestUser"`.
+- `USER_POLLING_FREQUENCY`: Polling interval in ms for `/latestUser`. Default: `5000`.
+- `TL_CREATE_DOC_API`: Path (legacy/unused in SPA) for creating a document via backend. Default: `"/api/document/create"`. API is not relevant for cloud instance.
+- `TL_CREATE_DOC_BODY`: JSON payload (legacy/unused in SPA) describing document defaults when creating via backend; see also server `DEFAULT_DOCUMENT_JSON`. API is not relevant for cloud instance.
+- `PS_API_GEN_DOC`: Path to backend’s doc ID generator. Default: `"/api/getDocID"`. API is not relevant for cloud instance.
+- `PS_API_SAVE_DOC_IN_STORAGE`: Path to backend endpoint that downloads a generated PDF into `DOCUMENT_OUTPUT_DIRECTORY`. Default: `"/api/save"`. API is not relevant for cloud instance.
+- `PS_API_GEN_XML`: Path to backend XML generation endpoint. Default: `"/api/xml"`. API is not relevant for cloud instance.
+- `PS_API_REMOVE_USER`: Path to remove user/cleanup endpoint. Default: `"/api/removeUser"`.
+- `TL_FILL_PDF_AND_UPDATE_DOC`: Path to backend PDF form fill and upload endpoint. Default: `"/api/fillPDF"`. API is not relevant for cloud instance.
+
+PDF rendering, download, and signature overlay
+- `PS_DOWNLOAD_API`: Archive service base used by the viewer to open PDFs in readonly mode. Final URL: `PS_DOWNLOAD_API + <docId> + "/download"`. Default: `"https://padsign.trustlynx.com/archive/api/document/"`.
+- `PDF_TEST_PATH`: Base URL to static templates for interactive mode. Viewer uses `PDF_TEST_PATH + "_" + <lng> + ".pdf"` (e.g., `/portal/template_LV.pdf`). Default: `"https://padsign.trustlynx.com/template"` (override to your SPA path if hosting templates with the client). API is not relevant for cloud instance.
+- `PDF_RENDER_SYNCFUSION_SECRET_KEY`: Syncfusion viewer license key used at runtime. Default: present key in repo (replace with your own license key).
+- `PDF_TEMPLATE_ID`: Template ID (legacy/unused in current code path). Not relevant for cloud instance.
+- `PDF_SIGNATURE_X`: X position for visual signature overlay (px units, service‑specific). Default: `-250`.
+- `PDF_SIGNATURE_Y`: Y position for visual signature overlay. Default: `-100`.
+- `PDF_SIGNATURE_ZOOM`: Scale for signature image in overlay. Default: `100`.
+- `PDF_SIGNATURE_PAGE`: Page index for the overlay (special value `10000` instructs service to place at last page). Default: `10000`.
+- `PDF_ZOOM_VALUE`: Initial zoom level in viewer. Default: `"125"`.
+- `MAX_ZOOM`: Max zoom allowed. Default: `125`.
+- `MIN_ZOOM`: Min zoom allowed. Default: `125`.
+- `DEFAULT_PAGE_SIZE`: CSS height for PDF viewer container. Default: `"7800px"`.
+- `EXTRA_HEIGHT_MARGIN_PX`: Extra pixels added to computed PDF height to prevent clipping. Default: `2500`.
+- `OPACITY_DELAY`: Delay (ms) before removing loading overlays after viewer load. Default: `4000`.
+
+Signature pad and phone prefixing
+- `CANVA_WIDTH`: Signature canvas width (px). Default: `300`.
+- `CANVA_HEIGHT`: Signature canvas height (px). Default: `100`.
+- `COUNTRY_SELECTOR`: HTML snippet injected near phone field to pick country code. Default: dropdown for LV/EE/LT. Not relevant for cloud instance.
+- `COUNTRY_SELECTION_SELECTOR_APPEND_DELAY`: Retry interval (ms) to insert `COUNTRY_SELECTOR`. Default: `1000`. Not relevant for cloud instance.
+- `DEFAULT_PHONE_PREFIX`: Fallback country prefix when selector unavailable. Default: `"371"`. Not relevant for cloud instance.
+
+Form field behavior and mappings
+- `FORM_FIELDS`: Map of PDF form field names to types (`Text`, `Checkbox`, `Multiselection`, etc.). Used to coerce values before sending to backend. Not relevant for cloud instance.
+- `PS_USER_DATA_FIELD_NAMES`: List of text fields that should auto‑fill with composed user data. Default: `GDPR_client_data`, `GPDR_signer_data`, `SA_client_data`, `SA_signer_data`, `VID_client_data`, `VID_signer_data`. Not relevant for cloud instance.
+- `PS_LOCATION_DATA_FIELD_NAMES`: List of text fields that should auto‑fill with current date/location. Default includes three `*_locationdate` fields. Not relevant for cloud instance.
+- `CHECKBOX_GROUP_VID`: Two checkbox field names that must be mutually exclusive (component enforces this). Default: `VID_agree_checkbox`, `VID_disagree_checkbox`. Not relevant for cloud instance.
+- `SURVEY_MAPPING`: Numeric → label mapping for survey choice display (currently not used in rendering logic). Not relevant for cloud instance.
+- `HIDDEN_FIELDS`: Fields to hide per language (currently not active in code; kept for future use). Not relevant for cloud instance.
+
+Localization and text
+- `DEFAULT_LANGUAGE`: Default language code for UI and date formatting. Default: `"LV"`.
+- `LV_MONTHS_LIST` / `EN_MONTHS_LIST`: Month names used to build `getCurrentDate()` texts placed into PDF fields. Not relevant for cloud instance.
+- `TRANSLATIONS`: String resources for UI and notifications in `LV` and `EN`. Update to localize texts.
+
+Workflow toggles and callbacks
+- `RUN_STAMPING_REQUEST`: When `true`, triggers a backend call to stamp the PDF after signing. Default: `false`.
+- `PDF_SIGNING_STATUS_CALLBACK`: Optional external webhook URL to notify when a PDF is signed. Default: `"https://example.com/api/signing-status"`.
+- `PDF_SIGNING_STATUS_CALLBACK_ENABLED`: Enables the webhook above when `true`. Default: `false`.
+
+Misc
+- `PS_PAGE_REFRESH_TIME`: Legacy/unused; kept for compatibility. Not relevant for cloud instance.
+- `STAMP_COMPANY_NAME`: Legacy/unused in current backend proxy; kept for compatibility. Not relevant for cloud instance.
+
+---
+
+## Server: config/config.js
+
+Service endpoints and templates
+- `CONTAINER_API_BASE_URL`: Base URL for container/signature service. Default: `"https://padsign.trustlynx.com/container/api/"`.
+- `ARCHIVE_API_BASE_URL`: Base URL for archive/document service. Default: `"https://padsign.trustlynx.com/archive/api/"`.
+- `CREATE_DOCUMENT_API_URL`: Archive endpoint to create a new document. Default: `<ARCHIVE_API_BASE_URL>document/create`.
+- `FORM_FILL_API_URL`: Container endpoint to fill a template with field data. Final URL is `FORM_FILL_API_URL + <lng>`. Default: `"https://padsign.trustlynx.com/container/api/forms/fill/template/application"`. API is not relevant for cloud instance.
+- `DOCUMENT_DOWNLOAD_API_URL`: Archive endpoint to download a document by ID. Default: `<ARCHIVE_API_BASE_URL>document/`. API is not relevant for cloud instance.
+- `VISUAL_SIGNATURE_API_TEMPLATE`: Template URL for visual signature call; `"{docid}"` is replaced by the backend. Default: `"https://padsign.trustlynx.com/container/api/signing/visual/pdf/{docid}/sign"`.
+- `STAMP_API_TEMPLATE`: Template URL for stamping; `"{docid}"` is replaced. If your target requires a company, also provide `{company}` replacement. Default: `"https://padsign.trustlynx.com/container/api/stamping/pdf/stamp/{docid}/as/{company}"`.
+
+Files and directories
+- `TEMPLATE_DIRECTORY`: Path prefix to template PDFs used by `/getDocID`. The server appends `"_" + <lng> + ".pdf"`, so the final path should resolve to files like `.../template_LV.pdf` and `.../template_EN.pdf`. Default: `"/Repos/psapp/client/public/template"`. API is not relevant for cloud instance.
+- `DEFAULT_TEMPLATE_FILENAME`: Filename presented to archive service when uploading a template stream. Default: `"template.pdf"`.
+- `TEMP_DIRECTORY`: Local directory for temporary PDFs produced by form fill. Default: `"./tmp/"`. Not relevant for cloud instance.
+- `DOCUMENT_OUTPUT_DIRECTORY`: Directory where saved PDFs/XMLs are written. Default: `"/PSDOCS/out/"`. Not relevant for cloud instance.
+- `READONLY_PDF_DIRECTORY`: Directory to search for readonly PDFs by naming pattern. Default: `"/PSDOCS/in/"`. API is not relevant for cloud instance.
+
+Server and CORS
+- `PORT`: Port the Node server listens on. Default: `3001`.
+- `ALLOWED_ORIGINS`: Array of origins allowed by CORS. Must include the browser origins that call the backend through nginx. Default: `['https://padsign.trustlynx.com:5173', 'https://padsign.trustlynx.com']`.
+
+---
+
+## Cloud Flow: /api/registerPDF
+
+Purpose
+- Upload a ready PDF to Archive and make it available to the SPA for viewing and signing.
+- Protected by an API key carried in the `Authorization: Bearer` header, configured in server `config/config.js` as `REGISTER_PDF_API_KEY`.
+
+Endpoint
+- Method: `POST`
+- URL: `/api/registerPDF`
+- Auth: `Authorization: Bearer <REGISTER_PDF_API_KEY>` (NOT a Keycloak token)
+- Content-Type: `multipart/form-data`
+- Body fields:
+  - `file`: The PDF file (must be `application/pdf`; max 10 MB)
+  - `email`: End user or session email identifier (string)
+  - `company`: Company identifier (string). For SPA auto-detection, it should match a Keycloak realm role name assigned to the operator using the SPA.
+  - `clientName` (optional): Friendly display name for UI (alias: `clientname`).
+
+Behavior
+- On success, backend uploads the PDF to Archive (`CREATE_DOCUMENT_API_URL`), stores `{ email, company, doc }` in memory, and returns `201` with the document ID.
+- SPA polls `/api/latestUser?email=<email>&company=<company>` with a Keycloak Bearer token and will display the document for viewing/signing.
+- Data is kept in memory (non-persistent). A server restart clears registrations.
+
+Responses
+- `201` JSON: `{ "message": "PDF registered successfully", "docId": "<uuid>" }`
+- `400` JSON: `{ "error": "Please provide all required fields: file, email, company" }`
+- `400` JSON: `{ "error": "Only PDF files are allowed" }`
+- `401` JSON: `{ "error": "Invalid API key" }` (or `Authorization header required`)
+- `500` JSON: `{ "error": "Failed to upload PDF to archive service" }` or `{ "error": "Internal server error" }`
+
+Example (curl)
+```bash
+curl -X POST "https://padsign.trustlynx.com/api/registerPDF" \
+  -H "Authorization: Bearer ${REGISTER_PDF_API_KEY}" \
+  -F "file=@/path/to/file.pdf;type=application/pdf" \
+  -F "email=user@example.com" \
+  -F "company=Adenta" \
+  -F "clientName=John Doe"
+```
+
+Example (HTTPie)
+```bash
+http -f POST https://padsign.trustlynx.com/api/registerPDF \
+  Authorization:"Bearer ${REGISTER_PDF_API_KEY}" \
+  file@/path/to/file.pdf email=user@example.com company=Adenta clientName='John Doe'
+```
+
+Follow-up in SPA
+- The SPA, once an authenticated user is logged in to Keycloak, requests `/api/latestUser` with the same `email` and `company`. Ensure the `company` matches a role assigned to that user to enable the email/company polling mode.
+- The viewer constructs the download URL as: `PS_DOWNLOAD_API + <docId> + "/download"`.
+
+Related configuration
+- `REGISTER_PDF_API_KEY` (server): API key expected in `Authorization` header for this endpoint.
+- `ARCHIVE_API_BASE_URL` and `CREATE_DOCUMENT_API_URL` (server): Where the PDF is persisted.
+- `PS_DOWNLOAD_API` (client): Used by the viewer to fetch the registered PDF by `docId`.
+- `USER_POLLING_FREQUENCY` (client): Controls how often the SPA checks for the registered PDF.
+
+Behavior flags and defaults
+- `ENABLE_PERSONAL_CODE_VALIDATION`: When `true`, validates Latvian personal code format on specific routes. Default: `false`. API is not relevant for cloud instance.
+- `DEFAULT_DOCUMENT_JSON`: JSON payload sent when creating a new archive document. Includes `objectName`, `contentType`, `documentType`, `documentFilename`.
+
+Authentication and security
+- `KEYCLOAK_CONFIG`: Backend Keycloak adapter configuration. Important fields:
+  - `realm`: Keycloak realm, default `"padsign"`.
+  - `auth-server-url`: Base URL to Keycloak, default `"https://padsign.trustlynx.com/auth"`.
+  - `resource`: Backend client (confidential) ID, default `"padsign-backend"`.
+  - `credentials.secret`: Client secret for the confidential backend client.
+  - `bearer-only`: `true` in this config so the backend does not initiate browser logins.
+- `REGISTER_PDF_API_KEY`: Static API key protecting the `/api/registerPDF` endpoint (sent as `Authorization: Bearer <key>` by 3rd‑party uploaders). Replace with a strong secret for production.
+
+---
+
+## Changing values safely
+
+- Update `config/constants.json` to tune client behavior, UI, and runtime endpoints. Most changes apply on page reload. Avoid committing real secrets (e.g., Syncfusion license) to VCS.
+- Update `config/config.js` to point the backend to your DMSS services, tune storage paths, and set auth. Restart `ps-server` after changes. Treat the Keycloak secret and API key as sensitive.
+
+## Quick verification
+
+- Client loads `constants.json`: Open the browser DevTools network tab and verify `/portal/constants.json` loads and values match your changes.
+- Backend uses `config.js`: Check `ps-server` logs on startup. You should see the configured port, output folder, and realm printed.
+
+## Notes
+
+- Some keys in `constants.json` are currently legacy or reserved for future functionality (e.g., `PDF_TEMPLATE_ID`, `PS_PAGE_REFRESH_TIME`, `STAMP_COMPANY_NAME`, parts of `HIDDEN_FIELDS`). They are documented above for completeness.
+- If you need environment‑based switching, consider generating these files at deploy time (e.g., mounting environment‑specific variants) rather than baking many conditionals into the code.
 2. Verify nginx proxy settings
 3. Ensure containers can reach each other
 
@@ -611,4 +909,3 @@ docker compose down
 - Treat any secrets present in this repository as placeholders only; rotate them prior to deployment.
 - Restrict admin endpoints and Keycloak admin console to trusted networks.
 - Regularly back up the `keycloak_data` volume and any persistent stores you configure.
-
