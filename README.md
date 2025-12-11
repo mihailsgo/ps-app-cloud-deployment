@@ -28,7 +28,7 @@ The PadSign application uses Keycloak for authentication and authorization. The 
 - **Client Application**: React frontend with Keycloak integration
 - **Server Application**: Node.js backend with Keycloak middleware
 
-### How this solution works (plain English)
+### How this solution works
 
 - Users open the PadSign portal in the browser and are redirected to Keycloak to log in securely.
 - After login, the SPA pulls its runtime config and shows the latest PDF that was registered for that user and company.
