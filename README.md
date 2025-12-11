@@ -1,6 +1,4 @@
-# Keycloak Integration Guide for PadSign Application
-
-This guide provides step-by-step instructions for setting up Keycloak authentication for the PadSign application in a containerized environment.
+# PadSign 2.0 Application
 
 ## Table of Contents
 
@@ -29,6 +27,14 @@ The PadSign application uses Keycloak for authentication and authorization. The 
 - **Keycloak Server**: Containerized authentication server
 - **Client Application**: React frontend with Keycloak integration
 - **Server Application**: Node.js backend with Keycloak middleware
+
+### How this solution works (plain English)
+
+- Users open the PadSign portal in the browser and are redirected to Keycloak to log in securely.
+- After login, the SPA pulls its runtime config and shows the latest PDF that was registered for that user and company.
+- PDFs are registered through the `/api/registerPDF` endpoint: an external system uploads the file, the backend stores it in the archive service, and remembers which user/company it belongs to.
+- The SPA polls the backend for that user/company pair; when a PDF is found, it streams the document from the archive service for viewing and signing.
+- All traffic flows through the NGINX reverse proxy over HTTPS, which routes to the SPA (`/portal`), Keycloak (`/auth`), backend (`/api`), and the DMSS services used for document storage and signing.
 
 ## Prerequisites
 
