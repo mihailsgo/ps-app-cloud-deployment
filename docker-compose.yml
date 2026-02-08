@@ -35,7 +35,7 @@ services:
       - './dmss-container-and-signature-services:/confs'       
     environment:
       - SPRING_CONFIG_LOCATION=/confs/
-    image: 'trustlynx/container-signature-service:24.3.0.29'
+    image: 'trustlynx/container-signature-service:24.3.0.49'
     extra_hosts:
       - "host.docker.internal:host-gateway"    
   dmss-archive-services-fallback:
