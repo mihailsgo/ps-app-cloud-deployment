@@ -4,23 +4,31 @@
 
 1. [Release Snapshot](#release-snapshot)
 2. [Overview](#overview)
-3. [Prerequisites](#prerequisites)
-4. [Keycloak Setup](#keycloak-setup)
-5. [Client Configuration](#client-configuration)
-6. [Server Configuration](#server-configuration)
-7. [Environment Variables](#environment-variables)
-8. [Testing the Integration](#testing-the-integration)
-9. [Troubleshooting](#troubleshooting)
-10. [Configuration Constants Reference](#configuration-constants-reference)
-   - [Cloud Essentials (TL;DR)](#cloud-essentials-tldr)
-   - [Cloud minimal examples](#cloud-minimal-examples)
-   - [How configuration is loaded](#how-configuration-is-loaded)
-   - [Client: config/constants.json](#client-configconstantsjson)
-   - [Server: config/config.js](#server-configconfigjs)
-   - [Cloud Flow: /api/registerPDF](#cloud-flow-apiregisterpdf)
-   - [Changing values safely](#changing-values-safely)
-   - [Quick verification](#quick-verification)
-   - [Notes](#notes)
+3. [Architecture](#architecture)
+4. [Application Overview](#application-overview)
+5. [Prerequisites](#prerequisites)
+6. [Prerequisites (Quick Checklist)](#prerequisites-quick-checklist)
+7. [Domain and TLS Certificates](#domain-and-tls-certificates)
+8. [Running the Stack](#running-the-stack)
+9. [Configuration](#configuration)
+10. [Keycloak Setup](#keycloak-setup)
+11. [Client Configuration](#client-configuration)
+12. [Server Configuration](#server-configuration)
+13. [Environment Variables](#environment-variables)
+14. [Configuration Constants Reference](#configuration-constants-reference)
+15. [Testing the Integration](#testing-the-integration)
+16. [Troubleshooting](#troubleshooting)
+17. [Troubleshooting (Integration and Auth)](#troubleshooting-integration-and-auth)
+18. [Security and Route Protection](#security-and-route-protection)
+19. [Data Flow](#data-flow)
+20. [Production Deployment](#production-deployment)
+21. [Production Hardening](#production-hardening)
+22. [Local Development Tips](#local-development-tips)
+23. [Security Considerations](#security-considerations)
+24. [File Map and References](#file-map-and-references)
+25. [Notes on Security](#notes-on-security)
+26. [Support](#support)
+27. [Additional Resources](#additional-resources)
 
 ## Release Snapshot
 
@@ -32,6 +40,39 @@
 - DMSS Archive fallback: `trustlynx/dmss-archive-services-fallback:24.0.5`
 
 ## Overview
+
+- Reverse proxy and TLS termination via NGINX.
+- Authentication and authorization via Keycloak.
+- PS Client (SPA) served via container.
+- PS Server (Node.js backend) with configurable endpoints and Keycloak integration.
+- DMSS services for archive, container/signature, and a local fallback archive.
+- Docker Compose orchestration with a persistent volume for Keycloak data.
+
+---
+
+## Architecture
+
+Services defined in `docker-compose.yml`:
+
+- NGINX: Public entrypoint on ports 80/443; routes to backend services and Keycloak.
+- Keycloak: Identity provider; exposed on port 8080 and proxied at `/auth` through NGINX.
+- PS Client: SPA served by its own NGINX; proxied by the public NGINX at `/portal`.
+- PS Server: Backend API consumed by PS Client; proxied by the public NGINX at `/api`.
+- DMSS Container and Signature Services: PDF/container operations, signing flows, Smart-ID/Mobile-ID.
+- DMSS Archive Services: Archive API; configured with in-memory DB by default.
+- DMSS Archive Services Fallback: Filesystem-based fallback archive; stores files in `./docs`.
+
+High-level routing:
+
+- `https://<host>/portal/...` -> `ps-client`
+- `https://<host>/auth/...` -> `keycloak`
+- `https://<host>/api/...` -> `ps-server`
+- `https://<host>/container/api/...` -> `dmss-container-and-signature-services`
+- `https://<host>/archive/api/...` -> `dmss-archive-services` (fallback to `dmss-archive-services-fallback` as configured)
+
+---
+
+## Application Overview
 
 The PadSign application uses Keycloak for authentication and authorization. The setup includes:
 - **Keycloak Server**: Containerized authentication server
@@ -48,10 +89,135 @@ The PadSign application uses Keycloak for authentication and authorization. The 
 
 ## Prerequisites
 
+- Docker Desktop 4.x (Docker Engine 20+; Compose v2).
+- A DNS name you control (production) or a local hostname mapping (development).
+- TLS certificate and key for your hostname (PEM). Self-signed is acceptable for local testing.
+- Open host ports: 80, 443, 8080, 3001, 84, 86, 93.
+- Suggested resources: 4 vCPU, 6-8 GB RAM.
+
+Optional (local):
+
+- mkcert (included as `nginx/mkcert.exe` for Windows) to generate a locally trusted certificate.
+
+---
+
+## Prerequisites (Quick Checklist)
+
 - Docker and Docker Compose installed
 - Domain name configured (e.g., `padsign.trustlynx.com`)
 - SSL certificates for HTTPS
 - Access to Keycloak admin panel
+
+## Domain and TLS Certificates
+
+The NGINX virtual host is configured for `padsign.trustlynx.com` out of the box. Update this to your hostname and provide matching certificates.
+
+1) Replace server_name and cert paths
+
+- Edit `nginx/nginx.conf` and change:
+  - `server_name` to your hostname, e.g. `example.yourdomain.com`.
+  - `ssl_certificate` and `ssl_certificate_key` to your certificate files in `nginx/certs`.
+
+2) Provide certificates
+
+- Place your certificate and key files in `nginx/certs/`.
+- Ensure file names match those referenced in `nginx/nginx.conf`.
+
+Local option (Windows):
+
+- Generate a local cert: `nginx/mkcert.exe example.local` and then point `ssl_certificate` and `ssl_certificate_key` to the generated files.
+
+3) DNS or hosts entry
+
+- Production: Point your domain's A/AAAA record to the host running this stack.
+- Local: Add a hosts entry mapping your hostname to `127.0.0.1` (or the Docker host IP) and use a locally trusted cert.
+
+---
+
+## Running the Stack
+
+1) Prepare folders
+
+- Ensure `./nginx/certs` contains your TLS cert and key.
+- Ensure `./docs` exists (used by fallback archive service).
+
+2) Start services
+
+```sh
+docker compose up -d
+```
+
+3) Verify
+
+- Portal: `https://<host>/portal/`
+- API: `https://<host>/api/health` (if exposed by ps-server) or check container logs
+- Keycloak: `https://<host>/auth/`
+- DMSS health (Spring Boot): `/actuator/health` on the service base paths if enabled
+- Run `/api/registerPDF` and receive status code `201`.
+  
+![alt text](image.png)
+
+4) Logs
+
+```sh
+docker compose ps
+docker compose logs -f nginx
+# or a specific service, e.g.
+docker compose logs -f ps-server
+```
+
+5) Stop / remove
+
+```sh
+docker compose down
+# Add -v to remove named volumes if required
+```
+
+---
+
+## Configuration
+
+Review and adjust these files before running:
+
+- `docker-compose.yml`
+  - `KC_HOSTNAME` should match your hostname.
+  - Host ports 80/443, 8080, 3001, 84, 86, 93 must be free.
+  - Image versions should match the release snapshot (`ps-server:3.4`, `ps-client:8.4`).
+
+- `nginx/nginx.conf`
+  - Update `server_name` and TLS files.
+  - Proxy targets are pre-wired to internal services; `/archive/api` and `/container/api` routes target host ports `86` and `84` via `host.docker.internal` (intentional for Windows/macOS). Keep the published host ports in `docker-compose.yml` aligned with these.
+
+- `config/config.js` (PS Server)
+  - Update all hardcoded URLs from `https://padsign.trustlynx.com/...` to your hostname.
+  - Set `KEYCLOAK_CONFIG` for your realm and backend client secret.
+  - Adjust CORS: `ALLOWED_ORIGINS` should include your portal origin(s).
+  - Set directories: `DOCUMENT_OUTPUT_DIRECTORY`, `READONLY_PDF_DIRECTORY` to writable paths where required by your runtime.
+
+- `config/constants.json` (PS Client)
+  - Change `KEYCLOAK_URL`, `KEYCLOAK_REALM`, `KEYCLOAK_CLIENT_ID`, and redirect URIs to match your hostname and Keycloak setup.
+  - Update `PS_DOWNLOAD_API` and any other absolute URLs.
+  - Optional: Branding (logo, page title) and UX parameters.
+
+- `dmss-container-and-signature-services/application.yml`
+  - `archive-services.baseUrl` and `fallbackUrl` point to internal service names and typically do not need changes.
+  - Trust stores and certificate files referenced under `/confs` must exist in `dmss-container-and-signature-services/`.
+
+- `dmss-archive-services/application.yml`
+  - Default uses in-memory HSQL database. For persistence, configure Postgres (uncomment and set `spring.datasource.*`) and provide the DB instance.
+
+- `dmss-archive-services-fallback/application.yml`
+  - File paths point to `/docs` inside the container. The `./docs` folder on the host is bind-mounted; ensure it exists and is writable.
+
+- Keycloak database persistence
+  - A named Docker volume `keycloak_data` is created by compose and used for Keycloak; back it up for production.
+
+Secrets and credentials
+
+- Do not commit real client secrets, keystore passwords, or API keys.
+- Replace placeholder values before going live and rotate any credentials found in this repo.
+
+---
 
 ## Keycloak Setup
 
@@ -135,6 +301,9 @@ keycloak:
    - **Client ID**: `padsign-backend`
    - **Client Protocol**: `openid-connect`
    - **Access Type**: `confidential`
+   - **Service accounts roles**:
+     - Enable this only if you will call privileged internal APIs using the backend client service user.
+     - If your deployment does not use service-user calls, this can stay disabled.
 
 2. Go to "Credentials" tab and copy the client secret
 
@@ -212,70 +381,6 @@ Replace `YOUR_CLIENT_SECRET_HERE` with the actual client secret from the `padsig
 |----------|-------------|---------|
 | `VITE_HOST` | Development host | `padsign.trustlynx.com` |
 | `VITE_PORT` | Development port | `5173` |
-
-## Testing the Integration
-
-### 1. Build and Deploy
-
-```bash
-# Build client
-cd client
-npm run build
-
-# Restart containers
-docker-compose restart nginx
-```
-
-### 2. Test Authentication Flow
-
-1. Access the application: `https://padsign.trustlynx.com/portal/`
-2. You should be redirected to Keycloak login
-3. Log in with valid credentials
-4. You should be redirected back to the application
-5. Test logout functionality
-
-### 3. Verify Configuration
-
-Check these URLs are accessible:
-- Keycloak admin: `https://padsign.trustlynx.com/auth/`
-- Application: `https://padsign.trustlynx.com/portal/`
-
-## Troubleshooting
-
-### Common Issues
-
-#### 1. "Invalid redirect URI" Error
-
-**Cause**: Redirect URI doesn't match Keycloak client configuration
-
-**Solution**:
-1. Check Keycloak client settings
-2. Ensure URIs in `constants.json` match Keycloak configuration
-3. Verify domain name is correct
-
-#### 2. CORS Errors
-
-**Cause**: Web origins not configured properly
-
-**Solution**:
-1. Add your domain to "Web Origins" in Keycloak client
-2. Include both with and without trailing slash
-
-#### 3. Authentication Fails
-
-**Cause**: Client secret mismatch or configuration error
-
-**Solution**:
-1. Verify client secret in `server/config.js`
-2. Check realm name matches
-3. Ensure client IDs are correct
-
-#### 4. Container Communication Issues
-
-**Cause**: Network configuration problems
-
-**Solution**:
-1. Check Docker network configuration
 
 ## Configuration Constants Reference
 
@@ -646,186 +751,77 @@ Authentication and security
    curl https://padsign.trustlynx.com/auth/realms/padsign/.well-known/openid_configuration
    ```
 
-## Security Considerations
+## Testing the Integration
 
-1. **Change Default Passwords**: Update `KEYCLOAK_ADMIN_PASSWORD`
-2. **Use Strong Client Secrets**: Generate secure secrets for backend clients
-3. **Enable HTTPS**: Always use HTTPS in production
-4. **Regular Updates**: Keep Keycloak updated
-5. **Monitor Logs**: Regularly check authentication logs
-
-## Production Deployment
-
-### 1. Environment Variables
-
-Set production environment variables:
+### 1. Build and Deploy
 
 ```bash
-# Keycloak
-KEYCLOAK_ADMIN_PASSWORD=your_secure_password
-KC_HOSTNAME=your-production-domain.com
+# Build client
+cd client
+npm run build
 
-# Client
-VITE_HOST=your-production-domain.com
+# Restart containers
+docker-compose restart nginx
 ```
 
-### 2. SSL Certificates
+### 2. Test Authentication Flow
 
-Ensure SSL certificates are properly configured in nginx:
+1. Access the application: `https://padsign.trustlynx.com/portal/`
+2. You should be redirected to Keycloak login
+3. Log in with valid credentials
+4. You should be redirected back to the application
+5. Test logout functionality
 
-```nginx
-ssl_certificate     /etc/nginx/certs/your-domain.crt;
-ssl_certificate_key /etc/nginx/certs/your-domain.key;
-```
+### 3. Verify Configuration
 
-### 3. Database Persistence
+Check these URLs are accessible:
+- Keycloak admin: `https://padsign.trustlynx.com/auth/`
+- Application: `https://padsign.trustlynx.com/portal/`
 
-For production, use a persistent database instead of the default H2:
+## Troubleshooting
 
-```yaml
-keycloak:
-  environment:
-    - KC_DB=postgres
-    - KC_DB_URL=jdbc:postgresql://postgres:5432/keycloak
-    - KC_DB_USERNAME=keycloak
-    - KC_DB_PASSWORD=your_db_password
-```
+### Common Issues
 
-## Support
+#### 1. "Invalid redirect URI" Error
 
-For issues related to:
-- **Keycloak Configuration**: Check Keycloak documentation
-- **Application Integration**: Review this guide
-- **Container Issues**: Check Docker and Docker Compose logs
+**Cause**: Redirect URI doesn't match Keycloak client configuration
 
-## Additional Resources
+**Solution**:
+1. Check Keycloak client settings
+2. Ensure URIs in `constants.json` match Keycloak configuration
+3. Verify domain name is correct
 
-- [Keycloak Documentation](https://www.keycloak.org/documentation)
-- [Keycloak JavaScript Adapter](https://www.keycloak.org/docs/latest/securing_apps/#_javascript_adapter)
-- [Docker Compose Documentation](https://docs.docker.com/compose/)
+#### 2. CORS Errors
 
-# PS App Cloud Deployment - Deployment Guide
+**Cause**: Web origins not configured properly
 
-This repository contains a complete, containerized deployment of the PS App platform behind an HTTPS reverse proxy with Keycloak-based authentication and a set of DMSS services for document archiving, container creation, and digital signatures.
+**Solution**:
+1. Add your domain to "Web Origins" in Keycloak client
+2. Include both with and without trailing slash
 
-Use this guide to configure, run, and operate the stack in local, staging, or production environments.
+#### 3. Authentication Fails
 
----
+**Cause**: Client secret mismatch or configuration error
 
-## Overview
+**Solution**:
+1. Verify client secret in `server/config.js`
+2. Check realm name matches
+3. Ensure client IDs are correct
 
-- Reverse proxy and TLS termination via NGINX.
-- Authentication and authorization via Keycloak.
-- PS Client (SPA) served via container.
-- PS Server (Node.js backend) with configurable endpoints and Keycloak integration.
-- DMSS services for archive, container/signature, and a local fallback archive.
-- Docker Compose orchestration with a persistent volume for Keycloak data.
+#### 4. Container Communication Issues
 
----
+**Cause**: Network configuration problems
 
-## Architecture
+**Solution**:
+1. Check Docker network configuration
 
-Services defined in `docker-compose.yml`:
+## Troubleshooting (Integration and Auth)
 
-- NGINX: Public entrypoint on ports 80/443; routes to backend services and Keycloak.
-- Keycloak: Identity provider; exposed on port 8080 and proxied at `/auth` through NGINX.
-- PS Client: SPA served by its own NGINX; proxied by the public NGINX at `/portal`.
-- PS Server: Backend API consumed by PS Client; proxied by the public NGINX at `/api`.
-- DMSS Container and Signature Services: PDF/container operations, signing flows, Smart-ID/Mobile-ID.
-- DMSS Archive Services: Archive API; configured with in-memory DB by default.
-- DMSS Archive Services Fallback: Filesystem-based fallback archive; stores files in `./docs`.
-
-High-level routing:
-
-- `https://<host>/portal/...` -> `ps-client`
-- `https://<host>/auth/...` -> `keycloak`
-- `https://<host>/api/...` -> `ps-server`
-- `https://<host>/container/api/...` -> `dmss-container-and-signature-services`
-- `https://<host>/archive/api/...` -> `dmss-archive-services` (fallback to `dmss-archive-services-fallback` as configured)
-
----
-
-## Prerequisites
-
-- Docker Desktop 4.x (Docker Engine 20+; Compose v2).
-- A DNS name you control (production) or a local hostname mapping (development).
-- TLS certificate and key for your hostname (PEM). Self-signed is acceptable for local testing.
-- Open host ports: 80, 443, 8080, 3001, 84, 86, 93.
-- Suggested resources: 4 vCPU, 6-8 GB RAM.
-
-Optional (local):
-
-- mkcert (included as `nginx/mkcert.exe` for Windows) to generate a locally trusted certificate.
-
----
-
-## Domain and TLS Certificates
-
-The NGINX virtual host is configured for `padsign.trustlynx.com` out of the box. Update this to your hostname and provide matching certificates.
-
-1) Replace server_name and cert paths
-
-- Edit `nginx/nginx.conf` and change:
-  - `server_name` to your hostname, e.g. `example.yourdomain.com`.
-  - `ssl_certificate` and `ssl_certificate_key` to your certificate files in `nginx/certs`.
-
-2) Provide certificates
-
-- Place your certificate and key files in `nginx/certs/`.
-- Ensure file names match those referenced in `nginx/nginx.conf`.
-
-Local option (Windows):
-
-- Generate a local cert: `nginx/mkcert.exe example.local` and then point `ssl_certificate` and `ssl_certificate_key` to the generated files.
-
-3) DNS or hosts entry
-
-- Production: Point your domain's A/AAAA record to the host running this stack.
-- Local: Add a hosts entry mapping your hostname to `127.0.0.1` (or the Docker host IP) and use a locally trusted cert.
-
----
-
-## Configuration
-
-Review and adjust these files before running:
-
-- `docker-compose.yml`
-  - `KC_HOSTNAME` should match your hostname.
-  - Host ports 80/443, 8080, 3001, 84, 86, 93 must be free.
-  - Image versions should match the release snapshot (`ps-server:3.4`, `ps-client:8.4`).
-
-- `nginx/nginx.conf`
-  - Update `server_name` and TLS files.
-  - Proxy targets are pre-wired to internal services; `/archive/api` and `/container/api` routes target host ports `86` and `84` via `host.docker.internal` (intentional for Windows/macOS). Keep the published host ports in `docker-compose.yml` aligned with these.
-
-- `config/config.js` (PS Server)
-  - Update all hardcoded URLs from `https://padsign.trustlynx.com/...` to your hostname.
-  - Set `KEYCLOAK_CONFIG` for your realm and backend client secret.
-  - Adjust CORS: `ALLOWED_ORIGINS` should include your portal origin(s).
-  - Set directories: `DOCUMENT_OUTPUT_DIRECTORY`, `READONLY_PDF_DIRECTORY` to writable paths where required by your runtime.
-
-- `config/constants.json` (PS Client)
-  - Change `KEYCLOAK_URL`, `KEYCLOAK_REALM`, `KEYCLOAK_CLIENT_ID`, and redirect URIs to match your hostname and Keycloak setup.
-  - Update `PS_DOWNLOAD_API` and any other absolute URLs.
-  - Optional: Branding (logo, page title) and UX parameters.
-
-- `dmss-container-and-signature-services/application.yml`
-  - `archive-services.baseUrl` and `fallbackUrl` point to internal service names and typically do not need changes.
-  - Trust stores and certificate files referenced under `/confs` must exist in `dmss-container-and-signature-services/`.
-
-- `dmss-archive-services/application.yml`
-  - Default uses in-memory HSQL database. For persistence, configure Postgres (uncomment and set `spring.datasource.*`) and provide the DB instance.
-
-- `dmss-archive-services-fallback/application.yml`
-  - File paths point to `/docs` inside the container. The `./docs` folder on the host is bind-mounted; ensure it exists and is writable.
-
-- Keycloak database persistence
-  - A named Docker volume `keycloak_data` is created by compose and used for Keycloak; back it up for production.
-
-Secrets and credentials
-
-- Do not commit real client secrets, keystore passwords, or API keys.
-- Replace placeholder values before going live and rotate any credentials found in this repo.
+- Port conflicts: Ensure host ports 80/443/8080/3001/84/86/93 are free before starting.
+- TLS/hostname mismatch: Align `server_name`, certificate CN/SANs, and all application URLs with your actual hostname.
+- Keycloak login issues: Check SPA client redirect URIs and Web Origins. Verify `KEYCLOAK_CONFIG` in `config/config.js` (backend client secret and realm).
+- Self-signed certificate warnings: Trust the local root (mkcert) or install a valid certificate.
+- DMSS service connectivity: Review `dmss-container-and-signature-services/application.yml` for endpoints and modes (TEST vs PROD). Check that truststores and referenced files exist under `dmss-container-and-signature-services/`.
 
 ---
 
@@ -891,54 +887,42 @@ sequenceDiagram
 
 ---
 
-## Running the Stack
+## Production Deployment
 
-1) Prepare folders
+### 1. Environment Variables
 
-- Ensure `./nginx/certs` contains your TLS cert and key.
-- Ensure `./docs` exists (used by fallback archive service).
+Set production environment variables:
 
-2) Start services
+```bash
+# Keycloak
+KEYCLOAK_ADMIN_PASSWORD=your_secure_password
+KC_HOSTNAME=your-production-domain.com
 
-```sh
-docker compose up -d
+# Client
+VITE_HOST=your-production-domain.com
 ```
 
-3) Verify
+### 2. SSL Certificates
 
-- Portal: `https://<host>/portal/`
-- API: `https://<host>/api/health` (if exposed by ps-server) or check container logs
-- Keycloak: `https://<host>/auth/`
-- DMSS health (Spring Boot): `/actuator/health` on the service base paths if enabled
-- Run `/api/registerPDF` and receive status code `201`.
-  
-![alt text](image.png)
+Ensure SSL certificates are properly configured in nginx:
 
-4) Logs
-
-```sh
-docker compose ps
-docker compose logs -f nginx
-# or a specific service, e.g.
-docker compose logs -f ps-server
+```nginx
+ssl_certificate     /etc/nginx/certs/your-domain.crt;
+ssl_certificate_key /etc/nginx/certs/your-domain.key;
 ```
 
-5) Stop / remove
+### 3. Database Persistence
 
-```sh
-docker compose down
-# Add -v to remove named volumes if required
+For production, use a persistent database instead of the default H2:
+
+```yaml
+keycloak:
+  environment:
+    - KC_DB=postgres
+    - KC_DB_URL=jdbc:postgresql://postgres:5432/keycloak
+    - KC_DB_USERNAME=keycloak
+    - KC_DB_PASSWORD=your_db_password
 ```
-
----
-
-## Local Development Tips
-
-- Hosts entry: map your chosen hostname to 127.0.0.1.
-- Certificates: use mkcert to create a locally trusted cert and point `nginx/nginx.conf` to it.
-- `host.docker.internal`: The public NGINX forwards to 84 and 86 on the host for container/signature and archive services; these are published by compose. This is intentional for Windows/macOS; Linux users may prefer service-name routing (requires editing `nginx/nginx.conf`).
-
----
 
 ## Production Hardening
 
@@ -952,15 +936,21 @@ docker compose down
 
 ---
 
-## Troubleshooting
+## Local Development Tips
 
-- Port conflicts: Ensure host ports 80/443/8080/3001/84/86/93 are free before starting.
-- TLS/hostname mismatch: Align `server_name`, certificate CN/SANs, and all application URLs with your actual hostname.
-- Keycloak login issues: Check SPA client redirect URIs and Web Origins. Verify `KEYCLOAK_CONFIG` in `config/config.js` (backend client secret and realm).
-- Self-signed certificate warnings: Trust the local root (mkcert) or install a valid certificate.
-- DMSS service connectivity: Review `dmss-container-and-signature-services/application.yml` for endpoints and modes (TEST vs PROD). Check that truststores and referenced files exist under `dmss-container-and-signature-services/`.
+- Hosts entry: map your chosen hostname to 127.0.0.1.
+- Certificates: use mkcert to create a locally trusted cert and point `nginx/nginx.conf` to it.
+- `host.docker.internal`: The public NGINX forwards to 84 and 86 on the host for container/signature and archive services; these are published by compose. This is intentional for Windows/macOS; Linux users may prefer service-name routing (requires editing `nginx/nginx.conf`).
 
 ---
+
+## Security Considerations
+
+1. **Change Default Passwords**: Update `KEYCLOAK_ADMIN_PASSWORD`
+2. **Use Strong Client Secrets**: Generate secure secrets for backend clients
+3. **Enable HTTPS**: Always use HTTPS in production
+4. **Regular Updates**: Keep Keycloak updated
+5. **Monitor Logs**: Regularly check authentication logs
 
 ## File Map and References
 
@@ -980,3 +970,24 @@ docker compose down
 - Treat any secrets present in this repository as placeholders only; rotate them prior to deployment.
 - Restrict admin endpoints and Keycloak admin console to trusted networks.
 - Regularly back up the `keycloak_data` volume and any persistent stores you configure.
+## Support
+
+For issues related to:
+- **Keycloak Configuration**: Check Keycloak documentation
+- **Application Integration**: Review this guide
+- **Container Issues**: Check Docker and Docker Compose logs
+
+## Additional Resources
+
+- [Keycloak Documentation](https://www.keycloak.org/documentation)
+- [Keycloak JavaScript Adapter](https://www.keycloak.org/docs/latest/securing_apps/#_javascript_adapter)
+- [Docker Compose Documentation](https://docs.docker.com/compose/)
+
+# PS App Cloud Deployment - Deployment Guide
+
+This repository contains a complete, containerized deployment of the PS App platform behind an HTTPS reverse proxy with Keycloak-based authentication and a set of DMSS services for document archiving, container creation, and digital signatures.
+
+Use this guide to configure, run, and operate the stack in local, staging, or production environments.
+
+---
+
