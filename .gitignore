@@ -24,6 +24,9 @@ dmss-container-and-signature-services/*.pfx
 dmss-container-and-signature-services/*.jks
 dmss-container-and-signature-services/*truststore*
 dmss-container-and-signature-services/*keystore*
+!dmss-container-and-signature-services/*.p12
+!dmss-container-and-signature-services/*truststore*.p12
+!dmss-container-and-signature-services/*keystore*.p12
 
 # Generated/temporary
 tmp/
@@ -33,4 +36,3 @@ PSDOCS/**
 
 # Large or local-only data
 docs/**
-
