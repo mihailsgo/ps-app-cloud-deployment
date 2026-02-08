@@ -983,11 +983,4 @@ For issues related to:
 - [Keycloak JavaScript Adapter](https://www.keycloak.org/docs/latest/securing_apps/#_javascript_adapter)
 - [Docker Compose Documentation](https://docs.docker.com/compose/)
 
-# PS App Cloud Deployment - Deployment Guide
-
-This repository contains a complete, containerized deployment of the PS App platform behind an HTTPS reverse proxy with Keycloak-based authentication and a set of DMSS services for document archiving, container creation, and digital signatures.
-
-Use this guide to configure, run, and operate the stack in local, staging, or production environments.
-
----
 
