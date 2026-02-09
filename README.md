@@ -32,8 +32,8 @@
 
 ## Release Snapshot
 
-- `ps-server`: `mihailsgordijenko/ps-server:3.4`
-- `ps-client`: `mihailsgordijenko/ps-client:8.4`
+- `ps-server`: `mihailsgordijenko/ps-server:3.8`
+- `ps-client`: `mihailsgordijenko/ps-client:8.8`
 - Keycloak: `quay.io/keycloak/keycloak:26.3.2`
 - DMSS Archive: `trustlynx/dmss-archive-services:24.2.0.8`
 - DMSS Container/Signature: `trustlynx/container-signature-service:24.3.0.49`
@@ -182,7 +182,7 @@ Review and adjust these files before running:
 - `docker-compose.yml`
   - `KC_HOSTNAME` should match your hostname.
   - Host ports 80/443, 8080, 3001, 84, 86, 93 must be free.
-  - Image versions should match the release snapshot (`ps-server:3.4`, `ps-client:8.4`).
+  - Image versions should match the release snapshot (`ps-server:3.8`, `ps-client:8.8`).
 
 - `nginx/nginx.conf`
   - Update `server_name` and TLS files.
@@ -589,6 +589,12 @@ Localization and text
 - `DEFAULT_LANGUAGE`: Default language code for UI and date formatting. Default: `"LV"`.
 - `LV_MONTHS_LIST` / `EN_MONTHS_LIST`: Month names used to build `getCurrentDate()` texts placed into PDF fields. Not relevant for cloud instance.
 - `TRANSLATIONS`: String resources for UI and notifications in `LV` and `EN`. Update to localize texts.
+- Signature visual labels in visual-sign payload:
+- `SIGNATURE_LABEL_SIGNER`, `SIGNATURE_LABEL_DATE`: Localized labels used in `pdfSignatureVisuals.signatureText` (for example, `Signer/Date` vs `Parakstītājs/Datums`).
+- Signing workflow popup labels/statuses:
+- `WF_TITLE_IN_PROGRESS`, `WF_SUBTITLE_IN_PROGRESS`, `WF_STEP_PREPARE`, `WF_STEP_VISUAL_SIGNATURE`, `WF_STEP_STAMP`, `WF_STEP_FINALIZE`, `WF_SUBTITLE_SUCCESS`, `WF_TITLE_FAILED`, `WF_SUBTITLE_FAILED`, `WF_CLOSE`, `WF_REFRESH_COUNTDOWN`.
+- Stage-specific signing error texts:
+- `ERROR_VISUAL_SIGNATURE`, `ERROR_STAMP_RESPONSE`.
 
 Workflow toggles and callbacks
 - `RUN_STAMPING_REQUEST`: When `true`, triggers a backend call to stamp the PDF after signing. Default: `false`.
