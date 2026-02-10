@@ -50,7 +50,7 @@ services:
       - SPRING_CONFIG_LOCATION=/dmss-archive-services-fallback/application.yml
     image: 'trustlynx/dmss-archive-services-fallback:24.0.5'
   ps-server:
-    image: 'mihailsgordijenko/ps-server:3.8'
+    image: 'mihailsgordijenko/ps-server:3.17'
     container_name: ps-server
     ports:
       - "3001:3001"
@@ -84,7 +84,7 @@ services:
           - padsign.trustlynx.com
 
   ps-client:
-    image: mihailsgordijenko/ps-client:8.8
+    image: mihailsgordijenko/ps-client:8.18
     container_name: ps-client
     restart: unless-stopped
     # No host port mapping; accessed via nginx by service name
