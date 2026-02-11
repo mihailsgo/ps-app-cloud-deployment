@@ -11,7 +11,6 @@
     "PS_SIGNATURE_BUTTON_FONT_SIZE": "",
     "PS_API_ACTUAL_USER": "/api/latestUser",
     "PS_DOWNLOAD_API": "https://padsign.trustlynx.com/archive/api/document/",
-    "PS_API_GEN_DOC" : "/api/getDocID",
     "PS_API_DEMO_UPLOAD": "/api/demo/upload",
     "PS_API_SAVE_DOC_IN_STORAGE": "/api/save",
     "PS_API_GEN_XML" : "/api/xml",
@@ -68,7 +67,6 @@
         "documentType": "DMSSDoc",
         "documentFilename": "template.txt"
       },
-    "TL_FILL_PDF_AND_UPDATE_DOC": "/api/fillPDF",
     "FORM_FIELDS":{
         "Survey" : "Multiselection",
         "Agreement_email" : "Checkbox",

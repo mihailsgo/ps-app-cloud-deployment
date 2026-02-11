@@ -27,13 +27,14 @@
 23. [Security Considerations](#security-considerations)
 24. [File Map and References](#file-map-and-references)
 25. [Notes on Security](#notes-on-security)
-26. [Support](#support)
-27. [Additional Resources](#additional-resources)
+26. [FAQ](#faq)
+27. [Support](#support)
+28. [Additional Resources](#additional-resources)
 
 ## Release Snapshot
 
-- `ps-server`: `mihailsgordijenko/ps-server:3.17`
-- `ps-client`: `mihailsgordijenko/ps-client:8.18`
+- `ps-server`: `mihailsgordijenko/ps-server:3.18`
+- `ps-client`: `mihailsgordijenko/ps-client:8.19`
 - Keycloak: `quay.io/keycloak/keycloak:26.3.2`
 - DMSS Archive: `trustlynx/dmss-archive-services:24.2.0.8`
 - DMSS Container/Signature: `trustlynx/container-signature-service:24.3.0.49`
@@ -182,7 +183,7 @@ Review and adjust these files before running:
 - `docker-compose.yml`
   - `KC_HOSTNAME` should match your hostname.
   - Host ports 80/443, 8080, 3001, 84, 86, 93 must be free.
-  - Image versions should match the release snapshot (`ps-server:3.17`, `ps-client:8.18`).
+  - Image versions should match the release snapshot (`ps-server:3.18`, `ps-client:8.19`).
 
 - `nginx/nginx.conf`
   - Update `server_name` and TLS files.
@@ -394,7 +395,7 @@ It explains what each constant does, default values present in the repo, and how
 Cloud usage note
 - This deployment uses two parallel flows:
 - External integration flow (API key): `/api/registerUser`, `/api/registerUserPDF`, `/api/registerPDF`, `/api/removeUser`.
-- Internal operator flow (Keycloak token): `/api/latestUser`, `/api/fillPDF`, `/api/fillPDFDemo`, `/api/visual-signature`, `/api/stamp`, `/api/cleanupUser`, `/api/demo/upload`, `/api/demo/upload/version`.
+- Internal operator flow (Keycloak token): `/api/latestUser`, `/api/fillPDFDemo`, `/api/visual-signature`, `/api/stamp`, `/api/cleanupUser`, `/api/demo/upload`, `/api/demo/upload/version`, `/api/demo/fill-by-docid`.
 - Any item below explicitly marked “API is not relevant for cloud instance” is not used in standard cloud operation and can be ignored.
 
 ### Cloud Essentials (TL;DR)
@@ -544,7 +545,6 @@ Data polling and backend endpoints
 - `USER_POLLING_FREQUENCY`: Polling interval in ms for `/latestUser`. Default: `5000`.
 - `TL_CREATE_DOC_API`: Path (legacy/unused in SPA) for creating a document via backend. Default: `"/api/document/create"`. API is not relevant for cloud instance.
 - `TL_CREATE_DOC_BODY`: JSON payload (legacy/unused in SPA) describing document defaults when creating via backend; see also server `DEFAULT_DOCUMENT_JSON`. API is not relevant for cloud instance.
-- `PS_API_GEN_DOC`: Path to backend’s doc ID generator. Default: `"/api/getDocID"`. API is not relevant for cloud instance.
 - `PS_API_SAVE_DOC_IN_STORAGE`: Path to backend endpoint that downloads a generated PDF into `DOCUMENT_OUTPUT_DIRECTORY`. Default: `"/api/save"`. API is not relevant for cloud instance.
 - `PS_API_GEN_XML`: Path to backend XML generation endpoint. Default: `"/api/xml"`. API is not relevant for cloud instance.
 - `PS_API_REMOVE_USER`: External integration cleanup endpoint. Default: `"/api/removeUser"` (API key protected).
@@ -552,7 +552,6 @@ Data polling and backend endpoints
 - `PS_API_DEMO_UPLOAD`: DEMO upload endpoint. Default: `"/api/demo/upload"`.
 - `PS_API_DEMO_UPLOAD_VERSION`: DEMO upload new version endpoint. Default: `"/api/demo/upload/version"`.
 - `PS_API_DEMO_FILL_BY_DOCID`: DEMO fill-by-doc endpoint. Default: `"/api/demo/fill-by-docid"`.
-- `TL_FILL_PDF_AND_UPDATE_DOC`: Path to backend PDF form fill and upload endpoint. Default: `"/api/fillPDF"`. API is not relevant for cloud instance.
 
 PDF rendering, download, and signature overlay
 - `PS_DOWNLOAD_API`: Archive service base used by the viewer to open PDFs in readonly mode. Final URL: `PS_DOWNLOAD_API + <docId> + "/download"`. Default: `"https://padsign.trustlynx.com/archive/api/document/"`.
@@ -599,7 +598,7 @@ Localization and text
 Workflow toggles and callbacks
 - `RUN_STAMPING_REQUEST`: When `true`, triggers a backend call to stamp the PDF after signing. Default: `false`.
 - `DEMO_MODE`: Enables/disables DEMO behavior (`ENABLE`/`DISABLE`). Default: `"DISABLE"`.
-- `PDF_SIGNING_STATUS_CALLBACK`: Optional external webhook URL to notify when a PDF is signed. Default: `"https://example.com/api/signing-status"`.
+- `PDF_SIGNING_STATUS_CALLBACK`: Optional external webhook URL to notify when signing finishes. Callback supports both success (`status: "signed"`) and failures (`status: "error: <technical details>"`). Default: `"https://example.com/api/signing-status"`.
 - `PDF_SIGNING_STATUS_CALLBACK_ENABLED`: Enables the webhook above when `true`. Default: `false`.
 
 Misc
@@ -620,7 +619,7 @@ Service endpoints and templates
 - `STAMP_API_URL`: e-seal service endpoint used by stamping flow when enabled.
 
 Files and directories
-- `TEMPLATE_DIRECTORY`: Path prefix to template PDFs used by `/getDocID`. The server appends `"_" + <lng> + ".pdf"`, so the final path should resolve to files like `.../template_LV.pdf` and `.../template_EN.pdf`. Default: `"/Repos/psapp/client/public/template"`. API is not relevant for cloud instance.
+- `TEMPLATE_DIRECTORY`: Legacy template path prefix (not used by standard cloud flows). Default: `"/Repos/psapp/client/public/template"`.
 - `DEFAULT_TEMPLATE_FILENAME`: Filename presented to archive service when uploading a template stream. Default: `"template.pdf"`.
 - `TEMP_DIRECTORY`: Local directory for temporary PDFs produced by form fill. Default: `"./tmp/"`. Not relevant for cloud instance.
 - `DOCUMENT_OUTPUT_DIRECTORY`: Directory where saved PDFs/XMLs are written. Default: `"/PSDOCS/out/"`. Not relevant for cloud instance.
@@ -858,7 +857,7 @@ flowchart TD
   N -->|api| B[ps-server];
   B -->|REST| CS[DMSS Container/Signature];
   B -->|REST| AR[DMSS Archive];
-  CS -->|fallback on error| FB[DMSS Archive Fallback];
+  AR -->|fallback on error| FB[DMSS Archive Fallback];
   C -->|OIDC redirects| K;
 ```
 
@@ -873,6 +872,7 @@ sequenceDiagram
   participant Backend as ps-server
   participant DMSSCS as DMSS Container/Signature
   participant DMSSAR as DMSS Archive
+  participant Callback as External Callback URL
 
   Browser->>NGINX: GET /portal/*
   Browser->>Keycloak: OIDC login (via /auth/*)
@@ -889,6 +889,8 @@ sequenceDiagram
   DMSSCS->>DMSSAR: Call archive API (forward headers)
   DMSSAR-->>DMSSCS: Response
   DMSSCS-->>Backend: Response
+  Backend->>Callback: POST signing status (optional)
+  Note over Backend,Callback: status="signed" OR status="error: <technical details>"
 ```
 
 ---
@@ -976,6 +978,69 @@ keycloak:
 - Treat any secrets present in this repository as placeholders only; rotate them prior to deployment.
 - Restrict admin endpoints and Keycloak admin console to trusted networks.
 - Regularly back up the `keycloak_data` volume and any persistent stores you configure.
+
+## FAQ
+
+### 1) How does the solution handle a large number of documents sent at the same time (or almost at the same time)?
+
+- `/api/registerPDF` is protected with an internal in-memory queue and concurrency limits.
+- Throughput and backpressure are controlled by:
+  - `REGISTER_PDF_MAX_CONCURRENCY`
+  - `REGISTER_PDF_QUEUE_MAX_SIZE`
+  - `REGISTER_PDF_QUEUE_WAIT_MS`
+  - `REGISTER_PDF_UPSTREAM_TIMEOUT_MS`
+  - `REGISTER_PDF_UPSTREAM_RETRIES`
+- When limits are reached, backend returns deterministic overload/timeout responses (for example `429` queue full, `503` queue timeout or circuit open), instead of unstable random behavior.
+
+### 2) How are errors handled if `ps-server` is not available when `registerPDF` is called?
+
+- If `ps-server` is unavailable, the caller will receive a gateway/network failure from the front proxy layer (for example upstream `5xx`).
+- If `ps-server` is available but dependencies are unstable, register flow returns controlled errors (`502/503/504` with `errorCode`, `429`, `503` queue timeout/circuit-open).
+- For completed signing workflows, optional callback can report failures with technical details in `status`, for example:
+  - `status: "error: <technical details>"`
+
+### 3) How are repeated or parallel document-processing scenarios handled (same document in multiple sessions, repeated signing attempts)?
+
+- Backend has duplicate/parallel protection controls:
+  - `DOC_OPERATION_LOCK_TTL_MS`
+  - `IDEMPOTENCY_TTL_MS`
+- Signing-related operations (`/api/visual-signature`, `/api/stamp`) use idempotency/lock behavior to reduce accidental duplicate processing.
+- User-document registration state is in-memory and is cleaned by:
+  - `/api/removeUser` (external integration flow, API key)
+  - `/api/cleanupUser` (internal flow, Keycloak protected)
+- Important behavior note: in-memory state is non-persistent; service restart clears current runtime registrations/locks.
+
+### 4) What software is used on tablets, and what is available there?
+
+- No special native tablet app is required.
+- Tablet users access the web portal (`/portal`) in a browser.
+- Available capabilities in the portal:
+  - Keycloak login
+  - document rendering (PDF)
+  - visual signature placement
+  - optional digital stamp stage (depends on `RUN_STAMPING_REQUEST`)
+  - callback-enabled workflow completion reporting (if enabled)
+
+### 5) What is the integration flow from a 3rd-party system, and what response is returned after signing?
+
+- 3rd-party system sends documents to backend API-key-protected endpoints:
+  - `/api/registerPDF` (multipart upload; primary production flow)
+  - legacy-compatible endpoints `/api/registerUser` and `/api/registerUserPDF` may still exist for integration compatibility
+- Success response for `/api/registerPDF` is `201` with JSON containing `docId`.
+- Operator opens/signs document in portal.
+- If callback is enabled (`PDF_SIGNING_STATUS_CALLBACK_ENABLED=true`), backend sends status updates to the configured callback URL:
+  - success status (for example `signed`)
+  - failure status with technical details (for example `error: <details>`)
+
+### 6) What is the final signed document format, and how does signature/stamp appear?
+
+- Final output remains PDF.
+- Visual signature is placed into PDF content via the visual-signature service flow.
+- Optional digital stamp is applied via stamping service (`/api/stamp`) when enabled.
+- Resulting PDF may include:
+  - visible signature graphics/text in document content
+  - digital signature/stamp metadata visible in PDF signature panel (viewer-dependent)
+
 ## Support
 
 For issues related to:
