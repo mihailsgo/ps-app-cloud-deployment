@@ -33,8 +33,8 @@
 
 ## Release Snapshot
 
-- `ps-server`: `mihailsgordijenko/ps-server:3.18`
-- `ps-client`: `mihailsgordijenko/ps-client:8.19`
+- `ps-server`: `mihailsgordijenko/ps-server:3.19`
+- `ps-client`: `mihailsgordijenko/ps-client:8.20`
 - Keycloak: `quay.io/keycloak/keycloak:26.3.2`
 - DMSS Archive: `trustlynx/dmss-archive-services:24.2.0.8`
 - DMSS Container/Signature: `trustlynx/container-signature-service:24.3.0.49`
@@ -183,7 +183,7 @@ Review and adjust these files before running:
 - `docker-compose.yml`
   - `KC_HOSTNAME` should match your hostname.
   - Host ports 80/443, 8080, 3001, 84, 86, 93 must be free.
-  - Image versions should match the release snapshot (`ps-server:3.18`, `ps-client:8.19`).
+  - Image versions should match the release snapshot (`ps-server:3.19`, `ps-client:8.20`).
 
 - `nginx/nginx.conf`
   - Update `server_name` and TLS files.
@@ -442,7 +442,6 @@ Client `constants.json` (essential keys only; keep TRANSLATIONS from default)
   "KEYCLOAK_REDIRECT_URI": "https://padsign.trustlynx.com/portal/",
   "KEYCLOAK_POST_LOGOUT_REDIRECT_URI": "https://padsign.trustlynx.com/portal/",
   "PS_API_ACTUAL_USER": "/api/latestUser",
-  "PS_API_REMOVE_USER": "/api/removeUser",
   "PS_API_CLEANUP_USER": "/api/cleanupUser",
   "PS_API_DEMO_UPLOAD": "/api/demo/upload",
   "PS_API_DEMO_UPLOAD_VERSION": "/api/demo/upload/version",
@@ -543,11 +542,8 @@ Authentication (Keycloak)
 Data polling and backend endpoints
 - `PS_API_ACTUAL_USER`: Path to latest user API (proxied by nginx to backend). Used by polling worker. Default: `"/api/latestUser"`.
 - `USER_POLLING_FREQUENCY`: Polling interval in ms for `/latestUser`. Default: `5000`.
-- `TL_CREATE_DOC_API`: Path (legacy/unused in SPA) for creating a document via backend. Default: `"/api/document/create"`. API is not relevant for cloud instance.
-- `TL_CREATE_DOC_BODY`: JSON payload (legacy/unused in SPA) describing document defaults when creating via backend; see also server `DEFAULT_DOCUMENT_JSON`. API is not relevant for cloud instance.
 - `PS_API_SAVE_DOC_IN_STORAGE`: Path to backend endpoint that downloads a generated PDF into `DOCUMENT_OUTPUT_DIRECTORY`. Default: `"/api/save"`. API is not relevant for cloud instance.
 - `PS_API_GEN_XML`: Path to backend XML generation endpoint. Default: `"/api/xml"`. API is not relevant for cloud instance.
-- `PS_API_REMOVE_USER`: External integration cleanup endpoint. Default: `"/api/removeUser"` (API key protected).
 - `PS_API_CLEANUP_USER`: Internal app cleanup endpoint. Default: `"/api/cleanupUser"` (Keycloak protected).
 - `PS_API_DEMO_UPLOAD`: DEMO upload endpoint. Default: `"/api/demo/upload"`.
 - `PS_API_DEMO_UPLOAD_VERSION`: DEMO upload new version endpoint. Default: `"/api/demo/upload/version"`.
@@ -557,7 +553,6 @@ PDF rendering, download, and signature overlay
 - `PS_DOWNLOAD_API`: Archive service base used by the viewer to open PDFs in readonly mode. Final URL: `PS_DOWNLOAD_API + <docId> + "/download"`. Default: `"https://padsign.trustlynx.com/archive/api/document/"`.
 - `PDF_TEST_PATH`: Base URL to static templates for interactive mode. Viewer uses `PDF_TEST_PATH + "_" + <lng> + ".pdf"` (e.g., `/portal/template_LV.pdf`). Default: `"https://padsign.trustlynx.com/template"` (override to your SPA path if hosting templates with the client). API is not relevant for cloud instance.
 - `PDF_RENDER_SYNCFUSION_SECRET_KEY`: Syncfusion viewer license key used at runtime. Default: present key in repo (replace with your own license key).
-- `PDF_TEMPLATE_ID`: Template ID (legacy/unused in current code path). Not relevant for cloud instance.
 - `PDF_SIGNATURE_X`: X position for visual signature overlay (px units, service‑specific). Default: `-250`.
 - `PDF_SIGNATURE_Y`: Y position for visual signature overlay. Default: `-100`.
 - `PDF_SIGNATURE_ZOOM`: Scale for signature image in overlay. Default: `100`.
@@ -572,17 +567,11 @@ PDF rendering, download, and signature overlay
 Signature pad and phone prefixing
 - `CANVA_WIDTH`: Signature canvas width (px). Default: `300`.
 - `CANVA_HEIGHT`: Signature canvas height (px). Default: `100`.
-- `COUNTRY_SELECTOR`: HTML snippet injected near phone field to pick country code. Default: dropdown for LV/EE/LT. Not relevant for cloud instance.
-- `COUNTRY_SELECTION_SELECTOR_APPEND_DELAY`: Retry interval (ms) to insert `COUNTRY_SELECTOR`. Default: `1000`. Not relevant for cloud instance.
-- `DEFAULT_PHONE_PREFIX`: Fallback country prefix when selector unavailable. Default: `"371"`. Not relevant for cloud instance.
+- `DEFAULT_PHONE_PREFIX`: Default country prefix used by UI helpers. Default: `"371"`.
 
-Form field behavior and mappings
-- `FORM_FIELDS`: Map of PDF form field names to types (`Text`, `Checkbox`, `Multiselection`, etc.). Used to coerce values before sending to backend. Not relevant for cloud instance.
-- `PS_USER_DATA_FIELD_NAMES`: List of text fields that should auto‑fill with composed user data. Default: `GDPR_client_data`, `GPDR_signer_data`, `SA_client_data`, `SA_signer_data`, `VID_client_data`, `VID_signer_data`. Not relevant for cloud instance.
-- `PS_LOCATION_DATA_FIELD_NAMES`: List of text fields that should auto‑fill with current date/location. Default includes three `*_locationdate` fields. Not relevant for cloud instance.
-- `CHECKBOX_GROUP_VID`: Two checkbox field names that must be mutually exclusive (component enforces this). Default: `VID_agree_checkbox`, `VID_disagree_checkbox`. Not relevant for cloud instance.
-- `SURVEY_MAPPING`: Numeric → label mapping for survey choice display (currently not used in rendering logic). Not relevant for cloud instance.
-- `HIDDEN_FIELDS`: Fields to hide per language (currently not active in code; kept for future use). Not relevant for cloud instance.
+Form fields
+- The app extracts PDF form fields generically (text -> string, checkbox -> boolean) and does not run business validations or field-type coercion based on field names.
+- `HIDDEN_FIELDS`: Fields to hide per language (currently not active in code; kept for future use).
 
 Localization and text
 - `DEFAULT_LANGUAGE`: Default language code for UI and date formatting. Default: `"LV"`.
@@ -600,10 +589,6 @@ Workflow toggles and callbacks
 - `DEMO_MODE`: Enables/disables DEMO behavior (`ENABLE`/`DISABLE`). Default: `"DISABLE"`.
 - `PDF_SIGNING_STATUS_CALLBACK`: Optional external webhook URL to notify when signing finishes. Callback supports both success (`status: "signed"`) and failures (`status: "error: <technical details>"`). Default: `"https://example.com/api/signing-status"`.
 - `PDF_SIGNING_STATUS_CALLBACK_ENABLED`: Enables the webhook above when `true`. Default: `false`.
-
-Misc
-- `PS_PAGE_REFRESH_TIME`: Legacy/unused; kept for compatibility. Not relevant for cloud instance.
-- `STAMP_COMPANY_NAME`: Legacy/unused in current backend proxy; kept for compatibility. Not relevant for cloud instance.
 
 ---
 
@@ -728,7 +713,7 @@ Authentication and security
 
 ### Notes
 
-- Some keys in `constants.json` are currently legacy or reserved for future functionality (e.g., `PDF_TEMPLATE_ID`, `PS_PAGE_REFRESH_TIME`, `STAMP_COMPANY_NAME`, parts of `HIDDEN_FIELDS`). They are documented above for completeness.
+- Legacy PDF field-analysis constants (field mappings, country selector injection, survey mapping, etc.) were removed to keep the solution generic and avoid field-name-specific logic.
 - If you need environment‑based switching, consider generating these files at deploy time (e.g., mounting environment‑specific variants) rather than baking many conditionals into the code.
 2. Verify nginx proxy settings
 3. Ensure containers can reach each other
