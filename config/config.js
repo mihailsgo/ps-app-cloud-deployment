@@ -1,4 +1,4 @@
-module.exports = {
+  module.exports = {
     VISUAL_SIGNATURE_API_TEMPLATE: "https://padsign.trustlynx.com/container/api/signing/visual/pdf/{docid}/sign",
     STAMP_API_URL: "https://eseal.trustlynx.com/api/gateway/esealing/sign/api-key/DEMOCOMPANY",
     STAMP_API_KEY: "HT8mLAEMOBgKcyFbFg8gfS4hX2IeKBYRHQ==",
@@ -6,13 +6,10 @@ module.exports = {
     STAMP_COMPANY_SECRET: "Xsw9ayZ^%3",
     API_PROTECT_LOGS_ENABLED: false,
     PORT: 3001,
-    CONTAINER_API_BASE_URL: "https://padsign.trustlynx.com/container/api/",
     ARCHIVE_API_BASE_URL: "https://padsign.trustlynx.com/archive/api/",
     CREATE_DOCUMENT_API_URL: "https://padsign.trustlynx.com/archive/api/document/create",
     FORM_FILL_API_URL: "https://padsign.trustlynx.com/container/api/forms/fill/template/application",
-    TEMPLATE_DIRECTORY: "/Repos/psapp/client/public/template",
     DOCUMENT_DOWNLOAD_API_URL: "https://padsign.trustlynx.com/archive/api/document/",
-    DEFAULT_TEMPLATE_FILENAME: "template.pdf",
     TEMP_DIRECTORY: "./tmp/",
     DOCUMENT_OUTPUT_DIRECTORY: "/PSDOCS/out/",
     READONLY_PDF_DIRECTORY: "/PSDOCS/in/",
@@ -30,10 +27,12 @@ module.exports = {
     KEYCLOAK_CONFIG: {
       realm: "padsign",
       "auth-server-url": "https://padsign.trustlynx.com/auth",
+      // Switch to confidential backend client
       resource: "padsign-backend",
       "credentials": {
         "secret": "ZhFzSQ9mFvNsm15sZNC6ugStSLFUwb7e"
-      }
+      },
+      "bearer-only": true
     },
     DEMO_MAX_FILE_SIZE_MB: 10,
     DEMO_COMPANY_ROLE: "Adenta",

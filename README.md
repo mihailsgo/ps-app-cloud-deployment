@@ -543,7 +543,6 @@ Data polling and backend endpoints
 - `PS_API_ACTUAL_USER`: Path to latest user API (proxied by nginx to backend). Used by polling worker. Default: `"/api/latestUser"`.
 - `USER_POLLING_FREQUENCY`: Polling interval in ms for `/latestUser`. Default: `5000`.
 - `PS_API_SAVE_DOC_IN_STORAGE`: Path to backend endpoint that downloads a generated PDF into `DOCUMENT_OUTPUT_DIRECTORY`. Default: `"/api/save"`. API is not relevant for cloud instance.
-- `PS_API_GEN_XML`: Path to backend XML generation endpoint. Default: `"/api/xml"`. API is not relevant for cloud instance.
 - `PS_API_CLEANUP_USER`: Internal app cleanup endpoint. Default: `"/api/cleanupUser"` (Keycloak protected).
 - `PS_API_DEMO_UPLOAD`: DEMO upload endpoint. Default: `"/api/demo/upload"`.
 - `PS_API_DEMO_UPLOAD_VERSION`: DEMO upload new version endpoint. Default: `"/api/demo/upload/version"`.
