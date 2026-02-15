@@ -113,6 +113,36 @@ Optional (local):
 
 The NGINX virtual host is configured for `padsign.trustlynx.com` out of the box. Update this to your hostname and provide matching certificates.
 
+### TLS Prerequisites (For Installation Scripts)
+
+The installation scripts expect PEM files named after the hostname you pass in `--host`.
+
+- Put certs here (source location):
+  - `installation-scripts/certs/<host>.crt`
+  - `installation-scripts/certs/<host>.key`
+- The scripts copy them to (NGINX bind-mount location):
+  - `nginx/certs/<host>.crt`
+  - `nginx/certs/<host>.key`
+- NGINX reads them inside the container from:
+  - `/etc/nginx/certs/<host>.crt`
+  - `/etc/nginx/certs/<host>.key`
+
+Certificate file format expectations
+- `<host>.crt` should be a PEM certificate (for example a full chain file like Let's Encrypt `fullchain.pem`).
+- `<host>.key` must be a PEM private key.
+
+Password-protected private keys
+- If the private key is encrypted (has `ENCRYPTED` in the PEM header), NGINX won’t be able to start non-interactively.
+- Recommended: convert it to an unencrypted key before running the scripts:
+
+```bash
+# Example for Let's Encrypt files:
+cp /etc/letsencrypt/live/<host>/fullchain.pem installation-scripts/certs/<host>.crt
+openssl pkey -in /etc/letsencrypt/live/<host>/privkey.pem -out installation-scripts/certs/<host>.key
+```
+
+If you intentionally want to keep an encrypted key, you need to extend `nginx/nginx.conf` with `ssl_password_file` and mount a password file into the container (not implemented by default).
+
 1) Replace server_name and cert paths
 
 - Edit `nginx/nginx.conf` and change:
@@ -246,7 +276,36 @@ keycloak:
     - keycloak_data:/opt/keycloak/data
 ```
 
-### 2. Access Keycloak Admin Panel
+### 2. Automated Setup (Recommended)
+
+This repo includes an idempotent bootstrap script that creates the realm, clients, and required roles for you.
+
+One-shot (Linux, recommended for new servers):
+
+```bash
+chmod +x ./installation-scripts/*.sh
+./installation-scripts/bootstrap.sh --host padsign.trustlynx.com --company-role "YourCompany"
+docker compose up -d
+./installation-scripts/verify-keycloak.sh --host padsign.trustlynx.com --company-role "YourCompany"
+```
+
+Run (Linux):
+
+```bash
+docker compose up -d
+./installation-scripts/keycloak-bootstrap.sh --host padsign.trustlynx.com --company-role "YourCompany"
+```
+
+Run (Windows PowerShell):
+
+```powershell
+docker compose up -d
+.\installation-scripts\keycloak-bootstrap.ps1 -PublicHost padsign.trustlynx.com -CompanyRole "YourCompany"
+```
+
+The script prints the backend client secret; set it in `config/config.js` under `KEYCLOAK_CONFIG.credentials.secret`.
+
+### 3. Access Keycloak Admin Panel (Manual / Verification)
 
 1. Start the containers:
    ```bash
@@ -260,14 +319,14 @@ keycloak:
    - Username: `admin`
    - Password: `admin`
 
-### 3. Create Realm
+### 4. Create Realm (Manual)
 
 1. Log in to Keycloak admin panel
 2. Click "Create Realm"
 3. Enter realm name: `padsign`
 4. Click "Create"
 
-### 4. Create Client for Frontend
+### 5. Create Client for Frontend (Manual)
 
 1. In the `padsign` realm, go to "Clients" ? "Create"
 2. Configure the client:
@@ -296,7 +355,7 @@ keycloak:
 
 5. Save the configuration
 
-### 5. Create Client for Backend
+### 6. Create Client for Backend (Manual)
 
 1. Create another client for the backend:
    - **Client ID**: `padsign-backend`
@@ -315,7 +374,7 @@ keycloak:
 
 ### 1. Update Constants File
 
-Edit `client/public/constants.json` to match your domain:
+Edit `config/constants.json` to match your domain:
 
 ```json
 {
@@ -344,7 +403,7 @@ VITE_PORT=5173
 
 ### 1. Update Server Config
 
-Edit `server/config.js` to include Keycloak configuration:
+Edit `config/config.js` to include Keycloak configuration:
 
 ```javascript
 module.exports = {
@@ -662,7 +721,7 @@ curl -X POST "https://padsign.trustlynx.com/api/registerPDF" \
   -H "Authorization: Bearer ${REGISTER_PDF_API_KEY}" \
   -F "file=@/path/to/file.pdf;type=application/pdf" \
   -F "email=user@example.com" \
-  -F "company=Adenta" \
+  -F "company=<your-company>" \
   -F "clientName=John Doe"
 ```
 
@@ -670,7 +729,7 @@ Example (HTTPie)
 ```bash
 http -f POST https://padsign.trustlynx.com/api/registerPDF \
   Authorization:"Bearer ${REGISTER_PDF_API_KEY}" \
-  file@/path/to/file.pdf email=user@example.com company=Adenta clientName='John Doe'
+  file@/path/to/file.pdf email=user@example.com company=<your-company> clientName='John Doe'
 ```
 
 Follow-up in SPA

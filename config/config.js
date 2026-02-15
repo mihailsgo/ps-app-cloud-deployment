@@ -35,7 +35,8 @@
       "bearer-only": true
     },
     DEMO_MAX_FILE_SIZE_MB: 10,
-    DEMO_COMPANY_ROLE: "Adenta",
+    // Used by demo/internal flows; set to your company role name in Keycloak (or disable demo mode in constants.json).
+    DEMO_COMPANY_ROLE: "CHANGE_ME",
     REGISTER_PDF_API_KEY: "tlx_pdf_8f7e2a1b9c4d6e3f5a8b2c7d9e1f4a6b8c3d5e7f9a2b4c6d8e0f1a3b5c7d9e2f4",
     ALLOW_INSECURE_TLS: false,
     SESSION_SECRET: "change-this-session-secret",

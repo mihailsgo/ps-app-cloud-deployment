@@ -18,6 +18,8 @@ log/
 # Certificates and secrets
 nginx/certs/*
 !nginx/certs/.gitkeep
+installation-scripts/certs/*
+!installation-scripts/certs/.gitkeep
 nginx/*.exe
 dmss-container-and-signature-services/*.p12
 dmss-container-and-signature-services/*.pfx
