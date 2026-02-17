@@ -6,7 +6,6 @@ host="${KC_HOSTNAME:-}"
 company_role=""
 admin_user="${KEYCLOAK_ADMIN:-admin}"
 admin_pass="${KEYCLOAK_ADMIN_PASSWORD:-admin}"
-
 users_csv="" # format: username:password[:role],username2:password2[:role]
 
 usage() {
@@ -26,6 +25,7 @@ What it does (idempotent):
     - password: <company-role lowercased>
     - realm roles: only <company-role>
   - creates/updates clients: padsign-client (public) and padsign-backend (confidential bearer-only)
+  - sets client "name" fields (same as client IDs)
   - optionally creates users and assigns a realm role (if provided per user)
   - prints backend client secret
 EOF
@@ -60,21 +60,25 @@ echo "Bootstrapping Keycloak realm '${realm}' for host '${host}'..."
 
 docker compose up -d keycloak >/dev/null
 
-ready_url="http://localhost:8080/auth/health/ready"
-for i in $(seq 1 60); do
-  if curl -fsS --max-time 2 "$ready_url" >/dev/null 2>&1; then
+ready_url="http://localhost:8080/"
+for i in $(seq 1 120); do
+  if curl -fsS --max-time 3 "$ready_url" >/dev/null 2>&1; then
     break
   fi
   sleep 1
-  if [[ "$i" == "60" ]]; then
-    echo "Keycloak did not become ready at ${ready_url} within 60s" >&2
+  if [[ "$i" == "120" ]]; then
+    echo "Keycloak did not become ready at ${ready_url} within 120s" >&2
     exit 1
   fi
 done
 
 kc_exec() {
-  # Use localhost inside the container.
   docker compose exec -T keycloak sh -lc "$*"
+}
+
+kc_csv_last() {
+  local cmd="$1"
+  kc_exec "$cmd" | tail -n 1 | tr -d '\r"'
 }
 
 kc_exec "/opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080/auth --realm master --user '${admin_user}' --password '${admin_pass}'" >/dev/null
@@ -90,17 +94,17 @@ ensure_role "padsign-admin"
 ensure_role "psapp-integration"
 ensure_role "${company_role}"
 
-# Recreate 'test' user to ensure it has ONLY the company role.
+# Recreate 'test' user to ensure it has the company role.
 test_user="test"
 test_pass="$(printf '%s' "${company_role}" | tr '[:upper:]' '[:lower:]')"
 kc_exec "
-  UID=\$(/opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username=${test_user} --fields id --format csv | tail -n 1)
-  if [ -n \"\$UID\" ] && [ \"\$UID\" != \"id\" ]; then
-    /opt/keycloak/bin/kcadm.sh delete users/\$UID -r ${realm} >/dev/null
+  TEST_UID=\$(/opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username=${test_user} --fields id --format csv | tail -n 1 | tr -d '\r\"')
+  if [ -n \"\$TEST_UID\" ] && [ \"\$TEST_UID\" != \"id\" ]; then
+    /opt/keycloak/bin/kcadm.sh delete users/\$TEST_UID -r ${realm} >/dev/null
   fi
   /opt/keycloak/bin/kcadm.sh create users -r ${realm} -s username=${test_user} -s enabled=true >/dev/null
-  UID=\$(/opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username=${test_user} --fields id --format csv | tail -n 1)
-  /opt/keycloak/bin/kcadm.sh set-password -r ${realm} --userid \$UID --new-password '${test_pass}' --temporary=false >/dev/null
+  TEST_UID=\$(/opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username=${test_user} --fields id --format csv | tail -n 1 | tr -d '\r\"')
+  /opt/keycloak/bin/kcadm.sh set-password -r ${realm} --userid \$TEST_UID --new-password '${test_pass}' --temporary=false >/dev/null
   /opt/keycloak/bin/kcadm.sh add-roles -r ${realm} --uusername ${test_user} --rolename '${company_role}' >/dev/null
 " >/dev/null
 
@@ -108,24 +112,30 @@ client_frontend="padsign-client"
 redirect_uris="[\"${portal_base}/*\",\"${portal_base}/\",\"${portal_base}\"]"
 web_origins="[\"${portal_base}/\",\"${portal_base}\"]"
 
-kc_exec "
-  /opt/keycloak/bin/kcadm.sh get clients -r ${realm} -q clientId=${client_frontend} --fields id,clientId | grep -q '\"id\"' || \
-  /opt/keycloak/bin/kcadm.sh create clients -r ${realm} \
-    -s clientId=${client_frontend} \
-    -s enabled=true \
-    -s publicClient=true \
-    -s standardFlowEnabled=true \
-    -s directAccessGrantsEnabled=false \
-    -s implicitFlowEnabled=false \
-    -s 'redirectUris=${redirect_uris}' \
-    -s 'webOrigins=${web_origins}' \
-    -s rootUrl=${portal_base}/ \
-    -s baseUrl=${portal_base}/ \
-    -s adminUrl=${portal_base}/ \
-    -s \"attributes.\\\"post.logout.redirect.uris\\\"=${post_logout_uris}\" >/dev/null
+frontend_cid="$(kc_csv_last "/opt/keycloak/bin/kcadm.sh get clients -r ${realm} -q clientId=${client_frontend} --fields id --format csv")"
+if [[ -z "${frontend_cid}" || "${frontend_cid}" == "id" ]]; then
+  kc_exec "
+    /opt/keycloak/bin/kcadm.sh create clients -r ${realm} \
+      -s clientId=${client_frontend} \
+      -s name=${client_frontend} \
+      -s enabled=true \
+      -s publicClient=true \
+      -s standardFlowEnabled=true \
+      -s directAccessGrantsEnabled=false \
+      -s implicitFlowEnabled=false \
+      -s 'redirectUris=${redirect_uris}' \
+      -s 'webOrigins=${web_origins}' \
+      -s rootUrl=${portal_base}/ \
+      -s baseUrl=${portal_base}/ \
+      -s adminUrl=${portal_base}/ \
+      -s \"attributes.\\\"post.logout.redirect.uris\\\"=${post_logout_uris}\" >/dev/null
+  " >/dev/null
+  frontend_cid="$(kc_csv_last "/opt/keycloak/bin/kcadm.sh get clients -r ${realm} -q clientId=${client_frontend} --fields id --format csv")"
+fi
 
-  CID=\$(/opt/keycloak/bin/kcadm.sh get clients -r ${realm} -q clientId=${client_frontend} --fields id --format csv | tail -n 1)
-  /opt/keycloak/bin/kcadm.sh update clients/\$CID -r ${realm} \
+kc_exec "
+  /opt/keycloak/bin/kcadm.sh update clients/${frontend_cid} -r ${realm} \
+    -s name=${client_frontend} \
     -s 'redirectUris=${redirect_uris}' \
     -s 'webOrigins=${web_origins}' \
     -s rootUrl=${portal_base}/ \
@@ -135,11 +145,12 @@ kc_exec "
 " >/dev/null
 
 client_backend="padsign-backend"
-backend_secret="$(
+backend_cid="$(kc_csv_last "/opt/keycloak/bin/kcadm.sh get clients -r ${realm} -q clientId=${client_backend} --fields id --format csv")"
+if [[ -z "${backend_cid}" || "${backend_cid}" == "id" ]]; then
   kc_exec "
-    /opt/keycloak/bin/kcadm.sh get clients -r ${realm} -q clientId=${client_backend} --fields id,clientId | grep -q '\"id\"' || \
     /opt/keycloak/bin/kcadm.sh create clients -r ${realm} \
       -s clientId=${client_backend} \
+      -s name=${client_backend} \
       -s enabled=true \
       -s publicClient=false \
       -s bearerOnly=false \
@@ -147,11 +158,12 @@ backend_secret="$(
       -s standardFlowEnabled=false \
       -s implicitFlowEnabled=false \
       -s directAccessGrantsEnabled=false >/dev/null
+  " >/dev/null
+  backend_cid="$(kc_csv_last "/opt/keycloak/bin/kcadm.sh get clients -r ${realm} -q clientId=${client_backend} --fields id --format csv")"
+fi
 
-    CID=\$(/opt/keycloak/bin/kcadm.sh get clients -r ${realm} -q clientId=${client_backend} --fields id --format csv | tail -n 1)
-    /opt/keycloak/bin/kcadm.sh get clients/\$CID/client-secret -r ${realm} --fields value --format csv | tail -n 1
-  " | tr -d '\r'
-)"
+kc_exec "/opt/keycloak/bin/kcadm.sh update clients/${backend_cid} -r ${realm} -s name=${client_backend}" >/dev/null
+backend_secret="$(kc_csv_last "/opt/keycloak/bin/kcadm.sh get clients/${backend_cid}/client-secret -r ${realm} --fields value --format csv")"
 
 if [[ -n "$users_csv" ]]; then
   IFS=',' read -r -a users <<<"$users_csv"
@@ -162,14 +174,13 @@ if [[ -n "$users_csv" ]]; then
       exit 2
     fi
 
-    # Create user if missing.
     kc_exec "
       /opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username=${username} --fields id,username | grep -q '\"id\"' || \
       /opt/keycloak/bin/kcadm.sh create users -r ${realm} -s username=${username} -s enabled=true >/dev/null
     " >/dev/null
 
     uid="$(
-      kc_exec "/opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username=${username} --fields id --format csv | tail -n 1" | tr -d '\r'
+      kc_exec "/opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username=${username} --fields id --format csv | tail -n 1" | tr -d '\r"'
     )"
 
     kc_exec "/opt/keycloak/bin/kcadm.sh set-password -r ${realm} --userid ${uid} --new-password '${password}' --temporary=false" >/dev/null

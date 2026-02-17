@@ -91,6 +91,8 @@ services:
     volumes:
       # Override runtime configuration file inside the client image
       - ./config/constants.json:/usr/share/nginx/html/portal/constants.json:ro
+      # Runtime Keycloak override (prevents fallback to bundled default host)
+      - ./config/keycloak.js:/usr/share/nginx/html/portal/keycloak.js:ro
       # Override logo used by the SPA
       - ./config/TLlogo.png:/usr/share/nginx/html/portal/logo.png:ro
     networks:

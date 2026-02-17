@@ -230,6 +230,14 @@ Review and adjust these files before running:
   - Update `PS_DOWNLOAD_API` and any other absolute URLs.
   - Optional: Branding (logo, page title) and UX parameters.
 
+- `config/keycloak.js` (PS Client runtime Keycloak override)
+  - Keep this file mounted to `/portal/keycloak.js` in `ps-client`.
+  - This prevents fallback to bundled default host values inside client assets.
+  - Use hostname-based values (recommended):
+    - `url: ${window.location.origin}/auth`
+    - `redirectUri: ${window.location.origin}/portal/`
+    - `postLogoutRedirectUri: ${window.location.origin}/portal/`
+
 - `dmss-container-and-signature-services/application.yml`
   - `archive-services.baseUrl` and `fallbackUrl` point to internal service names and typically do not need changes.
   - Trust stores and certificate files referenced under `/confs` must exist in `dmss-container-and-signature-services/`.
@@ -304,6 +312,34 @@ docker compose up -d
 ```
 
 The script prints the backend client secret; set it in `config/config.js` under `KEYCLOAK_CONFIG.credentials.secret`.
+
+Compatibility notes (important):
+- `installation-scripts/keycloak-bootstrap.sh` in this package was updated for Keycloak 26 compatibility:
+  - readiness check uses `http://localhost:8080/`
+  - avoids shell reserved variable `UID`
+  - strips quoted CSV IDs returned by `kcadm.sh`
+  - sets client `name` fields for `padsign-client` and `padsign-backend` (same as client IDs)
+
+If bootstrap still fails in your environment, perform these manual activities:
+1. Ensure scripts are executable:
+   - `chmod +x ./installation-scripts/*.sh`
+2. Bootstrap Keycloak manually in admin UI:
+   - Realm: `padsign`
+   - Roles: `padsign-admin`, `psapp-integration`, `<CompanyRole>`
+   - User: `test` with password `<company role lowercased>` and role `<CompanyRole>`
+   - Clients:
+     - `padsign-client` (public), Name: `padsign-client`
+     - `padsign-backend` (confidential + service accounts), Name: `padsign-backend`
+3. Set these values for `padsign-client`:
+   - Redirect URIs:
+     - `https://<host>/portal/*`
+     - `https://<host>/portal/`
+     - `https://<host>/portal`
+   - Web Origins:
+     - `https://<host>/portal/`
+     - `https://<host>/portal`
+4. Copy backend client secret to:
+   - `config/config.js` -> `KEYCLOAK_CONFIG.credentials.secret`
 
 ### 3. Access Keycloak Admin Panel (Manual / Verification)
 
@@ -577,6 +613,7 @@ module.exports = {
 
 Docker Compose mappings (see `docker-compose.yml`):
 - `./config/constants.json` → `ps-client:/usr/share/nginx/html/portal/constants.json`
+- `./config/keycloak.js` → `ps-client:/usr/share/nginx/html/portal/keycloak.js`
 - `./config/config.js` → `ps-server:/usr/src/app/config.js`
 
 > Note: There is a second `server/config.js` kept for local development of the backend; production deployments should use `config/config.js` via Compose.
@@ -830,6 +867,18 @@ Check these URLs are accessible:
 
 ### Common Issues
 
+#### 0. Browser shows `Failed to load module script` for `/portal/keycloak.js`
+
+**Cause**: `/portal/keycloak.js` is missing, and NGINX serves `index.html` (`text/html`) instead of JS.
+
+**Solution**:
+1. Ensure `config/keycloak.js` exists.
+2. Ensure compose mount exists in `ps-client`:
+   - `./config/keycloak.js:/usr/share/nginx/html/portal/keycloak.js:ro`
+3. Recreate `ps-client`:
+   - `docker compose up -d ps-client`
+4. Hard refresh browser (`Ctrl+F5`) or test in Incognito.
+
 #### 1. "Invalid redirect URI" Error
 
 **Cause**: Redirect URI doesn't match Keycloak client configuration
@@ -939,6 +988,39 @@ sequenceDiagram
 ---
 
 ## Production Deployment
+
+### Deployment Checklist (Recommended)
+
+Run these steps in order on a clean target host:
+
+1. Prepare runtime files
+   - Set hostname values in:
+     - `config/constants.json`
+     - `config/config.js`
+   - Ensure `config/keycloak.js` exists and points to your current host (or uses `window.location.origin` as provided).
+   - Place TLS files for your host:
+     - `installation-scripts/certs/<host>.crt`
+     - `installation-scripts/certs/<host>.key`
+
+2. Bootstrap and start
+```bash
+chmod +x ./installation-scripts/*.sh
+./installation-scripts/bootstrap.sh --host <host> --company-role "<CompanyRole>"
+docker compose up -d
+```
+
+3. Verify runtime overrides and auth wiring
+```bash
+curl -kI https://<host>/portal/keycloak.js
+curl -k https://<host>/portal/keycloak.js
+curl -kI https://<host>/portal/
+curl -kI https://<host>/auth/
+```
+- `/portal/keycloak.js` must return `200` and `Content-Type: application/javascript`.
+- If browser still shows old host in console, do a hard refresh (`Ctrl+F5`) or open in Incognito.
+
+4. If bootstrap fails
+   - Follow manual fallback steps in `Keycloak Setup` section (client names, roles, test user, backend secret copy to `config/config.js`).
 
 ### 1. Environment Variables
 
