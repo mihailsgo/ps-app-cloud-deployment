@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.0.3
+
+- Updated deployment image tag to `ps-client:8.33` in `docker-compose.yml`.
+- Updated `README.md` release snapshot references to `ps-client:8.33`.
+
 ## v1.0.2
 
 - Updated deployment docs to use `ps-client:8.23`.

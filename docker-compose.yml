@@ -84,7 +84,7 @@ services:
           - padsign.trustlynx.com
 
   ps-client:
-    image: mihailsgordijenko/ps-client:8.23
+    image: mihailsgordijenko/ps-client:8.33
     container_name: ps-client
     restart: unless-stopped
     # No host port mapping; accessed via nginx by service name
