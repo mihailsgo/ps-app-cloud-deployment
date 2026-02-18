@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.0.2
+
+- Updated deployment docs to use `ps-client:8.23`.
+- Aligned release snapshot references in `README.md` with `docker-compose.yml`.
+
 ## v1.0.1
 
 - Updated release snapshot and compose image references to:
