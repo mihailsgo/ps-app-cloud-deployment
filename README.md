@@ -1182,12 +1182,12 @@ For issues related to:
 
 
 
-## PSAPP Solution Architecture (2026 Verified)
+## PSAPP Solution Architecture
 
-## Scope and baseline
-This architecture is derived from the current `psapp` solution and aligned with the deployment package `ps-app-cloud-deployment` (user-mentioned `ps-app-deploymeny`, assumed as this package).
 
-## 1) Deployment and integration architecture
+## Appendix
+
+### 1) Deployment and integration architecture
 
 ```mermaid
 flowchart LR
@@ -1262,7 +1262,7 @@ flowchart LR
   DCS -->|Timestamp/OCSP/signature trust checks| TRUST
 ```
 
-## 2) Signing and stamping execution flow
+### 2) Signing and stamping execution flow
 
 ```mermaid
 sequenceDiagram
@@ -1299,7 +1299,7 @@ sequenceDiagram
   API-->>SPA: Stamp complete or skipped when upstream unavailable
 ```
 
-## 3) Very high-level component view
+### 3) Very high-level component view
 
 ```mermaid
 flowchart LR
