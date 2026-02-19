@@ -1,0 +1,40 @@
+# OS/IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.iml
+
+# Logs
+*.log
+logs/
+log/
+
+# Env
+.env
+.env.*
+*.local
+
+# Certificates and secrets
+nginx/certs/*
+!nginx/certs/.gitkeep
+installation-scripts/certs/*
+!installation-scripts/certs/.gitkeep
+nginx/*.exe
+dmss-container-and-signature-services/*.p12
+dmss-container-and-signature-services/*.pfx
+dmss-container-and-signature-services/*.jks
+dmss-container-and-signature-services/*truststore*
+dmss-container-and-signature-services/*keystore*
+!dmss-container-and-signature-services/*.p12
+!dmss-container-and-signature-services/*truststore*.p12
+!dmss-container-and-signature-services/*keystore*.p12
+
+# Generated/temporary
+tmp/
+temp/
+PSDOCS/
+PSDOCS/**
+
+# Large or local-only data
+docs/**
