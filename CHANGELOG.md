@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.0.5
+
+- Overhauled `bootstrap.sh`: fully automated end-to-end deployment — config rewrites, directory creation, Keycloak setup, Docker pull, service startup, and verification in one command.
+- Improved `configure-host.sh`: added config backups before edits, JSON validation, nginx root→/portal/ redirect, `--enable-routing` and `--enable-demo` flags, `--company-role` for DEMO_COMPANY_ROLE, ensures DOCUMENT_ROUTING and signed-output volume mount.
+- Improved `keycloak-bootstrap.sh`: fixed IFS variable pollution, improved readiness check (uses health endpoint), random test user password, test user email, production warning.
+- Enhanced `verify-keycloak.sh`: added service health checks (ps-server, nginx redirect, Keycloak OIDC), config validation (DOCUMENT_ROUTING, volume mounts).
+- New `upgrade.sh`: automated upgrade for existing deployments — updates image tags, ensures latest config patterns, pulls images, restarts containers.
+- New `validate-config.sh`: validates syntax and consistency of all config files, checks hostname consistency, compares running containers against docker-compose.yml.
+- Updated README.md with Quick Start, Upgrade, and Validation sections.
+
 ## v1.0.4
 
 - Added `DOCUMENT_ROUTING` configuration to `config/config.js` for server-side post-signing document routing (filesystem save with structured folders, webhook delivery with retries).

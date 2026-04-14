@@ -71,8 +71,11 @@ docker compose up -d keycloak >/dev/null
 kc_exec "/opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080/auth --realm master --user '${admin_user}' --password '${admin_pass}'" >/dev/null
 
 fail=0
+exit_code=0
 ok() { printf 'OK   %s\n' "$*"; }
 bad() { printf 'FAIL %s\n' "$*"; fail=1; }
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 if kc_exec "/opt/keycloak/bin/kcadm.sh get realms/${realm} >/dev/null 2>&1"; then
   ok "realm '${realm}' exists"
@@ -197,7 +200,53 @@ PY <<<"$roles_json"
   if [[ ${exit_code:-0} -ne 0 ]]; then fail=1; fi
 fi
 
+# --- Service health checks ---
+echo ""
+echo "Service health checks:"
+
+# ps-server
+if docker compose logs ps-server 2>/dev/null | grep -q "PadSign Server listening"; then
+  ok "ps-server is running"
+else
+  bad "ps-server does not appear to be running"
+fi
+
+# nginx redirect
+redirect_check="$(curl -ksI "https://localhost/" 2>/dev/null | head -1 || true)"
+if echo "$redirect_check" | grep -q "301"; then
+  ok "nginx root redirect (301 -> /portal/)"
+else
+  bad "nginx root redirect not working (got: ${redirect_check})"
+fi
+
+# Keycloak OIDC discovery
+oidc_check="$(curl -ksf "https://localhost/auth/realms/${realm}/.well-known/openid-configuration" 2>/dev/null | head -c 20 || true)"
+if [[ "$oidc_check" == *"issuer"* ]]; then
+  ok "Keycloak OIDC discovery endpoint"
+else
+  bad "Keycloak OIDC discovery not responding"
+fi
+
+# --- Config validation ---
+echo ""
+echo "Config validation:"
+if grep -q 'DOCUMENT_ROUTING' "${repo_root}/config/config.js" 2>/dev/null; then
+  ok "DOCUMENT_ROUTING present in config.js"
+else
+  bad "DOCUMENT_ROUTING missing from config.js"
+fi
+
+if grep -q 'signed-output:/signed-output' "${repo_root}/docker-compose.yml" 2>/dev/null; then
+  ok "signed-output volume mount in docker-compose.yml"
+else
+  bad "signed-output volume mount missing"
+fi
+
+echo ""
 if [[ "$fail" -ne 0 ]]; then
+  echo "RESULT: Some checks FAILED"
   exit 1
+else
+  echo "RESULT: All checks passed"
 fi
 

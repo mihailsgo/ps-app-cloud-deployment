@@ -48,25 +48,37 @@ ps-app-cloud-deployment/
 
 ## How to deploy
 
-### First-time setup
+### First-time setup (fully automated)
 
 ```bash
-./installation-scripts/bootstrap.sh --host example.com --company-role "CompanyName"
+./installation-scripts/bootstrap.sh \
+  --host padsign.client.com \
+  --company-role "ClientName" \
+  --admin-pass "StrongPassword" \
+  --cert-crt ./installation-scripts/certs/padsign.client.com.crt \
+  --cert-key ./installation-scripts/certs/padsign.client.com.key
 ```
 
-This runs `configure-host.sh` (rewrites hostnames in all config files) and `keycloak-bootstrap.sh` (creates realm, clients, roles, users).
+This handles everything end-to-end: config rewrites, directory creation, Keycloak setup, Docker pull, service startup, and verification. Optional flags: `--enable-routing` (filesystem document routing), `--enable-demo` (demo mode).
 
-### Start / update the stack
+### Upgrade existing deployment
 
 ```bash
-docker compose up -d
+./installation-scripts/upgrade.sh --server-tag 3.22 --client-tag 8.34
 ```
 
-### Deploy a new app version
+Backs up config, updates image tags, ensures latest config patterns (DOCUMENT_ROUTING, volume mounts), pulls images, restarts containers.
+
+### Validate configuration
+
+```bash
+./installation-scripts/validate-config.sh --host padsign.client.com
+```
+
+### Deploy a new app version (from source)
 
 1. In `C:\Repos\psapp`, build and push new Docker images for `ps-client` and/or `ps-server`
-2. Update image tags in `docker-compose.yml` here
-3. `docker compose up -d`
+2. Run `upgrade.sh` with the new tags
 
 ## Key config files
 

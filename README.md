@@ -51,6 +51,53 @@
 
 ---
 
+## Quick Start (New Deployment)
+
+One command to deploy PadSign on a new server:
+
+```bash
+./installation-scripts/bootstrap.sh \
+  --host padsign.client.com \
+  --company-role "ClientName" \
+  --admin-pass "StrongKeycloakAdminPass" \
+  --cert-crt ./installation-scripts/certs/padsign.client.com.crt \
+  --cert-key ./installation-scripts/certs/padsign.client.com.key
+```
+
+This automatically: rewrites all config for the hostname, sets up Keycloak (realm, clients, roles, test user), creates directories, pulls Docker images, starts all services, and verifies everything works.
+
+### Bootstrap parameters
+
+| Parameter | Required | Description |
+|---|---|---|
+| `--host` | Yes | Hostname for the deployment (e.g., `padsign.client.com`) |
+| `--company-role` | Yes | Company name / Keycloak realm role (e.g., `"Acme"`) |
+| `--admin-pass` | Yes | Keycloak admin password (must be strong for production) |
+| `--cert-crt` / `--cert-key` | No | TLS certificate files (or place in `installation-scripts/certs/`) |
+| `--realm` | No | Keycloak realm name (default: `padsign`) |
+| `--admin-user` | No | Keycloak admin username (default: `admin`) |
+| `--users` | No | Additional users: `"user1:pass1:role,user2:pass2:role"` |
+| `--enable-routing` | No | Enable filesystem document routing after signing |
+| `--enable-demo` | No | Enable DEMO mode in client |
+
+## Upgrading an Existing Deployment
+
+```bash
+./installation-scripts/upgrade.sh --server-tag 3.22 --client-tag 8.34
+```
+
+This: backs up config, updates image tags, ensures DOCUMENT_ROUTING and signed-output volume exist, pulls new images, restarts changed containers, and verifies.
+
+## Validating Configuration
+
+```bash
+./installation-scripts/validate-config.sh --host padsign.client.com
+```
+
+Checks syntax of all config files, verifies DOCUMENT_ROUTING and volume mounts, checks hostname consistency across files, and compares running containers against docker-compose.yml.
+
+---
+
 ## Architecture
 
 Services defined in `docker-compose.yml`:
