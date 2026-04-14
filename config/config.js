@@ -62,7 +62,7 @@
         {
           type: "filesystem",
           enabled: false,
-          basePath: "/PSDOCS/out",
+          basePath: "/signed-output",
           pathTemplate: "{company}/{date:YYYY-MM}/{docid}-sealed.pdf",
           createDirectories: true
         },

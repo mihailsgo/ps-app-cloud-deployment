@@ -66,6 +66,7 @@ services:
       - https_proxy=
     volumes:
       - ./config/config.js:/usr/src/app/config.js
+      - ./signed-output:/signed-output
   nginx:
     image: nginx:latest
     container_name: nginx

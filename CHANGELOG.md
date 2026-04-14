@@ -6,6 +6,9 @@
 - Deprecated client-side `PDF_SIGNING_STATUS_CALLBACK` / `PDF_SIGNING_STATUS_CALLBACK_ENABLED` in favor of server-side `DOCUMENT_ROUTING` webhook strategy.
 - Updated README.md: added `DOCUMENT_ROUTING` to Cloud Essentials, server config example, and Configuration Constants Reference. Updated Data Flow FAQ.
 - Updated deployment image tags to `ps-client:8.34` and `ps-server:3.21`.
+- Redirect `https://host/` to `https://host/portal/` in nginx config.
+- Added `signed-output` volume mount to ps-server for filesystem routing strategy.
+- Updated filesystem strategy `basePath` to `/signed-output` (matches volume mount).
 
 ## v1.0.3
 
