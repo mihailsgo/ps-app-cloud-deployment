@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.0.4
+
+- Added `DOCUMENT_ROUTING` configuration to `config/config.js` for server-side post-signing document routing (filesystem save with structured folders, webhook delivery with retries).
+- Deprecated client-side `PDF_SIGNING_STATUS_CALLBACK` / `PDF_SIGNING_STATUS_CALLBACK_ENABLED` in favor of server-side `DOCUMENT_ROUTING` webhook strategy.
+- Updated README.md: added `DOCUMENT_ROUTING` to Cloud Essentials, server config example, and Configuration Constants Reference. Updated Data Flow FAQ.
+- Updated deployment image tags to `ps-client:8.34` and `ps-server:3.21`.
+
 ## v1.0.3
 
 - Updated deployment image tag to `ps-client:8.33` in `docker-compose.yml`.

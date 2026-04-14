@@ -33,8 +33,8 @@
 
 ## Release Snapshot
 
-- `ps-server`: `mihailsgordijenko/ps-server:3.20`
-- `ps-client`: `mihailsgordijenko/ps-client:8.33`
+- `ps-server`: `mihailsgordijenko/ps-server:3.21`
+- `ps-client`: `mihailsgordijenko/ps-client:8.34`
 - Keycloak: `quay.io/keycloak/keycloak:26.3.2`
 - DMSS Archive: `trustlynx/dmss-archive-services:24.2.0.8`
 - DMSS Container/Signature: `trustlynx/container-signature-service:24.3.0.49`
@@ -132,7 +132,7 @@ Certificate file format expectations
 - `<host>.key` must be a PEM private key.
 
 Password-protected private keys
-- If the private key is encrypted (has `ENCRYPTED` in the PEM header), NGINX won’t be able to start non-interactively.
+- If the private key is encrypted (has `ENCRYPTED` in the PEM header), NGINX wonï¿½t be able to start non-interactively.
 - Recommended: convert it to an unencrypted key before running the scripts:
 
 ```bash
@@ -491,7 +491,7 @@ Cloud usage note
 - This deployment uses two parallel flows:
 - External integration flow (API key): `/api/registerUser`, `/api/registerUserPDF`, `/api/registerPDF`, `/api/removeUser`.
 - Internal operator flow (Keycloak token): `/api/latestUser`, `/api/fillPDFDemo`, `/api/visual-signature`, `/api/stamp`, `/api/cleanupUser`, `/api/demo/upload`, `/api/demo/upload/version`, `/api/demo/fill-by-docid`.
-- Any item below explicitly marked “API is not relevant for cloud instance” is not used in standard cloud operation and can be ignored.
+- Any item below explicitly marked ï¿½API is not relevant for cloud instanceï¿½ is not used in standard cloud operation and can be ignored.
 
 ### Cloud Essentials (TL;DR)
 
@@ -505,7 +505,7 @@ Client essentials (constants.json)
 - `PDF_ZOOM_VALUE`, `MAX_ZOOM`, `MIN_ZOOM`, `DEFAULT_PAGE_SIZE`, `EXTRA_HEIGHT_MARGIN_PX`, `OPACITY_DELAY`
 - `CANVA_WIDTH`, `CANVA_HEIGHT`
 - `RUN_STAMPING_REQUEST` (optional)
-- `PDF_SIGNING_STATUS_CALLBACK`, `PDF_SIGNING_STATUS_CALLBACK_ENABLED` (optional)
+- ~~`PDF_SIGNING_STATUS_CALLBACK`, `PDF_SIGNING_STATUS_CALLBACK_ENABLED`~~ (deprecated â€” use server-side `DOCUMENT_ROUTING` webhook strategy instead)
 - Branding: `PS_PAGE_TITLE`, `PS_LOGO_PATH`, `PS_DEFAULT_LOGO_PATH`, `SHOW_USER_DATA_BOX`
 
 Server essentials (config.js)
@@ -522,6 +522,7 @@ Server essentials (config.js)
 - `DOC_OPERATION_LOCK_TTL_MS`, `IDEMPOTENCY_TTL_MS`
 - `USER_ENTRY_TTL_MS`, `USER_STATE_CLEANUP_MS`
 - `PRIVILEGED_API_ROLES` (optional privileged bypass for internal cleanup flow)
+- `DOCUMENT_ROUTING` (optional) â€” post-signing actions (filesystem save, webhook delivery)
 
 #### Cloud minimal examples
 
@@ -558,8 +559,6 @@ Client `constants.json` (essential keys only; keep TRANSLATIONS from default)
   "CANVA_WIDTH": 300,
   "CANVA_HEIGHT": 100,
   "RUN_STAMPING_REQUEST": false,
-  "PDF_SIGNING_STATUS_CALLBACK": "",
-  "PDF_SIGNING_STATUS_CALLBACK_ENABLED": false,
   "SHOW_USER_DATA_BOX": false
   /* Keep TRANSLATIONS, DEFAULT_LANGUAGE from default file */
 }
@@ -602,7 +601,14 @@ module.exports = {
   USER_STATE_CLEANUP_MS: 60000,
   DOC_OPERATION_LOCK_TTL_MS: 45000,
   IDEMPOTENCY_TTL_MS: 600000,
-  PRIVILEGED_API_ROLES: ["padsign-admin", "psapp-integration"]
+  PRIVILEGED_API_ROLES: ["padsign-admin", "psapp-integration"],
+
+  // Post-signing document routing (disabled by default)
+  DOCUMENT_ROUTING: {
+    enabled: false,
+    skipDemo: true,
+    strategies: []
+  }
 };
 ```
 
@@ -682,8 +688,8 @@ Localization and text
 Workflow toggles and callbacks
 - `RUN_STAMPING_REQUEST`: When `true`, triggers a backend call to stamp the PDF after signing. Default: `false`.
 - `DEMO_MODE`: Enables/disables DEMO behavior (`ENABLE`/`DISABLE`). Default: `"DISABLE"`.
-- `PDF_SIGNING_STATUS_CALLBACK`: Optional external webhook URL to notify when signing finishes. Callback supports both success (`status: "signed"`) and failures (`status: "error: <technical details>"`). Default: `"https://example.com/api/signing-status"`.
-- `PDF_SIGNING_STATUS_CALLBACK_ENABLED`: Enables the webhook above when `true`. Default: `false`.
+- `PDF_SIGNING_STATUS_CALLBACK`: **Deprecated** â€” replaced by server-side `DOCUMENT_ROUTING` webhook strategy in `config.js`. Previously an external webhook URL for client-side notification. Default: `"https://example.com/api/signing-status"`.
+- `PDF_SIGNING_STATUS_CALLBACK_ENABLED`: **Deprecated** â€” replaced by server-side `DOCUMENT_ROUTING` webhook strategy. Default: `false`.
 
 ---
 
@@ -717,6 +723,15 @@ Server and CORS
 - `DOC_OPERATION_LOCK_TTL_MS`, `IDEMPOTENCY_TTL_MS`: Duplicate/parallel signing protection controls.
 - `USER_ENTRY_TTL_MS`, `USER_STATE_CLEANUP_MS`: In-memory state retention and cleanup interval.
 - `PRIVILEGED_API_ROLES`: Optional role allowlist for privileged internal cleanup operations.
+
+Document routing (post-signing actions)
+- `DOCUMENT_ROUTING`: Configures what happens after a document is signed. Disabled by default.
+  - `enabled` (boolean): Master switch. Default: `false`.
+  - `skipDemo` (boolean): Skip routing for demo-mode documents. Default: `true`.
+  - `strategies` (array): List of routing actions. Each has `type`, `enabled`, and type-specific options.
+  - Strategy `"filesystem"`: Saves PDF to disk with configurable folder structure. Options: `basePath`, `pathTemplate` (supports `{company}`, `{date:YYYY-MM}`, `{docid}`, `{email}`, `{lng}` tokens), `createDirectories`.
+  - Strategy `"webhook"`: POSTs document metadata (and optionally the file) to a URL with retry logic. Options: `url`, `method`, `headers`, `includeFile`, `timeoutMs`, `retries`, `retryBaseDelayMs`. Sends `document.signed` events on success and `document.signing_error` on failure.
+  - Future strategy types (`s3`, `sftp`, `email`) can be added without breaking existing config.
 
 ---
 
@@ -1153,9 +1168,8 @@ keycloak:
   - legacy-compatible endpoints `/api/registerUser` and `/api/registerUserPDF` may still exist for integration compatibility
 - Success response for `/api/registerPDF` is `201` with JSON containing `docId`.
 - Operator opens/signs document in portal.
-- If callback is enabled (`PDF_SIGNING_STATUS_CALLBACK_ENABLED=true`), backend sends status updates to the configured callback URL:
-  - success status (for example `signed`)
-  - failure status with technical details (for example `error: <details>`)
+- If document routing is enabled (`DOCUMENT_ROUTING.enabled=true` in `config.js`), the server triggers configured post-signing actions (filesystem save, webhook delivery). Webhooks receive both success (`document.signed`) and error (`document.signing_error`) events with retry logic.
+  - Note: The previous client-side callback (`PDF_SIGNING_STATUS_CALLBACK`) is deprecated. Use the server-side `DOCUMENT_ROUTING` webhook strategy instead.
 
 ### 6) What is the final signed document format, and how does signature/stamp appear?
 

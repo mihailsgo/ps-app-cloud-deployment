@@ -52,4 +52,31 @@
     DEPENDENCY_CB_FAILURE_THRESHOLD: 5,
     DEPENDENCY_CB_COOLDOWN_MS: 30000,
     PRIVILEGED_API_ROLES: ["padsign-admin", "psapp-integration"],
+
+    // ── Document Routing (post-signing actions) ──
+    // Enable and configure strategies to control what happens after signing.
+    DOCUMENT_ROUTING: {
+      enabled: false,
+      skipDemo: true,
+      strategies: [
+        {
+          type: "filesystem",
+          enabled: false,
+          basePath: "/PSDOCS/out",
+          pathTemplate: "{company}/{date:YYYY-MM}/{docid}-sealed.pdf",
+          createDirectories: true
+        },
+        {
+          type: "webhook",
+          enabled: false,
+          url: "https://example.com/api/signing-status",
+          method: "POST",
+          headers: {},
+          includeFile: false,
+          timeoutMs: 10000,
+          retries: 3,
+          retryBaseDelayMs: 1000
+        }
+      ]
+    },
 };
