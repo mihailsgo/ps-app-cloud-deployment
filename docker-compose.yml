@@ -50,7 +50,7 @@ services:
       - SPRING_CONFIG_LOCATION=/dmss-archive-services-fallback/application.yml
     image: 'trustlynx/dmss-archive-services-fallback:24.0.5'
   ps-server:
-    image: 'mihailsgordijenko/ps-server:3.21'
+    image: 'mihailsgordijenko/ps-server:3.22'
     container_name: ps-server
     ports:
       - "3001:3001"
