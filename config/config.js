@@ -63,7 +63,7 @@
           type: "filesystem",
           enabled: false,
           basePath: "/signed-output",
-          pathTemplate: "{company}/{date:YYYY-MM}/{docid}-sealed.pdf",
+          pathTemplate: "{company}/{date:YYYY-MM}/{company}_{clientName}_{date:YYYY-MM-DD_HHmm}.pdf",
           createDirectories: true
         },
         {
