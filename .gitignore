@@ -38,3 +38,6 @@ PSDOCS/**
 
 # Large or local-only data
 docs/**
+
+# Claude Code
+CLAUDE.md
