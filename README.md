@@ -33,8 +33,8 @@
 
 ## Release Snapshot
 
-- `ps-server`: `mihailsgordijenko/ps-server:3.22`
-- `ps-client`: `mihailsgordijenko/ps-client:8.34`
+- `ps-server`: `mihailsgordijenko/ps-server:3.23`
+- `ps-client`: `mihailsgordijenko/ps-client:8.35`
 - Keycloak: `quay.io/keycloak/keycloak:26.3.2`
 - DMSS Archive: `trustlynx/dmss-archive-services:24.2.0.8`
 - DMSS Container/Signature: `trustlynx/container-signature-service:24.3.0.49`
@@ -306,7 +306,7 @@ Review and adjust these files before running:
 - `docker-compose.yml`
   - `KC_HOSTNAME` should match your hostname.
   - Host ports 80/443, 8080, 3001, 84, 86, 93 must be free.
-  - Image versions should match the release snapshot (`ps-server:3.22`, `ps-client:8.34`).
+  - Image versions should match the release snapshot (`ps-server:3.23`, `ps-client:8.35`).
 
 - `nginx/nginx.conf`
   - Update `server_name` and TLS files.
