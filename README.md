@@ -33,7 +33,7 @@
 
 ## Release Snapshot
 
-- `ps-server`: `mihailsgordijenko/ps-server:3.23`
+- `ps-server`: `mihailsgordijenko/ps-server:3.24`
 - `ps-client`: `mihailsgordijenko/ps-client:8.35`
 - Keycloak: `quay.io/keycloak/keycloak:26.3.2`
 - DMSS Archive: `trustlynx/dmss-archive-services:24.2.0.8`
@@ -306,7 +306,7 @@ Review and adjust these files before running:
 - `docker-compose.yml`
   - `KC_HOSTNAME` should match your hostname.
   - Host ports 80/443, 8080, 3001, 84, 86, 93 must be free.
-  - Image versions should match the release snapshot (`ps-server:3.23`, `ps-client:8.35`).
+  - Image versions should match the release snapshot (`ps-server:3.24`, `ps-client:8.35`).
 
 - `nginx/nginx.conf`
   - Update `server_name` and TLS files.
@@ -827,12 +827,16 @@ Document routing (post-signing actions)
   - Future strategy types (`s3`, `sftp`, `email`) can be added without breaking existing config.
 
 Customer Data lookup (virtual-printer flow)
-- `CUSTOMER_DATA_API_URL`, `CUSTOMER_DATA_API_KEY`, `CUSTOMER_DATA_API_KEY_HEADER`: external customer data service called by ps-server when `POST /api/registerPDF` receives `source=virtual-printer`. The server extracts the `CustomerId` barcode from the PDF (top row, 5–6 digit plain text) via `pdfjs-dist`, calls `GET {URL}{CustomerId}` with the configured header, and stores the resolved name so the signed PDF's signature panel reads `Signed by: <resolved name>`. Feature is disabled until `CUSTOMER_DATA_API_KEY` is non-empty. Default key header: `api_key`.
+- `CUSTOMER_DATA_API_URL`, `CUSTOMER_DATA_API_KEY`, `CUSTOMER_DATA_API_KEY_HEADER`: external customer data service called by ps-server when `POST /api/registerPDF` receives `source=virtual-printer`. The server scans page 1 of the PDF (position-independent text-layer extraction via `pdfjs-dist`) for two barcode-backed identifiers:
+  - `customerId` (5-digit) → `GET {URL}{customerId}` with the configured header resolves a customer name, stored as `signerName` for the visual signature (`Signed by: <resolved name>`).
+  - `documentNumber` (6-digit) → exposed as `{documentNumber}` in the filesystem routing `pathTemplate`, so signed files are named like `100542_2026.04.22_14_38_36.pdf`.
+  Feature is disabled until `CUSTOMER_DATA_API_KEY` is non-empty. Default key header: `api_key`.
 - `CUSTOMER_DATA_CACHE_TTL_MS`: in-memory cache TTL for customer lookups. Default: `3600000` (1 hour).
 - `CUSTOMER_DATA_TIMEOUT_MS`: HTTP timeout per request. Default: `10000`.
 - `CUSTOMER_DATA_RETRIES`: retry count for transient 5xx / timeout errors. Default: `2`.
 - Signer name composition: `CustomerFirstName + " " + CustomerLastName` for individuals, or `CustomerLastName` alone for organizations (empty first name).
-- Non-blocking: if the barcode is missing, the customer is not found, or the API is down, signing proceeds with the default fallback (email or name+surname) and the upload is not rejected.
+- Filesystem `pathTemplate` tokens extended with `{documentNumber}`, `{signerName}`, `{customerId}`, and the `ss` seconds format; `{date:...}` output is sanitized so `HH:mm:ss` becomes `HH_mm_ss`. Default template: `{company}/{date:YYYY-MM}/{documentNumber}_{date:YYYY.MM.DD_HH:mm:ss}.pdf`.
+- Non-blocking: if the barcode is missing, the customer is not found, or the API is down, signing proceeds with the default fallback (email or name+surname) and the upload is not rejected. Filename falls back to `unknown_<date>.pdf`.
 
 ---
 
