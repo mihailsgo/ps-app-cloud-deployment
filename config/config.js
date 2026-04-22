@@ -79,4 +79,16 @@
         }
       ]
     },
+
+    // ── Customer Data lookup (virtual-printer flow) ──
+    // Called when /api/registerPDF receives source=virtual-printer.
+    // Extracts CustomerId from the PDF barcode and looks up the customer name
+    // so the visual signature shows "Signed by: <resolved name>".
+    // Leave CUSTOMER_DATA_API_KEY empty to disable.
+    CUSTOMER_DATA_API_URL: "",
+    CUSTOMER_DATA_API_KEY: "",
+    CUSTOMER_DATA_API_KEY_HEADER: "api_key",
+    CUSTOMER_DATA_CACHE_TTL_MS: 3600000,
+    CUSTOMER_DATA_TIMEOUT_MS: 10000,
+    CUSTOMER_DATA_RETRIES: 2,
 };

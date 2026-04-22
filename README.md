@@ -826,6 +826,14 @@ Document routing (post-signing actions)
   - Strategy `"webhook"`: POSTs document metadata (and optionally the file) to a URL with retry logic. Options: `url`, `method`, `headers`, `includeFile`, `timeoutMs`, `retries`, `retryBaseDelayMs`. Sends `document.signed` events on success and `document.signing_error` on failure.
   - Future strategy types (`s3`, `sftp`, `email`) can be added without breaking existing config.
 
+Customer Data lookup (virtual-printer flow)
+- `CUSTOMER_DATA_API_URL`, `CUSTOMER_DATA_API_KEY`, `CUSTOMER_DATA_API_KEY_HEADER`: external customer data service called by ps-server when `POST /api/registerPDF` receives `source=virtual-printer`. The server extracts the `CustomerId` barcode from the PDF (top row, 5–6 digit plain text) via `pdfjs-dist`, calls `GET {URL}{CustomerId}` with the configured header, and stores the resolved name so the signed PDF's signature panel reads `Signed by: <resolved name>`. Feature is disabled until `CUSTOMER_DATA_API_KEY` is non-empty. Default key header: `api_key`.
+- `CUSTOMER_DATA_CACHE_TTL_MS`: in-memory cache TTL for customer lookups. Default: `3600000` (1 hour).
+- `CUSTOMER_DATA_TIMEOUT_MS`: HTTP timeout per request. Default: `10000`.
+- `CUSTOMER_DATA_RETRIES`: retry count for transient 5xx / timeout errors. Default: `2`.
+- Signer name composition: `CustomerFirstName + " " + CustomerLastName` for individuals, or `CustomerLastName` alone for organizations (empty first name).
+- Non-blocking: if the barcode is missing, the customer is not found, or the API is down, signing proceeds with the default fallback (email or name+surname) and the upload is not rejected.
+
 ---
 
 ### Cloud Flow: /api/registerPDF

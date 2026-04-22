@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.0.6
+
+- Added `CUSTOMER_DATA_*` configuration keys for the virtual-printer customer-barcode lookup feature. When enabled, uploads arriving via `POST /api/registerPDF` with `source=virtual-printer` trigger a server-side CustomerId barcode extraction and external CustomerData API lookup; the resolved customer name becomes the "Signed by" label in the final visual signature. Disabled by default (empty API key).
+
 ## v1.0.5
 
 - Overhauled `bootstrap.sh`: fully automated end-to-end deployment — config rewrites, directory creation, Keycloak setup, Docker pull, service startup, and verification in one command.
