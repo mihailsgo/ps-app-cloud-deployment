@@ -33,8 +33,8 @@
 
 ## Release Snapshot
 
-- `ps-server`: `mihailsgordijenko/ps-server:3.24`
-- `ps-client`: `mihailsgordijenko/ps-client:8.35`
+- `ps-server`: `mihailsgordijenko/ps-server:3.25`
+- `ps-client`: `mihailsgordijenko/ps-client:8.36`
 - Keycloak: `quay.io/keycloak/keycloak:26.3.2`
 - DMSS Archive: `trustlynx/dmss-archive-services:24.2.0.8`
 - DMSS Container/Signature: `trustlynx/container-signature-service:24.3.0.49`
@@ -306,7 +306,7 @@ Review and adjust these files before running:
 - `docker-compose.yml`
   - `KC_HOSTNAME` should match your hostname.
   - Host ports 80/443, 8080, 3001, 84, 86, 93 must be free.
-  - Image versions should match the release snapshot (`ps-server:3.24`, `ps-client:8.35`).
+  - Image versions should match the release snapshot (`ps-server:3.25`, `ps-client:8.36`).
 
 - `nginx/nginx.conf`
   - Update `server_name` and TLS files.
@@ -600,6 +600,7 @@ Client essentials (constants.json)
 - `RUN_STAMPING_REQUEST` (optional)
 - ~~`PDF_SIGNING_STATUS_CALLBACK`, `PDF_SIGNING_STATUS_CALLBACK_ENABLED`~~ (deprecated — use server-side `DOCUMENT_ROUTING` webhook strategy instead)
 - Branding: `PS_PAGE_TITLE`, `PS_LOGO_PATH`, `PS_DEFAULT_LOGO_PATH`, `SHOW_USER_DATA_BOX`
+- `SHOW_SIGNER_NAME` (optional, default `false`): show resolved signer name above signature canvas when paired with the virtual-printer + CustomerData lookup flow
 
 Server essentials (config.js)
 - `KEYCLOAK_CONFIG`, `ALLOWED_ORIGINS`, `PORT`
@@ -652,7 +653,8 @@ Client `constants.json` (essential keys only; keep TRANSLATIONS from default)
   "CANVA_WIDTH": 300,
   "CANVA_HEIGHT": 100,
   "RUN_STAMPING_REQUEST": false,
-  "SHOW_USER_DATA_BOX": false
+  "SHOW_USER_DATA_BOX": false,
+  "SHOW_SIGNER_NAME": false
   /* Keep TRANSLATIONS, DEFAULT_LANGUAGE from default file */
 }
 ```
@@ -726,6 +728,7 @@ Branding and UI
 - `PS_LOGO_PATH`: Path to logo used in header. Default: `"/portal/logo.png"`.
 - `PS_DEFAULT_LOGO_PATH`: Fallback logo if `PS_LOGO_PATH` missing. Default: `"/portal/logo.png"`.
 - `SHOW_USER_DATA_BOX`: Toggle small user-info box for authenticated users. Default: `false`.
+- `SHOW_SIGNER_NAME`: When `true`, the SPA renders the resolved signer name (returned by the CustomerData lookup, see server `CUSTOMER_DATA_*` config) above the signature canvas, e.g. `Signer: Stephen Graham`. Lets the user confirm identity before signing. Designed for the virtual-printer flow where the signer is identified by a barcode on the printed document. Default: `false`. Enable per-deployment by setting to `true` only for clients using this flow.
 
 Authentication (Keycloak)
 - `KEYCLOAK_URL`: Base URL to Keycloak auth server. Default: `"https://padsign.trustlynx.com/auth"`.

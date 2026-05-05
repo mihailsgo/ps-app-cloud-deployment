@@ -166,5 +166,6 @@
     "DEMO_MAX_FILE_SIZE_MB": 10,
     "PDF_SIGNING_STATUS_CALLBACK": "https://example.com/api/signing-status",
     "PDF_SIGNING_STATUS_CALLBACK_ENABLED": false,
-    "SHOW_USER_DATA_BOX": false
+    "SHOW_USER_DATA_BOX": false,
+    "SHOW_SIGNER_NAME": false
 }

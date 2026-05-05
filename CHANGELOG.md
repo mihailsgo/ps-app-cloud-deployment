@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.8
+
+- Barcode extractor now supports 3- to 7-digit document numbers (was 5/6 only). Previously the extractor lost the document number when an Amit template printed a 3-digit reference inside the Code128 barcode (filename fell back to `unknown_<date>.pdf`). Tested against three template variants in `server/test/test-barcode-extraction.js`.
+- New client-side feature flag `SHOW_SIGNER_NAME` in `config/constants.json` (default `false`). When `true`, the SPA renders `Signer: <resolved name>` above the signature canvas before the user signs, so signers (especially when they are a contact person of a company) can verify identity. Combine with the existing CustomerData lookup so the displayed name comes from the live database.
+- Bumped deployment image tags to `ps-server:3.25` and `ps-client:8.36`.
+
 ## v1.0.7
 
 - Barcode extraction is now position-independent (content-based pairing of plain-digit text with barcode-font renderings) and returns both `customerId` (5-digit) and `documentNumber` (6-digit) from Amit work-order PDFs. Survives future template layout changes.
