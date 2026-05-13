@@ -1,5 +1,13 @@
 [
   {
+    "name": "LocalDemo",
+    "esealCompany": "TrustLynx",
+    "pdfSigningSigner": {
+      "pdfSignatureIsVisible": false,
+      "signatureProfile": "B_BES"
+    }
+  },
+  {
     "name": "TrustLynx",
     "esealCompany": "TrustLynx",
     "pdfSigningSigner": {

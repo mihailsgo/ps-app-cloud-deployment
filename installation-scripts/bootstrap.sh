@@ -30,6 +30,7 @@ admin_pass="${KEYCLOAK_ADMIN_PASSWORD:-}"
 users_csv=""
 enable_routing="false"
 enable_demo="false"
+enable_local_eseal="false"
 cert_crt=""
 cert_key=""
 
@@ -46,7 +47,8 @@ Usage:
     [--admin-user admin] \
     [--users "alice:Passw0rd!:padsign-admin,bob:Passw0rd!:psapp-integration"] \
     [--enable-routing] \
-    [--enable-demo]
+    [--enable-demo] \
+    [--enable-local-eseal]
 
 Required:
   --host           Hostname for the deployment (e.g., padsign.client.com)
@@ -60,6 +62,9 @@ Optional:
   --users                 Additional users as CSV: "user1:pass1:role,user2:pass2:role"
   --enable-routing        Enable filesystem document routing after signing
   --enable-demo           Enable DEMO mode in client
+  --enable-local-eseal    Provision the local e-sealing stack (dmss-digital-stamping-service
+                          container + demo seal.p12) and switch STAMP_MODE to "local".
+                          External e-sealing remains the default when this flag is omitted.
 EOF
 }
 
@@ -75,6 +80,7 @@ while [[ $# -gt 0 ]]; do
     --cert-key) cert_key="${2:-}"; shift 2;;
     --enable-routing) enable_routing="true"; shift 1;;
     --enable-demo) enable_demo="true"; shift 1;;
+    --enable-local-eseal) enable_local_eseal="true"; shift 1;;
     -h|--help) usage; exit 0;;
     *) echo "ERROR: Unknown arg: $1" >&2; usage; exit 2;;
   esac
@@ -124,6 +130,7 @@ echo "  Company:      ${company_role}"
 echo "  Realm:        ${realm}"
 echo "  Demo mode:    ${enable_demo}"
 echo "  Doc routing:  ${enable_routing}"
+echo "  Local eseal:  ${enable_local_eseal}"
 echo "========================================"
 echo ""
 
@@ -143,6 +150,7 @@ configure_args=(--host "${host}" --company-role "${company_role}")
 [[ -n "$cert_key" ]] && configure_args+=(--cert-key "$cert_key")
 [[ "$enable_routing" == "true" ]] && configure_args+=(--enable-routing)
 [[ "$enable_demo" == "true" ]] && configure_args+=(--enable-demo)
+[[ "$enable_local_eseal" == "true" ]] && configure_args+=(--enable-local-eseal)
 "${scripts_dir}/configure-host.sh" "${configure_args[@]}"
 
 # ── Step 3: Create signed-output directory ──

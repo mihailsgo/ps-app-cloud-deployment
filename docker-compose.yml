@@ -32,12 +32,38 @@ services:
     ports:
       - '84:8092'
     volumes:
-      - './dmss-container-and-signature-services:/confs'       
+      - './dmss-container-and-signature-services:/confs'
     environment:
       - SPRING_CONFIG_LOCATION=/confs/
     image: 'trustlynx/container-signature-service:24.3.0.49'
     extra_hosts:
-      - "host.docker.internal:host-gateway"    
+      - "host.docker.internal:host-gateway"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Optional local e-sealing backend. Only starts when the "local-eseal"
+  # compose profile is active (set COMPOSE_PROFILES=local-eseal in .env or
+  # pass --profile local-eseal). Existing deployments that don't opt in are
+  # completely unaffected.
+  #
+  # When active, this container is reached over the docker bridge network at
+  # `dmss-digital-stamping-service:8084` by dmss-container-and-signature-services.
+  # No host port mapping by design — avoids collision with any USB-token
+  # signing service that customers may already be running on host:8084.
+  # ─────────────────────────────────────────────────────────────────────────
+  dmss-digital-stamping-service:
+    container_name: dmss-digital-stamping-service
+    profiles: ["local-eseal"]
+    restart: always
+    image: 'trustlynx/digital-stamping-service:24.0.3.0'
+    environment:
+      # ADDITIONAL_LOCATION (not LOCATION) so the in-jar baked YAML still loads;
+      # ours layers on top and overrides only what we need to change.
+      - SPRING_CONFIG_ADDITIONAL_LOCATION=file:/conf/
+    volumes:
+      - './dmss-digital-stamping-service:/conf:ro'
+      - './dmss-digital-stamping-service/seal:/seal:ro'
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
   dmss-archive-services-fallback:
     container_name: dmss-archive-services-fallback
     restart: always

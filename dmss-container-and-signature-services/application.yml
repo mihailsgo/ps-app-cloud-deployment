@@ -143,7 +143,11 @@ dmss-document-generation-service:
   configuration:
     defaultMimeType: application/pdf
     defaultExtension: .pdf
-# DMSS USB token access service URL
+# DMSS USB token access service URL.
+# Default points at a stamping service running on the docker host (e.g. an
+# AWP/OCS-Cryptolib USB-token signer). The installation-scripts'
+# --enable-local-eseal flag replaces this with `http://dmss-digital-stamping-service:8084/api`
+# so container-signature talks to the in-compose stamping container instead.
 digital-stamping-service:
   baseUrl: http://host.docker.internal:8084/api
 # baseUrl: http://riga-app.digitalmind.local:8084/api

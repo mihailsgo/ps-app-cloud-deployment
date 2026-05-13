@@ -12,6 +12,7 @@ company_role=""
 allow_encrypted_key="false"
 enable_routing="false"
 enable_demo="false"
+enable_local_eseal="false"
 
 usage() {
   cat <<'EOF'
@@ -21,7 +22,8 @@ Usage:
     [--backend-secret <secret>] \
     [--cert-crt path/to/cert.crt] [--cert-key path/to/cert.key] \
     [--allow-encrypted-key] \
-    [--enable-routing] [--enable-demo]
+    [--enable-routing] [--enable-demo] \
+    [--enable-local-eseal]
 
 Edits in-place (with .bak backup):
   - nginx/nginx.conf: server_name, cert filenames, root→/portal/ redirect
@@ -41,6 +43,7 @@ while [[ $# -gt 0 ]]; do
     --allow-encrypted-key) allow_encrypted_key="true"; shift 1;;
     --enable-routing) enable_routing="true"; shift 1;;
     --enable-demo) enable_demo="true"; shift 1;;
+    --enable-local-eseal) enable_local_eseal="true"; shift 1;;
     -h|--help) usage; exit 0;;
     *) echo "ERROR: Unknown arg: $1" >&2; usage; exit 2;;
   esac
@@ -210,6 +213,88 @@ backup "$compose_yml"
 if ! grep -q 'signed-output:/signed-output' "$compose_yml"; then
   sed -i '/config\/config\.js:\/usr\/src\/app\/config\.js/a\      - "./signed-output:/signed-output"' "$compose_yml"
   echo "  Added signed-output volume mount to docker-compose.yml"
+fi
+
+# --- Optional: provision local e-sealing (--enable-local-eseal) ---
+# Idempotent: safe to re-run, never overwrites customer artefacts.
+if [[ "$enable_local_eseal" == "true" ]]; then
+  scripts_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  assets_src="${scripts_dir}/assets/dmss-digital-stamping-service"
+  stamping_dst="${repo_root}/dmss-digital-stamping-service"
+  csig_yml="${repo_root}/dmss-container-and-signature-services/application.yml"
+  env_file="${repo_root}/.env"
+
+  if [[ ! -d "$assets_src" ]]; then
+    echo "ERROR: --enable-local-eseal: missing assets at $assets_src" >&2
+    exit 3
+  fi
+
+  # Stage demo stamping artefacts (cp -n so a customer-supplied seal.p12 is preserved).
+  mkdir -p "$stamping_dst/seal"
+  cp -n "$assets_src/application.yml"   "$stamping_dst/application.yml"   2>/dev/null || true
+  cp -n "$assets_src/seal/seal.p12"     "$stamping_dst/seal/seal.p12"     2>/dev/null || true
+  cp -n "$assets_src/seal/README.md"    "$stamping_dst/seal/README.md"    2>/dev/null || true
+  echo "  Staged dmss-digital-stamping-service/ demo artefacts"
+
+  # Append the compose service block if absent.
+  if ! grep -q 'dmss-digital-stamping-service' "$compose_yml"; then
+    if grep -q '^networks:' "$compose_yml"; then
+      perl -i -pe 'if (/^networks:/ && !$done) { print "  dmss-digital-stamping-service:\n    container_name: dmss-digital-stamping-service\n    profiles: [\"local-eseal\"]\n    restart: always\n    image: \"trustlynx/digital-stamping-service:24.0.3.0\"\n    environment:\n      - SPRING_CONFIG_ADDITIONAL_LOCATION=file:/conf/\n    volumes:\n      - \"./dmss-digital-stamping-service:/conf:ro\"\n      - \"./dmss-digital-stamping-service/seal:/seal:ro\"\n    extra_hosts:\n      - \"host.docker.internal:host-gateway\"\n\n"; $done=1; }' "$compose_yml"
+    else
+      cat >>"$compose_yml" <<'COMPOSE_BLOCK'
+
+  dmss-digital-stamping-service:
+    container_name: dmss-digital-stamping-service
+    profiles: ["local-eseal"]
+    restart: always
+    image: "trustlynx/digital-stamping-service:24.0.3.0"
+    environment:
+      - SPRING_CONFIG_ADDITIONAL_LOCATION=file:/conf/
+    volumes:
+      - "./dmss-digital-stamping-service:/conf:ro"
+      - "./dmss-digital-stamping-service/seal:/seal:ro"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+COMPOSE_BLOCK
+    fi
+    echo "  Inserted dmss-digital-stamping-service compose block (profile: local-eseal)"
+  fi
+
+  # Pin Spring Security creds on container-signature so basic auth from
+  # ps-server is deterministic across restarts.
+  if ! grep -q 'SPRING_SECURITY_USER_NAME' "$compose_yml"; then
+    sed -i '/image: .trustlynx\/container-signature-service:/i\      - SPRING_SECURITY_USER_NAME=user\n      - SPRING_SECURITY_USER_PASSWORD=changeit' "$compose_yml"
+    echo "  Pinned Spring Security creds on container-signature"
+  fi
+
+  # Patch container-signature -> stamping baseUrl to the in-network hostname.
+  if grep -q '^  baseUrl: http://host.docker.internal:8084/api' "$csig_yml"; then
+    sed -i 's#^  baseUrl: http://host.docker.internal:8084/api#  baseUrl: http://dmss-digital-stamping-service:8084/api#' "$csig_yml"
+    echo "  Patched dmss-container-and-signature-services/application.yml baseUrl"
+  fi
+
+  # Flip STAMP_MODE in config.js to "local" and inject STAMP_LOCAL if missing.
+  # Three branches kept distinct for byte-for-byte idempotent re-runs (sed -i
+  # always rewrites the file even on no-op, and may flip line endings on MSYS).
+  if ! grep -q 'STAMP_MODE' "$config_js"; then
+    perl -0777 -i -pe 's/(STAMP_API_URL:)/STAMP_MODE: "local",\n    STAMP_LOCAL: {\n      url: "http:\/\/dmss-container-and-signature-services:8092\/api\/eseal\/document\/profile\/LocalDemo",\n      username: "user",\n      password: "changeit",\n      timeoutMs: 30000\n    },\n    $1/' "$config_js"
+    echo "  Inserted STAMP_MODE=local + STAMP_LOCAL in config.js"
+  elif grep -q 'STAMP_MODE: *"external"' "$config_js"; then
+    sed -i 's/STAMP_MODE: *"external"/STAMP_MODE: "local"/' "$config_js"
+    echo "  Set STAMP_MODE to \"local\" in config.js"
+  else
+    echo "  STAMP_MODE already set to \"local\" in config.js"
+  fi
+
+  # Activate compose profile via .env so plain `docker compose up -d` includes it.
+  touch "$env_file"
+  if ! grep -q '^COMPOSE_PROFILES=' "$env_file"; then
+    printf '\nCOMPOSE_PROFILES=local-eseal\n' >>"$env_file"
+    echo "  Wrote COMPOSE_PROFILES=local-eseal to .env"
+  elif ! grep -q '^COMPOSE_PROFILES=.*local-eseal' "$env_file"; then
+    sed -i 's/^COMPOSE_PROFILES=\(.*\)$/COMPOSE_PROFILES=\1,local-eseal/' "$env_file"
+    echo "  Appended local-eseal to existing COMPOSE_PROFILES in .env"
+  fi
 fi
 
 echo "  Configuration complete for ${host}"
