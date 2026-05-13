@@ -223,7 +223,7 @@ Common mid-run failures:
 | You SIGINT'd the script during edits | Partial state in `config.js` / compose | The `*.bak` files are still there. Either re-run (idempotent) or `cp docker-compose.yml.bak docker-compose.yml; cp config/config.js.bak config/config.js` and start over. |
 
 If you need to bail out completely after a failed run and return to
-pre-feature state, see [Phase 8.c](#phase-8---rollback-recipes) - the
+pre-feature state, see [Phase 7.c](#phase-7---rollback-recipes) - the
 hard rollback works whether or not the upgrade finished.
 
 ## Phase 3 - Verify the demo signing flow
@@ -352,25 +352,9 @@ With the demo cert you will see:
 That outcome is **expected and correct** for the demo cert - the seal
 itself is cryptographically valid, but the demo CA is self-signed and
 Adobe doesn't trust it. You will get a green check ("Signed and all
-signatures are valid") only after Phase 5 with a real CA-issued cert.
+signatures are valid") only after Phase 4 with a real CA-issued cert.
 
-## Phase 4 - Decide what to do next
-
-At this point your stack signs PDFs locally with the demo cert. Three
-paths:
-
-- **Move on to production-cert testing (Phase 5).** This is the path
-  most customers want. Continue below.
-- **Stay on the demo cert** if you only need an internal-test
-  environment where the consumer of the signed PDFs doesn't validate
-  the trust chain. Skip to [Phase 7](#phase-7---harden-before-exposing-the-stack)
-  to harden the deployment before exposing it.
-- **Revert and stay on external e-sealing**. If demo signing failed
-  Phase 3 checks or you've decided local e-sealing isn't the right
-  approach yet, see [Phase 8](#phase-8---rollback-recipes) for the
-  reversal options.
-
-## Phase 5 - Set up for production test with your real key and certificate
+## Phase 4 - Set up for production test with your real key and certificate
 
 This phase replaces the demo cert with your own production signing
 material and verifies signing still works end to end. It is a *test*
@@ -381,7 +365,7 @@ How long this takes depends on whether you already have a signing
 certificate or still need to request one from a public CA (which can
 be days or weeks of CA SLA + organisational paperwork).
 
-### Step 5.1 - Source your signing certificate
+### Step 4.1 - Source your signing certificate
 
 Decide what kind of certificate you need:
 
@@ -405,7 +389,7 @@ Once your CA fulfils the request you will typically receive:
 Or you may receive a single **PKCS12 bundle** (`.pfx` / `.p12`) that
 already contains all of the above, protected by one password.
 
-### Step 5.2 - Build a deployment-ready `seal.p12`
+### Step 4.2 - Build a deployment-ready `seal.p12`
 
 Follow [Production setup: deploying with your own key and certificate](04-06-production-setup-deploying-with-your-own-key-and-certificate.md#46-production-setup-deploying-with-your-own-key-and-certificate)
 to convert whatever your CA delivered into a PKCS12 keystore that the
@@ -413,7 +397,7 @@ stamping service can consume. Pick the recipe that matches your
 artefact shape (separate files, existing .pfx, or alias rename).
 Verify with `keytool -list -v` before continuing.
 
-### Step 5.3 - Decide on a signature level
+### Step 4.3 - Decide on a signature level
 
 The shipped `LocalDemo` profile uses `B_BES` because the demo cert is
 self-signed and no TSA will issue a timestamp for it. With a real
@@ -432,7 +416,7 @@ If you pick anything other than `B_BES`, complete
 [Wiring TSA and OCSP for LT and LTA signature profiles](04-08-wiring-tsa-and-ocsp-for-lt-and-lta-signature-profiles.md#48-wiring-tsa-and-ocsp-for-lt-and-lta-signature-profiles)
 before continuing - your signing will fail without a TSA configured.
 
-### Step 5.4 - Add a production-specific profile (recommended)
+### Step 4.4 - Add a production-specific profile (recommended)
 
 Don't modify the shipped `LocalDemo` profile - keep it intact as a known-good
 fallback. Add a new profile (e.g. `AcmeProductionSeal`) following
@@ -442,7 +426,7 @@ The 6 steps in that section walk through editing
 `dmss-digital-stamping-service/application.yml`, updating
 `STAMP_LOCAL.url` in `config.js`, and restarting the right services.
 
-### Step 5.5 - Rotate the three default credentials
+### Step 4.5 - Rotate the three default credentials
 
 Now is the right time to replace the three `changeit` defaults with
 strong unique passwords:
@@ -461,14 +445,14 @@ strong unique passwords:
 Skipping this step leaves your container-signature endpoint open to
 anyone who knows the deployment convention. Don't skip it.
 
-### Step 5.6 - Smoke-test the production cert
+### Step 4.6 - Smoke-test the production cert
 
 Use the same three checks as Phase 3, but adapted for the production
 profile:
 
 ```bash
 # 5.6.1 - Cert endpoint serves your real cert. Replace <YourCompany>
-#         with the company name you added in Step 5.4.
+#         with the company name you added in Step 4.4.
 # Note: the stamping service has no HTTP auth itself; the Spring Security
 # credentials you rotated above gate container-signature, not stamping.
 docker exec dmss-container-and-signature-services curl -fsS \
@@ -480,12 +464,12 @@ docker exec dmss-container-and-signature-services curl -fsS \
 Confirm `subject` matches the CN/DN your CA issued and `issuer` matches
 the CA's name. Critically, `subject` must **not** still say "Trustlynx
 Local Seal Demo" - if it does, the stamping container is still serving
-the demo cert (the swap didn't take effect, see Phase 8 for rollback or
-re-check Step 5.2 / 5.4).
+the demo cert (the swap didn't take effect, see Phase 7 for rollback or
+re-check Step 4.2 / 4.4).
 
 ```bash
 # 5.6.2 - End-to-end sign through ps-server. Pick a test PDF.
-#         Replace <ProductionProfile> with the profile name from Step 5.4.
+#         Replace <ProductionProfile> with the profile name from Step 4.4.
 curl -sS -u user:<your-new-spring-security-password> -X POST \
     -F "file=@/path/to/test.pdf;type=application/pdf" \
     -o /tmp/prod-test.pdf \
@@ -496,7 +480,7 @@ curl -sS -u user:<your-new-spring-security-password> -X POST \
 grep -aoE '/Type\s*/Sig|/Filter\s*/Adobe\.PPKLite|/ByteRange' /tmp/prod-test.pdf
 ```
 
-**Step 5.6.3 - Sign through the actual SPA flow.** This is what real
+**Step 4.6.3 - Sign through the actual SPA flow.** This is what real
 users will do, so it's the most relevant check. Open the portal:
 
 ```
@@ -527,7 +511,7 @@ logs (`docker compose logs --tail 200 dmss-digital-stamping-service`
 and `... dmss-container-and-signature-services`) for the underlying
 Spring exception.
 
-### Step 5.7 - Verify the signature externally (the real test)
+### Step 4.7 - Verify the signature externally (the real test)
 
 The smoke tests above prove the *stack* produces a signature. The real
 question for a production cert is whether a *verifier* trusts it.
@@ -558,7 +542,7 @@ trust store); the signature is `B_BES` and the verifier requires `LT` /
 or the cert's `keyUsage` is missing `digitalSignature` /
 `nonRepudiation` (re-issue with the correct key usage).
 
-## Phase 6 - Plan for go-live
+## Phase 5 - Plan for go-live
 
 You now have a stack that produces real, externally-valid signatures
 on demand. Before opening it up to production traffic:
@@ -576,16 +560,16 @@ on demand. Before opening it up to production traffic:
 3. **Test the restore** from your backup once. A backup you have not
    verified is not a backup.
 
-## Phase 7 - Harden before exposing the stack
+## Phase 6 - Harden before exposing the stack
 
 Before opening the stack to production traffic, walk through these
 hardening items. The two highest-impact ones if you do nothing else:
 
 - **Restrict the container-signature host port** - bind `84` to
   `127.0.0.1:84:8092` so it's not reachable from the LAN.
-- **Confirm the three credentials are rotated** (Step 5.5 above).
+- **Confirm the three credentials are rotated** (Step 4.5 above).
 
-## Phase 8 - Rollback recipes
+## Phase 7 - Rollback recipes
 
 Three levels of revert, ordered from softest to hardest. Use the
 softest one that fits your situation.
