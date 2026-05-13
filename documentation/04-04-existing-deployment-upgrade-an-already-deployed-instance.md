@@ -9,8 +9,7 @@ version where `installation-scripts/upgrade.sh` does **not** have the
 - enabling local e-sealing with the **demo cert** that ships in the repo,
 - verifying the demo signing works end to end,
 - replacing the demo cert with your **own production key + certificate**
-  and verifying that too,
-- the rollback recipes if anything goes wrong.
+  and verifying that too.
 
 The flow is non-destructive: external mode keeps working until you
 explicitly switch `STAMP_MODE` to `"local"`. Every step is reversible
@@ -223,8 +222,25 @@ Common mid-run failures:
 | You SIGINT'd the script during edits | Partial state in `config.js` / compose | The `*.bak` files are still there. Either re-run (idempotent) or `cp docker-compose.yml.bak docker-compose.yml; cp config/config.js.bak config/config.js` and start over. |
 
 If you need to bail out completely after a failed run and return to
-pre-feature state, see [Phase 7.c](#phase-7---rollback-recipes) - the
-hard rollback works whether or not the upgrade finished.
+pre-feature state, restore the two `.bak` files the script created
+in Step 1:
+
+```bash
+cd /opt/psapp
+cp docker-compose.yml.bak docker-compose.yml
+cp config/config.js.bak  config/config.js
+```
+
+Then open `.env` and remove the `COMPOSE_PROFILES=local-eseal` line,
+and bring the stack back up:
+
+```bash
+docker compose --profile local-eseal down dmss-digital-stamping-service
+docker compose up -d
+docker compose restart ps-server
+```
+
+The hard rollback works whether or not the upgrade finished.
 
 ## Phase 3 - Verify the demo signing flow
 
@@ -464,8 +480,7 @@ docker exec dmss-container-and-signature-services curl -fsS \
 Confirm `subject` matches the CN/DN your CA issued and `issuer` matches
 the CA's name. Critically, `subject` must **not** still say "Trustlynx
 Local Seal Demo" - if it does, the stamping container is still serving
-the demo cert (the swap didn't take effect, see Phase 7 for rollback or
-re-check Step 4.2 / 4.4).
+the demo cert (the swap didn't take effect - re-check Step 4.2 / 4.4).
 
 ```bash
 # 5.6.2 - End-to-end sign through ps-server. Pick a test PDF.
@@ -541,142 +556,3 @@ trust store); the signature is `B_BES` and the verifier requires `LT` /
 [Wiring TSA and OCSP for LT and LTA signature profiles](04-08-wiring-tsa-and-ocsp-for-lt-and-lta-signature-profiles.md#48-wiring-tsa-and-ocsp-for-lt-and-lta-signature-profiles));
 or the cert's `keyUsage` is missing `digitalSignature` /
 `nonRepudiation` (re-issue with the correct key usage).
-
-## Phase 5 - Plan for go-live
-
-You now have a stack that produces real, externally-valid signatures
-on demand. Before opening it up to production traffic:
-
-1. **Schedule the cert-expiry alert.** Set a calendar reminder for
-   **60 days before** the cert's `notAfter` date, plus an automated
-   probe that calls
-   `http://dmss-digital-stamping-service:8084/api/signing/certificate/for/<company>`
-   daily and pages on `< 30 days remaining`.
-2. **Back up the production keystore.** Encrypted backup, password
-   stored separately from the keystore (different storage, different
-   access list - see
-   [Production setup: deploying with your own key and certificate](04-06-production-setup-deploying-with-your-own-key-and-certificate.md#46-production-setup-deploying-with-your-own-key-and-certificate)
-   Step 5).
-3. **Test the restore** from your backup once. A backup you have not
-   verified is not a backup.
-
-## Phase 6 - Harden before exposing the stack
-
-Before opening the stack to production traffic, walk through these
-hardening items. The two highest-impact ones if you do nothing else:
-
-- **Restrict the container-signature host port** - bind `84` to
-  `127.0.0.1:84:8092` so it's not reachable from the LAN.
-- **Confirm the three credentials are rotated** (Step 4.5 above).
-
-## Phase 7 - Rollback recipes
-
-Three levels of revert, ordered from softest to hardest. Use the
-softest one that fits your situation.
-
-### 8.a - Switch back to external e-sealing without removing the local stack
-
-Useful if you want to keep the local stamping container deployed but
-have ps-server temporarily route stamping requests to the cloud
-service. Same recipe as
-[Switching modes after install -> From Local back to External](04-05-switching-modes-after-install.md#45-switching-modes-after-install):
-edit `STAMP_MODE` to `"external"` in `config/config.js`, then:
-
-```bash
-docker compose restart ps-server
-```
-
-After this, every `/api/stamp` request hits the cloud service. The
-stamping container is still running but receives no traffic.
-
-### 8.b - Stop the stamping container too
-
-Frees the resources the stamping container holds (memory, the bind
-mounts), but leaves all the new files in place so you can re-enable
-later.
-
-1. Open `.env` and remove (or comment out) the
-   `COMPOSE_PROFILES=local-eseal` line, so `docker compose` no longer
-   includes the stamping service automatically:
-
-   ```
-   # .env  (after edit)
-   # COMPOSE_PROFILES=local-eseal     <-- line deleted or commented out
-   ```
-
-2. Stop the stamping container:
-
-   ```bash
-   docker compose --profile local-eseal down dmss-digital-stamping-service
-   ```
-
-To re-enable, follow
-[Switching modes after install -> From External back to Local](04-05-switching-modes-after-install.md#45-switching-modes-after-install).
-
-### 8.c - Hard rollback to pre-feature state
-
-Use the `*.bak` files `upgrade.sh` created in Phase 2. This restores
-`config/config.js` and `docker-compose.yml` to exactly what they were
-before `--enable-local-eseal` ran. The new
-`dmss-digital-stamping-service/` directory, the
-`installation-scripts/assets/` directory, and the patched
-container-signature `application.yml` stay on disk but are no longer
-referenced by the active configs.
-
-1. Restore the two `.bak` files:
-
-   ```bash
-   cd /opt/psapp
-   cp docker-compose.yml.bak docker-compose.yml
-   cp config/config.js.bak  config/config.js
-   ```
-
-2. Open `.env` and remove the `COMPOSE_PROFILES=` line entirely (it
-   came from `upgrade.sh --enable-local-eseal`):
-
-   ```
-   # .env  (after edit - the line is gone)
-   ```
-
-3. Bring the stack back to the pre-feature state:
-
-   ```bash
-   docker compose --profile local-eseal down dmss-digital-stamping-service
-   docker compose up -d
-   docker compose restart ps-server   # bind-mounted config.js changed; ps-server
-                                      # must restart to re-read it
-   ```
-
-If you want a *complete* rollback that also removes the new files (only
-do this if you are sure you won't re-enable local-eseal soon):
-
-1. Stop the stamping container and delete its on-disk directory:
-
-   ```bash
-   docker compose --profile local-eseal down dmss-digital-stamping-service
-   rm -rf dmss-digital-stamping-service
-   ```
-
-2. Open `dmss-container-and-signature-services/application.yml` and
-   change the `digital-stamping-service.baseUrl` line back to the
-   pre-feature value:
-
-   ```yaml
-   # dmss-container-and-signature-services/application.yml  (around line 148)
-   digital-stamping-service:
-     baseUrl: http://host.docker.internal:8084/api      # was: http://dmss-digital-stamping-service:8084/api
-   ```
-
-3. Apply:
-
-   ```bash
-   docker compose up -d
-   docker compose restart dmss-container-and-signature-services   # picks up the baseUrl edit
-   ```
-
-After any hard rollback, sign a test document via the SPA and confirm
-ps-server logs show `[stamp] mode=external` (or that signing simply
-works as it did before, depending on which rollback level you used).
-
----
-
