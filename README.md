@@ -92,6 +92,4 @@ This repository deploys [PadSign](https://github.com/mihailsgo/psapp-saas) 2.0 -
     - [34.1 Deployment and integration architecture](documentation/34-01-deployment-and-integration-architecture.md)
     - [34.2 Signing and stamping execution flow](documentation/34-02-signing-and-stamping-execution-flow.md)
     - [34.3 Very high-level component view](documentation/34-03-very-high-level-component-view.md)
-35. [Change history](documentation/35-change-history.md)
-    - [35.1 2026-05-13 - Optional local e-sealing](documentation/35-01-2026-05-13---optional-local-e-sealing.md)
 
