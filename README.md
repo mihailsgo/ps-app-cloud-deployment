@@ -67,8 +67,8 @@ One command to deploy PadSign on a new server:
 
 ### What bootstrap does (step by step)
 
-1. **Validates inputs** — checks required parameters (host, company-role, admin-pass) and verifies dependencies (docker, docker compose, python3, perl, curl)
-2. **Backs up config files** — creates `.bak` copies of `config/config.js`, `config/constants.json`, `nginx/nginx.conf`, and `docker-compose.yml` for safe rollback
+1. **Validates inputs** - checks required parameters (host, company-role, admin-pass) and verifies dependencies (docker, docker compose, python3, perl, curl)
+2. **Backs up config files** - creates `.bak` copies of `config/config.js`, `config/constants.json`, `nginx/nginx.conf`, and `docker-compose.yml` for safe rollback
 3. **Rewrites config for hostname** (`configure-host.sh`):
    - `nginx/nginx.conf`: sets `server_name`, TLS cert paths, and root→`/portal/` redirect
    - `config/constants.json`: sets Keycloak URL, redirect URIs, download API URL
@@ -77,23 +77,23 @@ One command to deploy PadSign on a new server:
    - Copies TLS certificates to `nginx/certs/` (if provided)
    - Injects `DOCUMENT_ROUTING` config block if missing (disabled by default)
    - Validates JSON syntax of `constants.json` after editing
-4. **Creates `signed-output/` directory** — writable directory for filesystem document routing
+4. **Creates `signed-output/` directory** - writable directory for filesystem document routing
 5. **Bootstraps Keycloak** (`keycloak-bootstrap.sh`):
    - Starts Keycloak container and waits for health endpoint
    - Creates realm (`padsign`) if not exists
    - Creates roles: `padsign-admin`, `psapp-integration`, and the company role
-   - Creates frontend client (`padsign-client`) — public, OIDC, with correct redirect URIs
-   - Creates backend client (`padsign-backend`) — confidential, bearer-only, service accounts enabled
+   - Creates frontend client (`padsign-client`) - public, OIDC, with correct redirect URIs
+   - Creates backend client (`padsign-backend`) - confidential, bearer-only, service accounts enabled
    - Creates test user with the company role assigned and a random password
    - Optionally creates additional users from `--users` parameter
-6. **Writes backend client secret** — captures the auto-generated Keycloak client secret and writes it into `config/config.js`
-7. **Pulls Docker images** — `docker compose pull` for all services
-8. **Starts all services** — `docker compose up -d`
+6. **Writes backend client secret** - captures the auto-generated Keycloak client secret and writes it into `config/config.js`
+7. **Pulls Docker images** - `docker compose pull` for all services
+8. **Starts all services** - `docker compose up -d`
 9. **Verifies deployment**:
    - Checks ps-server logs for successful startup
    - Tests root redirect (expects 301 → `/portal/`)
    - Lists all running containers with image versions
-10. **Prints summary** — portal URL, Keycloak admin URL, API URL, test user credentials
+10. **Prints summary** - portal URL, Keycloak admin URL, API URL, test user credentials
 
 ### Bootstrap parameters
 
@@ -115,10 +115,10 @@ One command to deploy PadSign on a new server:
 PadSign ships with **two e-sealing paths** that you can pick between at deploy
 time without touching source code:
 
-- **External (default)** — `ps-server` calls a cloud e-sealing service
+- **External (default)** - `ps-server` calls a cloud e-sealing service
   configured via `STAMP_API_URL` / `STAMP_API_KEY` / `STAMP_COMPANY_ID` /
   `STAMP_COMPANY_SECRET` in `config/config.js`.
-- **Local** — `ps-server` calls an in-stack `dmss-container-and-signature-services`
+- **Local** - `ps-server` calls an in-stack `dmss-container-and-signature-services`
   endpoint, which delegates to a new `dmss-digital-stamping-service` container.
   The signing key lives inside that container
   (`dmss-digital-stamping-service/seal/seal.p12`). Nothing leaves the host.
@@ -146,17 +146,17 @@ guide:
 | **Certificate (cert)** | A file (usually `.crt`, `.cer`, or `.pem`) issued by a Certificate Authority (CA). Contains the public key plus identity info (company name, country, validity dates). |
 | **Private key** | The matching secret half of the certificate's key pair. Usually a `.key` file (PEM-encoded), sometimes password-protected. Must never leave the signing host. |
 | **PKCS12** (`.p12` / `.pfx`) | A single file format that bundles a private key + certificate (+ optional intermediate-CA chain) together, protected by one password. The stamping service consumes its key+cert in this format. |
-| **Alias** | A name pointing at one specific key+cert entry inside a PKCS12/JKS keystore. The stamping service uses the alias `seal` by default — your keystore must have an entry with that name (or you edit the config to point at a different alias). |
+| **Alias** | A name pointing at one specific key+cert entry inside a PKCS12/JKS keystore. The stamping service uses the alias `seal` by default - your keystore must have an entry with that name (or you edit the config to point at a different alias). |
 | **PEM** | A text-encoded format for keys and certs (`-----BEGIN CERTIFICATE-----` ... `-----END CERTIFICATE-----`). Convertible to PKCS12 with `openssl`. |
 | **CA (Certificate Authority)** | The organisation that issues your certificate. Public CAs (Sectigo, DigiCert, eParaksts, SK ID Solutions, etc.) chain to a globally trusted root; private/internal CAs do not. |
 | **Trust chain** | The sequence of certificates from your signing cert up through intermediate CAs to a trusted root. Any verifier needs the full chain to validate a signature. |
 | **signatureProfile** | The "level" of signature digidoc4j produces. The relevant ones for PDF signing are `B_BES` (basic, self-contained), `LT` (long-term, includes a timestamp), and `LTA` (long-term + archival). |
-| **PAdES** | "PDF Advanced Electronic Signatures" — the ETSI standard family for PDF signatures. `PAdES_BASELINE_B`, `PAdES_BASELINE_T`, `PAdES_BASELINE_LT`, `PAdES_BASELINE_LTA` are progressive levels of preservation. The default in `application.yml` is `PAdES_BASELINE_LT`. |
-| **ASiC-E** | "Associated Signature Container — Extended" — a zip-based container format that holds one or more files plus their detached signatures. Used for sealing non-PDF artefacts; not the default for the local-eseal flow. |
+| **PAdES** | "PDF Advanced Electronic Signatures" - the ETSI standard family for PDF signatures. `PAdES_BASELINE_B`, `PAdES_BASELINE_T`, `PAdES_BASELINE_LT`, `PAdES_BASELINE_LTA` are progressive levels of preservation. The default in `application.yml` is `PAdES_BASELINE_LT`. |
+| **ASiC-E** | "Associated Signature Container - Extended" - a zip-based container format that holds one or more files plus their detached signatures. Used for sealing non-PDF artefacts; not the default for the local-eseal flow. |
 | **TSA / TSP** | "TimeStamp Authority" / "TimeStamp Protocol". A network service that signs `(hash, current-time)` and returns a timestamp token. Required for `LT` / `LTA` signature levels. |
 | **OCSP** | "Online Certificate Status Protocol". A network service the verifier queries to check whether a certificate has been revoked. Required for `LT` / `LTA`. |
 | **TSL** | "Trust Service List". An XML document, maintained by each EU member state, listing the qualified Trust Service Providers (CAs, TSAs) accepted as eIDAS-qualified. digidoc4j consults TSLs in PROD mode to decide which issuers it will validate against. |
-| **eIDAS** | EU Regulation 910/2014. Defines what counts as a *qualified* electronic signature / seal — broadly, a signature whose cert was issued by a qualified CA and whose long-term integrity is provable. Only `LT`/`LTA` signatures with a qualified CA + qualified TSA satisfy eIDAS. |
+| **eIDAS** | EU Regulation 910/2014. Defines what counts as a *qualified* electronic signature / seal - broadly, a signature whose cert was issued by a qualified CA and whose long-term integrity is provable. Only `LT`/`LTA` signatures with a qualified CA + qualified TSA satisfy eIDAS. |
 | **digidoc4j** | The Java library container-signature uses to actually produce the signature. Configured via `dmss-container-and-signature-services/digidoc4j-custom.yaml` and the `digidoc4j:` section of `application.yml`. |
 | **Container-signature** | Short name we use in this guide for the `dmss-container-and-signature-services` container. It is the service that orchestrates document sealing. |
 | **Stamping service** | Short name for `dmss-digital-stamping-service`. It holds the keystore and answers two endpoints: `GET /api/signing/certificate/for/<company>` and `POST /api/sign/digest/as/<company>`. |
@@ -174,7 +174,7 @@ guide:
 **Default in `dmss-container-and-signature-services/application.yml`:**
 `pdf.defaultSignatureLevel: PAdES_BASELINE_LT`. The shipped `LocalDemo`
 profile overrides this to `B_BES` so the demo certificate works without a
-TSA — see [Production setup: deploying with your own key and certificate](#production-setup-deploying-with-your-own-key-and-certificate)
+TSA - see [Production setup: deploying with your own key and certificate](#production-setup-deploying-with-your-own-key-and-certificate)
 for how to choose for your real cert.
 
 ### Architecture deep-dive
@@ -264,9 +264,9 @@ When ps-server in local mode posts to
 8. container-signature splices the signature into the PDF's
    `/Type /Sig` dictionary and returns the signed PDF to ps-server.
 
-If any link in this chain has a typo — profile name not in JSON,
+If any link in this chain has a typo - profile name not in JSON,
 `esealCompany` not in stamping's `application.yml`, alias not in the
-keystore, keystore password mismatch — the request returns 5xx and
+keystore, keystore password mismatch - the request returns 5xx and
 ps-server's graceful-skip path returns `200 { stampStatus: "skipped" }`
 so the SPA flow continues without a seal. See
 [Debugging local e-sealing](#debugging-local-e-sealing) for diagnostics.
@@ -351,7 +351,7 @@ back to.
    already requires; if your deployment is running, you have them.
 4. **You have internet access from the host** to pull the new
    `trustlynx/digital-stamping-service` image from Docker Hub
-   (~830 MB, one-time download — typically 1-2 minutes on a 100 Mbit
+   (~830 MB, one-time download - typically 1-2 minutes on a 100 Mbit
    link). If your host is air-gapped, see
    [Operations cookbook → Pulling the stamping image on an air-gapped host](#operations-cookbook)
    for the offline transfer recipe.
@@ -362,18 +362,18 @@ back to.
    cat /tmp/predeploy-images.txt
    ```
 6. **Note the current `STAMP_MODE`** (it should be missing, since
-   pre-feature deployments don't have this field — meaning external mode):
+   pre-feature deployments don't have this field - meaning external mode):
    ```bash
    cd /opt/psapp     # or wherever your deployment is
    grep -n STAMP_MODE config/config.js || echo "STAMP_MODE not set yet (external mode is implicit)"
    ```
    If the command *does* show a match (e.g. `STAMP_MODE: "external"` or
    `STAMP_MODE: "local"`), you've already enabled local e-sealing at
-   some point — this isn't a true "pre-feature" deployment. The
+   some point - this isn't a true "pre-feature" deployment. The
    upgrade is still safe to re-run (idempotent), but you may want to
    skip ahead to [Switching modes after install](#switching-modes-after-install)
    if all you want is to flip the active mode.
-7. **Snapshot the deployment directory** (belt-and-braces — `upgrade.sh`
+7. **Snapshot the deployment directory** (belt-and-braces - `upgrade.sh`
    takes its own `.bak` files but a directory-level snapshot is useful
    if something else goes wrong). Put it somewhere durable (NOT
    `/tmp`, which is typically wiped on reboot):
@@ -394,7 +394,7 @@ back to.
    snapshot if everything else has failed:
    `cd /opt/psapp && sudo tar xzf <backup-file>`.
 8. **Read or skim** the [Concepts and glossary](#concepts-and-glossary)
-   section once. You don't need to memorise the acronyms — but knowing
+   section once. You don't need to memorise the acronyms - but knowing
    that "TSA" means timestamp authority and "PKCS12" means a key+cert
    bundle file will save time when you read error messages later.
 
@@ -405,7 +405,7 @@ Pull the new version of this repo into your deployment directory.
 ```bash
 cd /opt/psapp
 
-# 1. Sanity-check your remote — should be the same place you cloned from
+# 1. Sanity-check your remote - should be the same place you cloned from
 #    originally:
 git remote -v
 # Typical output:
@@ -413,7 +413,7 @@ git remote -v
 #   origin  git@gitlab.com:.../ps-app-cloud-deployment.git (push)
 
 # 2. Confirm the working tree is clean. If there are local changes, stash
-#    or commit them first — `git pull` will refuse to merge over dirty
+#    or commit them first - `git pull` will refuse to merge over dirty
 #    files:
 git status
 
@@ -489,7 +489,7 @@ Step 6/6: Verifying...
 
 If you're re-running the script on a deployment that already went
 through Step 4b at least once, some lines will read "already present"
-instead of the verbs above — for example:
+instead of the verbs above - for example:
 
 ```
 Step 4b/6: Enabling local e-sealing...
@@ -501,14 +501,14 @@ Step 4b/6: Enabling local e-sealing...
   .env already activates local-eseal profile
 ```
 
-Either output is healthy — `Step 4b` is intentionally idempotent so
+Either output is healthy - `Step 4b` is intentionally idempotent so
 re-running the upgrade is always safe.
 
 **What the script did, in plain English:**
 
 1. **Backed up** `docker-compose.yml` and `config/config.js` to
    `.bak` files in place (rollback safety).
-2. Did not change any image tags (Step 2) — you didn't pass
+2. Did not change any image tags (Step 2) - you didn't pass
    `--server-tag` or `--client-tag` so existing pins on `ps-server` and
    `ps-client` are preserved. Skip this if you only ran `--enable-local-eseal`.
 3. Confirmed `DOCUMENT_ROUTING` already in `config.js` (it should be).
@@ -520,12 +520,12 @@ re-running the upgrade is always safe.
      repo root. These get bind-mounted into the new stamping container.
    - Appended a new `dmss-digital-stamping-service:` service block to
      `docker-compose.yml`. The block carries `profiles: ["local-eseal"]`
-     so it never starts on a plain `docker compose up -d` — it only
+     so it never starts on a plain `docker compose up -d` - it only
      starts when the `local-eseal` profile is active.
    - Edited `dmss-container-and-signature-services/application.yml`:
      changed `digital-stamping-service.baseUrl` from
      `http://host.docker.internal:8084/api` (host-based USB-token
-     signer — what some deployments use) to
+     signer - what some deployments use) to
      `http://dmss-digital-stamping-service:8084/api` (the new in-network
      stamping container).
    - Added `SPRING_SECURITY_USER_NAME=user` and
@@ -578,7 +578,7 @@ docker compose logs --tail 50 dmss-container-and-signature-services \
 ```
 
 If you don't see "Started Application" for either after ~60 seconds,
-something is wrong — see
+something is wrong - see
 [Debugging local e-sealing](#debugging-local-e-sealing).
 
 **Can I run this during business hours?** Yes for the demo flow with a
@@ -603,14 +603,14 @@ Common mid-run failures:
 | You SIGINT'd the script during edits | Partial state in `config.js` / compose | The `*.bak` files are still there. Either re-run (idempotent) or `cp docker-compose.yml.bak docker-compose.yml; cp config/config.js.bak config/config.js` and start over. |
 
 If you need to bail out completely after a failed run and return to
-pre-feature state, see [Phase 8.c](#phase-8---rollback-recipes) — the
+pre-feature state, see [Phase 8.c](#phase-8---rollback-recipes) - the
 hard rollback works whether or not the upgrade finished.
 
 #### Phase 3 - Verify the demo signing flow (5 minutes)
 
 Three checks. Run them in order; later checks assume earlier ones passed.
 
-**Check 3.1 — The stamping service serves the demo certificate.** Run
+**Check 3.1 - The stamping service serves the demo certificate.** Run
 this from the deployment host:
 
 ```bash
@@ -637,7 +637,7 @@ If `subject` shows a different CN (or the call fails), see
 cert works, real cert fails to load" (the diagnostics apply in either
 direction).
 
-**Check 3.2 — ps-server can reach the chain end-to-end.** This check
+**Check 3.2 - ps-server can reach the chain end-to-end.** This check
 proves the new `STAMP_MODE: "local"` was picked up and ps-server is
 routing through container-signature → stamping. Two ways to do it:
 
@@ -673,20 +673,20 @@ After Option A you should see something like:
 ```
 
 (Option B doesn't go through ps-server, so its `[stamp]` line won't
-appear — but its HTTP=200 + non-zero bytes is the equivalent proof.)
+appear - but its HTTP=200 + non-zero bytes is the equivalent proof.)
 
 The key word in the first line is `mode=local`. If it shows `mode=external`,
-ps-server is still on the old config — restart it (`docker compose restart
+ps-server is still on the old config - restart it (`docker compose restart
 ps-server`) and re-try.
 
-**Check 3.3 — The signed PDF actually has a signature in it.** Download
+**Check 3.3 - The signed PDF actually has a signature in it.** Download
 the latest archived version of the document you just signed in two
 possible ways:
 
-*Option A — via the SPA:* the portal page that shows after signing
+*Option A - via the SPA:* the portal page that shows after signing
 includes a "Download signed PDF" link. Save the file as `signed.pdf`.
 
-*Option B — directly from dmss-archive-services on the host:*
+*Option B - directly from dmss-archive-services on the host:*
 
 ```bash
 # Find the document ID in ps-server logs from your sign operation, e.g.:
@@ -699,7 +699,7 @@ Port 86 is `dmss-archive-services` host-side (see [Ports table](#ports)
 in the Quick reference). If your deployment moved that port, check
 `docker-compose.yml`. If you used Option B in Phase 3.2's CLI shortcut
 (curl-to-container-signature), the result is already at
-`/tmp/demo-signed.pdf` — use that path directly.
+`/tmp/demo-signed.pdf` - use that path directly.
 
 Then verify the signature dictionary is present:
 
@@ -717,7 +717,7 @@ Expected output:
 
 (The exact ByteRange numbers depend on your PDF.) All three lines must
 be present. If any is missing, the signature dictionary wasn't embedded
-— check `docker compose logs dmss-container-and-signature-services` for
+- check `docker compose logs dmss-container-and-signature-services` for
 errors.
 
 **Optional: open the signed PDF in Adobe Reader.** Open the file in
@@ -728,7 +728,7 @@ With the demo cert you will see:
 > Document has not been modified since the signature was applied.
 > Signer's identity is unknown because it could not be checked.
 
-That outcome is **expected and correct** for the demo cert — the seal
+That outcome is **expected and correct** for the demo cert - the seal
 itself is cryptographically valid, but the demo CA is self-signed and
 Adobe doesn't trust it. You will get a green check ("Signed and all
 signatures are valid") only after Phase 5 with a real CA-issued cert.
@@ -753,14 +753,14 @@ paths:
 
 This phase replaces the demo cert with your own production signing
 material and verifies signing still works end to end. It is a *test*
-phase even when using the real cert — meaning you confirm signatures
+phase even when using the real cert - meaning you confirm signatures
 verify correctly in a representative environment before going live.
 
 **Time budget:** depends on whether you already have a signing
 certificate. If yes, ~30 minutes. If you need to request one from a
 public CA, days to weeks (your CA's SLA, plus organisational paperwork).
 
-##### Step 5.1 — Source your signing certificate
+##### Step 5.1 - Source your signing certificate
 
 Decide what kind of certificate you need:
 
@@ -772,7 +772,7 @@ Decide what kind of certificate you need:
 
 Make sure the cert you request supports **digital signature** and
 optionally **non-repudiation** key usages. Some CAs require you to
-specify "qualified seal" or "qualified signature" at issuance time —
+specify "qualified seal" or "qualified signature" at issuance time -
 the two are different products under eIDAS.
 
 Once your CA fulfils the request you will typically receive:
@@ -784,7 +784,7 @@ Once your CA fulfils the request you will typically receive:
 Or you may receive a single **PKCS12 bundle** (`.pfx` / `.p12`) that
 already contains all of the above, protected by one password.
 
-##### Step 5.2 — Build a deployment-ready `seal.p12`
+##### Step 5.2 - Build a deployment-ready `seal.p12`
 
 Follow [Production setup: deploying with your own key and certificate](#production-setup-deploying-with-your-own-key-and-certificate)
 to convert whatever your CA delivered into a PKCS12 keystore that the
@@ -792,7 +792,7 @@ stamping service can consume. Pick the recipe that matches your
 artefact shape (separate files, existing .pfx, or alias rename).
 Verify with `keytool -list -v` before continuing.
 
-##### Step 5.3 — Decide on a signature level
+##### Step 5.3 - Decide on a signature level
 
 The shipped `LocalDemo` profile uses `B_BES` because the demo cert is
 self-signed and no TSA will issue a timestamp for it. With a real
@@ -809,11 +809,11 @@ Open [Step 4 of Production setup](#production-setup-deploying-with-your-own-key-
 
 If you pick anything other than `B_BES`, complete
 [Wiring TSA and OCSP for LT and LTA signature profiles](#wiring-tsa-and-ocsp-for-lt-and-lta-signature-profiles)
-before continuing — your signing will fail without a TSA configured.
+before continuing - your signing will fail without a TSA configured.
 
-##### Step 5.4 — Add a production-specific profile (recommended)
+##### Step 5.4 - Add a production-specific profile (recommended)
 
-Don't modify the shipped `LocalDemo` profile — keep it intact as a known-good
+Don't modify the shipped `LocalDemo` profile - keep it intact as a known-good
 fallback. Add a new profile (e.g. `AcmeProductionSeal`) following
 [Adding a new signing profile end-to-end](#adding-a-new-signing-profile-end-to-end).
 The 6 steps in that section walk through editing
@@ -821,21 +821,21 @@ The 6 steps in that section walk through editing
 `dmss-digital-stamping-service/application.yml`, updating
 `STAMP_LOCAL.url` in `config.js`, and restarting the right services.
 
-##### Step 5.5 — Rotate the three default credentials
+##### Step 5.5 - Rotate the three default credentials
 
 Now is the right time to replace the three `changeit` defaults with
-strong unique passwords — see
+strong unique passwords - see
 [Production hardening checklist → 1. Rotate the three demo credentials](#production-hardening-checklist-local-e-sealing-specific).
 Skipping this step leaves your container-signature endpoint open to
 anyone who knows the deployment convention. Don't skip it.
 
-##### Step 5.6 — Smoke-test the production cert
+##### Step 5.6 - Smoke-test the production cert
 
 Use the same three checks as Phase 3, but adapted for the production
 profile:
 
 ```bash
-# 5.6.1 — Cert endpoint serves your real cert. Replace <YourCompany>
+# 5.6.1 - Cert endpoint serves your real cert. Replace <YourCompany>
 #         with the company name you added in Step 5.4.
 # Note: the stamping service has no HTTP auth itself; the Spring Security
 # credentials you rotated above gate container-signature, not stamping.
@@ -847,12 +847,12 @@ docker exec dmss-container-and-signature-services curl -fsS \
 
 Confirm `subject` matches the CN/DN your CA issued and `issuer` matches
 the CA's name. Critically, `subject` must **not** still say "Trustlynx
-Local Seal Demo" — if it does, the stamping container is still serving
+Local Seal Demo" - if it does, the stamping container is still serving
 the demo cert (the swap didn't take effect, see Phase 8 for rollback or
 re-check Step 5.2 / 5.4).
 
 ```bash
-# 5.6.2 — End-to-end sign through ps-server. Pick a test PDF.
+# 5.6.2 - End-to-end sign through ps-server. Pick a test PDF.
 #         Replace <ProductionProfile> with the profile name from Step 5.4.
 curl -sS -u user:<your-new-spring-security-password> -X POST \
     -F "file=@/path/to/test.pdf;type=application/pdf" \
@@ -864,7 +864,7 @@ curl -sS -u user:<your-new-spring-security-password> -X POST \
 grep -aoE '/Type\s*/Sig|/Filter\s*/Adobe\.PPKLite|/ByteRange' /tmp/prod-test.pdf
 ```
 
-**Step 5.6.3 — Sign through the actual SPA flow.** This is what real
+**Step 5.6.3 - Sign through the actual SPA flow.** This is what real
 users will do, so it's the most relevant check. Open the portal:
 
 ```
@@ -893,7 +893,7 @@ ps-server logs instead of a 200, see
 [Debugging local e-sealing](#debugging-local-e-sealing) → "Symptom:
 `/api/stamp` returns `200 { stampStatus: "skipped", ... }`".
 
-##### Step 5.7 — Verify the signature externally (the real test)
+##### Step 5.7 - Verify the signature externally (the real test)
 
 The smoke tests above prove the *stack* produces a signature. The real
 question for a production cert is whether a *verifier* trusts it.
@@ -905,7 +905,7 @@ Run the full procedure in
   Signature Panel. With a publicly-trusted CA + a TSA-backed LT
   profile, you should now see **"Signed and all signatures are valid"**
   (green check). If you see "valid but the signer's identity is
-  unknown", the verifier's trust store doesn't include your CA —
+  unknown", the verifier's trust store doesn't include your CA -
   see the Adobe trust-store discussion in that section.
 - Run `pdfsig <signed.pdf>` and confirm both
   `Signature Validation: Signature is Valid` and
@@ -925,10 +925,10 @@ You now have a stack that produces real, externally-valid signatures
 on demand. Before opening it up to production traffic:
 
 1. **Schedule the cert-expiry alert.** Calendar reminder + monitor
-   probe — see
+   probe - see
    [Production hardening checklist → 6. Decide a cert rotation cadence](#production-hardening-checklist-local-e-sealing-specific).
 2. **Back up the production keystore.** Encrypted backup, password
-   stored separately — see
+   stored separately - see
    [Operations cookbook → Back up the keystore](#operations-cookbook).
 3. **Test the restore** from your backup once. A backup you have not
    verified is not a backup.
@@ -940,7 +940,7 @@ Walk through every numbered item in
 before opening the stack to production traffic. The two highest-impact
 items if you do nothing else:
 
-- **Restrict the container-signature host port** — bind `84` to
+- **Restrict the container-signature host port** - bind `84` to
   `127.0.0.1:84:8092` so it's not reachable from the LAN.
 - **Confirm the three credentials are rotated** (Step 5.5 above).
 
@@ -949,7 +949,7 @@ items if you do nothing else:
 Three levels of revert, ordered from softest to hardest. Use the
 softest one that fits your situation.
 
-##### 8.a — Switch back to external e-sealing without removing the local stack
+##### 8.a - Switch back to external e-sealing without removing the local stack
 
 Useful if you want to keep the local stamping container deployed but
 have ps-server temporarily route stamping requests to the cloud
@@ -965,7 +965,7 @@ docker compose restart ps-server
 After this, every `/api/stamp` request hits the cloud service. The
 stamping container is still running but receives no traffic.
 
-##### 8.b — Stop the stamping container too
+##### 8.b - Stop the stamping container too
 
 Frees the resources the stamping container holds (memory, the bind
 mounts), but leaves all the new files in place so you can re-enable
@@ -978,7 +978,7 @@ docker compose --profile local-eseal down dmss-digital-stamping-service
 
 To re-enable, follow [Switching modes after install](#switching-modes-after-install).
 
-##### 8.c — Hard rollback to pre-feature state
+##### 8.c - Hard rollback to pre-feature state
 
 Use the `*.bak` files `upgrade.sh` created in Phase 2. This restores
 `config/config.js` and `docker-compose.yml` to exactly what they were
@@ -1020,7 +1020,7 @@ works as it did before, depending on which rollback level you used).
 ### Switching modes after install
 
 Once the local stack is provisioned, switching is purely a configuration
-change — no scripts required:
+change - no scripts required:
 
 ```bash
 # Local -> External
@@ -1053,13 +1053,13 @@ all three** (they must stay consistent with each other):
 
 | Where it lives | Field | Default | Change to |
 |---|---|---|---|
-| `dmss-digital-stamping-service/seal/seal.p12` | keystore password | `changeit` | a strong unique password (when you build the keystore — see [Production setup](#production-setup-deploying-with-your-own-key-and-certificate)) |
+| `dmss-digital-stamping-service/seal/seal.p12` | keystore password | `changeit` | a strong unique password (when you build the keystore - see [Production setup](#production-setup-deploying-with-your-own-key-and-certificate)) |
 | `dmss-digital-stamping-service/application.yml` | `password:` under `providers` | `changeit` | must equal the new keystore password |
 | `docker-compose.yml` (on `dmss-container-and-signature-services`) | `SPRING_SECURITY_USER_PASSWORD=` env var | `changeit` | a different strong unique password |
 | `config/config.js` | `STAMP_LOCAL.password` | `changeit` | must equal the new `SPRING_SECURITY_USER_PASSWORD` |
 
-Note these are two distinct secrets: the keystore password (rows 1–2)
-unlocks the signing key; the Spring Security password (rows 3–4) gates
+Note these are two distinct secrets: the keystore password (rows 1-2)
+unlocks the signing key; the Spring Security password (rows 3-4) gates
 the HTTP endpoint container-signature exposes. Use different values.
 
 #### 2. Restrict network exposure of container-signature
@@ -1069,7 +1069,7 @@ default. With local e-sealing enabled, that port now accepts an
 `/api/eseal` request from anyone who knows the basic-auth credentials.
 Treat it as an internal-only port. Three layers, defence-in-depth:
 
-**(a) Restrict the bind to loopback.** Edit `docker-compose.yml` —
+**(a) Restrict the bind to loopback.** Edit `docker-compose.yml` -
 find the `dmss-container-and-signature-services:` service block and
 change the `ports:` line:
 
@@ -1080,7 +1080,7 @@ ports:
 ```
 
 The leading `127.0.0.1:` tells Docker to bind the port to the loopback
-interface only — the port becomes unreachable from outside the host.
+interface only - the port becomes unreachable from outside the host.
 Then `docker compose up -d dmss-container-and-signature-services` to
 re-create the container with the new port mapping. After this change,
 `ps-server` (running on the same host inside docker, going through the
@@ -1098,7 +1098,7 @@ reaches that location block with `allow`/`deny`:
 ```nginx
 # inside the existing server { ... } block in nginx/nginx.conf:
 location /container/ {
-    allow 10.0.0.0/8;            # your internal network — adjust to fit
+    allow 10.0.0.0/8;            # your internal network - adjust to fit
     allow 192.168.0.0/16;
     deny  all;                   # everyone else gets 403
     proxy_pass http://dmss-container-and-signature-services:8092/;
@@ -1127,7 +1127,7 @@ chown root:root dmss-digital-stamping-service/seal/seal.p12   # if you run as ro
 
 If you keep your deployment under git, add `dmss-digital-stamping-service/seal/seal.p12`
 and any non-demo `application.yml` to `.gitignore` for the production
-host's git tree — never commit the production keystore or its password.
+host's git tree - never commit the production keystore or its password.
 
 #### 4. Back up the keystore and its password
 
@@ -1135,9 +1135,9 @@ The keystore is regeneratable in principle (you re-export from your
 CA-issued cert + key) but only if you have the original artefacts. Plan
 for the case where the host disk dies and the originals are not handy:
 
-- **Offline backup of `seal.p12`** — encrypted archive on a separate
+- **Offline backup of `seal.p12`** - encrypted archive on a separate
   medium / location from the live host.
-- **Password backup, separately** — in your secret manager, on paper in
+- **Password backup, separately** - in your secret manager, on paper in
   a safe, etc. Encrypting the keystore with itself defeats the purpose.
 - **Test restore**: a backup you have not verified you can restore from
   is not a backup. Document the restore procedure (see
@@ -1146,7 +1146,7 @@ for the case where the host disk dies and the originals are not handy:
 #### 5. Log retention and monitoring
 
 Container logs from a busy deployment grow continuously. Docker's
-default has no rotation — logs grow until the disk fills up. Configure
+default has no rotation - logs grow until the disk fills up. Configure
 the log driver in `/etc/docker/daemon.json` (create the file if it
 doesn't exist) so each container caps its logs at a sane size:
 
@@ -1160,7 +1160,7 @@ doesn't exist) so each container caps its logs at a sane size:
 }
 ```
 
-That caps each container at 250 MB total (5 × 50 MB) — generous for
+That caps each container at 250 MB total (5 × 50 MB) - generous for
 this stack's signing throughput but not enough to fill a typical
 deployment disk. After editing the file, `sudo systemctl restart
 docker` then `docker compose up -d` to recreate containers (the
@@ -1176,22 +1176,22 @@ ship logs off-host with a sidecar like `vector`, `fluentbit`, or
 
 Useful log markers to alert on:
 
-- `ps-server`: `[stamp] mode=local url=...` — every sign call. Sudden
+- `ps-server`: `[stamp] mode=local url=...` - every sign call. Sudden
   drop = signing flow stopped.
-- `ps-server`: `STAMP_UPSTREAM_UNAVAILABLE` — graceful-skip fired,
+- `ps-server`: `STAMP_UPSTREAM_UNAVAILABLE` - graceful-skip fired,
   signing was skipped. Recurring = stamping container or
   container-signature unhealthy.
 - `dmss-container-and-signature-services`: `ServiceAccessDeniedException`
-  or `OcspException` — TSA or OCSP responder rejected the request.
+  or `OcspException` - TSA or OCSP responder rejected the request.
   See [Debugging local e-sealing](#debugging-local-e-sealing).
-- `dmss-digital-stamping-service`: `Started Application` on a restart —
+- `dmss-digital-stamping-service`: `Started Application` on a restart -
   expected on intentional restarts only.
 
 Use the standard endpoints for health monitoring:
 
 - `http://localhost:84/actuator/health` (container-signature)
 - `http://localhost:8084/actuator/health` from inside the docker
-  network — by default the stamping container has no host port mapping,
+  network - by default the stamping container has no host port mapping,
   so this is reachable only via `docker exec` or by adding a temporary
   port mapping. Externalising it is fine if you want to scrape from a
   monitoring agent on the host; just bind it to `127.0.0.1` for the
@@ -1201,7 +1201,7 @@ Use the standard endpoints for health monitoring:
 (Prometheus, Datadog, plain cron + alertmanager, etc.):
 
 ```bash
-# Alert 1 — stamping container DOWN.
+# Alert 1 - stamping container DOWN.
 #   Probe (any of):
 docker compose ps --status running | grep -q dmss-digital-stamping-service \
     || echo "ALERT: stamping container not running"
@@ -1209,15 +1209,15 @@ docker exec dmss-digital-stamping-service \
     bash -c 'exec 3<>/dev/tcp/localhost/8084' \
     || echo "ALERT: stamping not listening"
 
-# Alert 2 — Local-mode signing is degrading.
+# Alert 2 - Local-mode signing is degrading.
 #   Probe: count STAMP_UPSTREAM_UNAVAILABLE in the last 5 minutes:
 COUNT=$(docker compose logs --since 5m ps-server 2>/dev/null \
     | grep -c 'STAMP_UPSTREAM_UNAVAILABLE')
 if [ "${COUNT:-0}" -gt 5 ]; then
-    echo "ALERT: graceful-skip fired $COUNT times in 5min — stamping is unhealthy"
+    echo "ALERT: graceful-skip fired $COUNT times in 5min - stamping is unhealthy"
 fi
 
-# Alert 3 — Cert expiring soon.
+# Alert 3 - Cert expiring soon.
 #   Probe (run daily; alert if days_remaining < 30):
 EXP=$(docker exec dmss-container-and-signature-services curl -fsS \
     http://dmss-digital-stamping-service:8084/api/signing/certificate/for/<company> \
@@ -1231,7 +1231,7 @@ fi
 
 For Prometheus users: Spring Boot's actuator exposes `/actuator/prometheus`
 on both container-signature (host:84/actuator/prometheus) and stamping
-(in-network only by default — add a port map or scrape from the
+(in-network only by default - add a port map or scrape from the
 container-signature service which can reach it on the docker bridge).
 
 #### 6. Decide a cert rotation cadence
@@ -1258,7 +1258,7 @@ RSA-2048 demo keystore (alias `seal`, password `changeit`, valid until
 build a new PKCS12 keystore from whatever artefacts your CA provided and
 deploy it into the stamping service.
 
-#### Step 1 — Inventory what you have
+#### Step 1 - Inventory what you have
 
 Your CA (or your internal PKI team) typically delivers signing material in
 one of these shapes. Identify yours and follow the matching recipe:
@@ -1266,19 +1266,19 @@ one of these shapes. Identify yours and follow the matching recipe:
 | You have... | Use Recipe |
 |---|---|
 | separate `cert.crt` (or `.pem` / `.cer`) **and** `private.key` file, optionally a separate `chain.crt` of intermediate CA certs | **A** |
-| a single bundle file in PKCS12 format — `.pfx` (typical Windows) or `.p12` (typical Linux/Java), password-protected | **B** |
+| a single bundle file in PKCS12 format - `.pfx` (typical Windows) or `.p12` (typical Linux/Java), password-protected | **B** |
 | an existing `.p12` that uses an alias other than `seal` | **C** |
 | a single PEM file that contains the cert AND the key (and maybe the chain) concatenated | split it manually (see *Splitting a PEM bundle* below) then use Recipe A |
 
 If your private key is itself password-protected (asks for a passphrase
-when you try to read it), keep that passphrase handy — the recipes accept
+when you try to read it), keep that passphrase handy - the recipes accept
 it where needed.
 
 The recipes use `openssl` and `keytool` (from the JDK). Both are already
 required by `bootstrap.sh`. Replace `<your-keystore-password>` with a
 strong password you choose; do not reuse it from any other system.
 
-#### Recipe A — From separate `cert.crt` + `private.key` (+ optional `chain.crt`)
+#### Recipe A - From separate `cert.crt` + `private.key` (+ optional `chain.crt`)
 
 ```bash
 # Without an intermediate-CA chain:
@@ -1289,7 +1289,7 @@ openssl pkcs12 -export \
     -out   seal.p12 \
     -passout pass:<your-keystore-password>
 
-# With an intermediate-CA chain (recommended — most verifiers need the
+# With an intermediate-CA chain (recommended - most verifiers need the
 # full chain to validate your signature):
 openssl pkcs12 -export \
     -in       cert.crt \
@@ -1302,32 +1302,32 @@ openssl pkcs12 -export \
 
 Flags explained:
 
-- `-export` — write a PKCS12 file (the default mode is the opposite).
-- `-in cert.crt` — your end-entity certificate (the one matching your private key).
-- `-inkey private.key` — the matching private key.
-- `-certfile chain.crt` — intermediate CA cert(s), concatenated in PEM
+- `-export` - write a PKCS12 file (the default mode is the opposite).
+- `-in cert.crt` - your end-entity certificate (the one matching your private key).
+- `-inkey private.key` - the matching private key.
+- `-certfile chain.crt` - intermediate CA cert(s), concatenated in PEM
   form (intermediate first, root last). Omit if you have no chain to bundle.
-- `-name seal` — the alias inside the keystore. The stamping service looks
+- `-name seal` - the alias inside the keystore. The stamping service looks
   for `seal` by default; using any other name forces an `application.yml`
   edit later (see *Step 4*).
-- `-out seal.p12` — output filename.
-- `-passout pass:…` — the password protecting the keystore. Anything
+- `-out seal.p12` - output filename.
+- `-passout pass:…` - the password protecting the keystore. Anything
   password-shaped works; avoid `changeit` and similar known defaults.
 
 If your `private.key` is itself encrypted with its own passphrase, openssl
-will prompt you for it — or you can pass `-passin pass:<key-passphrase>`
+will prompt you for it - or you can pass `-passin pass:<key-passphrase>`
 non-interactively.
 
-#### Recipe B — From an existing `.pfx` / `.p12`
+#### Recipe B - From an existing `.pfx` / `.p12`
 
 The most common case: your CA gave you a `cert.pfx` and a password for it.
 If the existing keystore already uses `seal` as the alias, you only need
-to copy the file and set the right password in `application.yml` —
+to copy the file and set the right password in `application.yml` -
 **skip to Step 3**.
 
 If the alias inside the `.pfx` is something else (typical CAs use long
 identifiers like the CN of the subject), one option is to rename in place
-— see Recipe C. The cleanest option is to re-export:
+- see Recipe C. The cleanest option is to re-export:
 
 ```bash
 # Convert to PEM intermediates, then re-export with alias 'seal'.
@@ -1344,11 +1344,11 @@ openssl pkcs12 -export \
 rm _tmp_cert.pem _tmp_key.pem
 ```
 
-The two intermediate files contain unencrypted key material — delete them
+The two intermediate files contain unencrypted key material - delete them
 immediately after the export and run on a workstation you trust (not a
 shared CI runner).
 
-#### Recipe C — Rename the alias inside an existing `.p12`
+#### Recipe C - Rename the alias inside an existing `.p12`
 
 If you'd rather keep the existing `.p12` byte-for-byte (only changing the
 internal alias name to `seal`), `keytool` can do this in place:
@@ -1380,7 +1380,7 @@ awk '/-----BEGIN CERTIFICATE-----/,/-----END CERTIFICATE-----/' bundle.pem > cer
 awk '/-----BEGIN .* PRIVATE KEY-----/,/-----END .* PRIVATE KEY-----/' bundle.pem > private.key
 ```
 
-#### Step 2 — Verify the new keystore
+#### Step 2 - Verify the new keystore
 
 Before deploying, confirm the keystore actually contains what you expect:
 
@@ -1388,7 +1388,7 @@ Before deploying, confirm the keystore actually contains what you expect:
 # What aliases are inside? Should list one entry named 'seal'.
 keytool -list -keystore seal.p12 -storepass <your-keystore-password>
 
-# Detailed view of the 'seal' entry — subject DN, issuer DN, validity dates,
+# Detailed view of the 'seal' entry - subject DN, issuer DN, validity dates,
 # key algorithm, the public-cert chain.
 keytool -list -v -keystore seal.p12 -storepass <your-keystore-password> -alias seal
 
@@ -1402,17 +1402,17 @@ What to check:
 - **Subject DN** matches the identity you want to appear on signed PDFs
   (the CN typically becomes the "Signed by" name shown by Adobe Reader).
 - **Issuer DN** matches the CA that issued your cert.
-- **Validity** — `notAfter` is far enough in the future that you have
+- **Validity** - `notAfter` is far enough in the future that you have
   time to plan rotation (see [Operations cookbook](#operations-cookbook)).
-- **Key algorithm** — typically `RSA` 2048+ or `EC` (ECDSA). digidoc4j
+- **Key algorithm** - typically `RSA` 2048+ or `EC` (ECDSA). digidoc4j
   supports both.
-- **Chain length** — for non-self-signed certs you should see at least
+- **Chain length** - for non-self-signed certs you should see at least
   two certificates in the chain dump (your end-entity cert + at least
   one intermediate). If `openssl pkcs12 -info` shows only one cert, your
   signatures will probably fail external trust validation; rebuild with
   `-certfile chain.crt`.
 
-#### Step 3 — Deploy the new keystore
+#### Step 3 - Deploy the new keystore
 
 ```bash
 cd /opt/psapp   # wherever the deployment lives
@@ -1450,10 +1450,10 @@ docker exec dmss-container-and-signature-services curl -fsS \
 
 The printed subject must match what you saw in Step 2; if it shows the
 demo cert's DN (`CN=Trustlynx Local Seal Demo`) then the keystore swap
-did not take effect — check the file path and that the container actually
+did not take effect - check the file path and that the container actually
 restarted.
 
-#### Step 4 — Pick the right `signatureProfile` for your certificate
+#### Step 4 - Pick the right `signatureProfile` for your certificate
 
 The shipped `LocalDemo` profile uses `B_BES`, which is the only level
 that works with the self-signed demo cert. Once your cert is in place
@@ -1461,18 +1461,18 @@ you most likely want a higher level. Decide based on what your CA is:
 
 | Your CA | Suggested profile | Why |
 |---|---|---|
-| Publicly-trusted CA listed in an EU member-state TSL (eIDAS-qualified TSP) | `LT` (for most use cases) or `LTA` (for long-retention archives) | Produces eIDAS-grade advanced/qualified signatures. Needs TSA + OCSP wiring — see next section. |
+| Publicly-trusted CA listed in an EU member-state TSL (eIDAS-qualified TSP) | `LT` (for most use cases) or `LTA` (for long-retention archives) | Produces eIDAS-grade advanced/qualified signatures. Needs TSA + OCSP wiring - see next section. |
 | Public CA, but not on an EU TSL | `LT` | Cryptographically equivalent, but not eIDAS-qualified. Still recognised by Adobe Reader and most PDF verifiers. |
 | Internal / private CA (your own org's PKI) | `B_BES` | LT/LTA need OCSP/TSA wiring AND a verifier that trusts your internal CA. B_BES sidesteps both. |
 | You don't know | `B_BES` to start | Get the flow working end-to-end first. Move to LT later by following the next section. |
 
-Don't change the shipped `LocalDemo` profile — it's the safe demo path.
+Don't change the shipped `LocalDemo` profile - it's the safe demo path.
 Create your own profile instead:
 [Adding a new signing profile end-to-end](#adding-a-new-signing-profile-end-to-end).
 If you need timestamping (anything above B_BES), continue to:
 [Wiring TSA and OCSP for LT and LTA signature profiles](#wiring-tsa-and-ocsp-for-lt-and-lta-signature-profiles).
 
-#### Step 5 — Storing the keystore password
+#### Step 5 - Storing the keystore password
 
 The keystore password ends up in `dmss-digital-stamping-service/application.yml`
 (in plaintext, since Spring needs to read it at startup). Apply the same
@@ -1480,11 +1480,11 @@ treatment as any production secret:
 
 - Do **not** commit the production `application.yml` to source control.
   Keep it on the deployment host only. The committed default in this repo
-  is the demo password — that's intentional and safe.
+  is the demo password - that's intentional and safe.
 - Make the file readable only by the user that owns the docker daemon
   (or by `root`): `chmod 600 dmss-digital-stamping-service/application.yml`.
 - Keep an offline copy of the keystore password separate from the
-  keystore itself — different storage, different access list. If you
+  keystore itself - different storage, different access list. If you
   use a secret manager (Vault, AWS Secrets Manager, etc.) the password
   goes there; the keystore can live on disk or also in the secret manager.
 - Decide a rotation cadence (see [Operations cookbook](#operations-cookbook)).
@@ -1501,17 +1501,17 @@ appears in the URL that `ps-server` posts to, so it doubles as your
 Pick a profile name and a company name. They can be the same, but the two
 fields play different roles:
 
-- **Profile name** — the value in
+- **Profile name** - the value in
   `documentsigningprofiles.json` `.name` and in the URL path segment.
   Used to look up signature settings (signatureProfile, visual signature).
-- **Company name** — the value in `documentsigningprofiles.json`
+- **Company name** - the value in `documentsigningprofiles.json`
   `.esealCompany` and in stamping's `application.yml`
   `stamping.companies[].name`. Used to look up which keystore to sign with.
 
 For this walkthrough we use `AcmeProductionSeal` as the profile name and
 `AcmeProd` as the company name.
 
-#### Step 1 — Stage the new keystore
+#### Step 1 - Stage the new keystore
 
 Follow [Production setup](#production-setup-deploying-with-your-own-key-and-certificate)
 to produce your `.p12` keystore. Drop it next to the demo one with a
@@ -1522,7 +1522,7 @@ cp /path/to/seal.p12 dmss-digital-stamping-service/seal/acme-prod.p12
 chmod 600 dmss-digital-stamping-service/seal/acme-prod.p12
 ```
 
-#### Step 2 — Add a company in the stamping service config
+#### Step 2 - Add a company in the stamping service config
 
 Edit `dmss-digital-stamping-service/application.yml`. Add a second entry
 to `stamping.companies` (keep the existing `TrustLynx` entry in place so
@@ -1531,7 +1531,7 @@ the demo continues to work):
 ```yaml
 stamping:
   companies:
-    - name: "TrustLynx"           # demo — unchanged
+    - name: "TrustLynx"           # demo - unchanged
       providers:
         - name: P12
           engine: P12
@@ -1548,7 +1548,7 @@ stamping:
           alias: seal             # or your real alias from the new keystore
 ```
 
-#### Step 3 — Add a profile in the container-signature config
+#### Step 3 - Add a profile in the container-signature config
 
 Edit `dmss-container-and-signature-services/documentsigningprofiles.json`.
 Add a new profile object to the array (the existing `LocalDemo`,
@@ -1590,7 +1590,7 @@ python3 -m json.tool < dmss-container-and-signature-services/documentsigningprof
     && echo "JSON OK"
 ```
 
-#### Step 4 — Point ps-server at the new profile
+#### Step 4 - Point ps-server at the new profile
 
 Edit `config/config.js`. Change `STAMP_LOCAL.url` so the path segment
 matches your new profile name:
@@ -1604,7 +1604,7 @@ STAMP_LOCAL: {
 }
 ```
 
-#### Step 5 — Restart the affected services
+#### Step 5 - Restart the affected services
 
 ```bash
 # Stamping reloads its keystore on restart; container-signature reloads the
@@ -1615,7 +1615,7 @@ docker compose restart \
     ps-server
 ```
 
-#### Step 6 — Smoke test the new profile
+#### Step 6 - Smoke test the new profile
 
 ```bash
 # Stamping should now return your real cert when asked for AcmeProd:
@@ -1642,7 +1642,7 @@ keystore goes in `dmss-digital-stamping-service/seal/`, each new company
 gets an entry in `application.yml`, each new profile gets an entry in the
 JSON. The URL path segment chooses which profile is used per request, so
 `ps-server` can call any of them depending on what flow triggered the
-seal — though out of the box `ps-server` always uses the one profile
+seal - though out of the box `ps-server` always uses the one profile
 named in `STAMP_LOCAL.url`. Wiring per-flow profile selection is custom
 work outside the scope of this guide.
 
@@ -1671,23 +1671,23 @@ or `OcspException` and ps-server's 5xx graceful-skip returns
 
 #### Picking a TSA
 
-Some commonly-used public TSAs (none are required by this stack — pick
+Some commonly-used public TSAs (none are required by this stack - pick
 whichever your CA, your jurisdiction, or your service contract specifies):
 
 | TSA endpoint | Typical use | Auth |
 |---|---|---|
-| `http://tsa.sk.ee` | Estonia SK ID Solutions — qualified TSA for eIDAS | none |
+| `http://tsa.sk.ee` | Estonia SK ID Solutions - qualified TSA for eIDAS | none |
 | `http://demo.sk.ee/tsa` | SK demo / non-production | none |
-| `http://tsa-com.eparaksts.lv/` | Latvia eParaksts — qualified TSA | none for testing, paid contract for production volumes |
-| `http://public-qlts.certum.pl/qts-17` | Poland Certum — qualified TSA | none |
-| Your own internal TSA | If you operate one (e.g., for an internal-CA setup) | depends on your TSA — Basic auth header is the typical case |
+| `http://tsa-com.eparaksts.lv/` | Latvia eParaksts - qualified TSA | none for testing, paid contract for production volumes |
+| `http://public-qlts.certum.pl/qts-17` | Poland Certum - qualified TSA | none |
+| Your own internal TSA | If you operate one (e.g., for an internal-CA setup) | depends on your TSA - Basic auth header is the typical case |
 
 For eIDAS-qualified signatures, your TSA must itself be listed as
 qualified in an EU member-state TSL. Anything else is "advanced" rather
 than "qualified".
 
 If your CA is private/internal, you generally also need a private/internal
-TSA — otherwise the qualified TSAs above will refuse to timestamp your
+TSA - otherwise the qualified TSAs above will refuse to timestamp your
 hash (some check the requester, most don't, but the resulting timestamp
 won't chain to your CA's trust list anyway).
 
@@ -1726,7 +1726,7 @@ docker exec dmss-container-and-signature-services \
 ```
 
 A connection refused or unknown-host error here means the TSA is not
-reachable from your deployment host — usually a firewall / outbound proxy
+reachable from your deployment host - usually a firewall / outbound proxy
 issue. Check `digidoc4j:` `proxyConfiguration` and the `trustlynx:
 useProxyForInternalServices` flag if your environment routes through a
 proxy.
@@ -1734,13 +1734,13 @@ proxy.
 #### Configuring OCSP and the trust list
 
 OCSP responder URLs are typically published in the certificates
-themselves (the AIA — Authority Information Access — extension). With
+themselves (the AIA - Authority Information Access - extension). With
 `digidoc4j.configuration.preferAiaOcsp: true` (the default in this
 deployment), the library uses whatever OCSP URL is embedded in the cert
 chain, so you usually don't need to configure anything explicitly.
 
-If you do need a custom OCSP setup — or if you're using a private CA whose
-certs don't carry AIA — uncomment the relevant lines in
+If you do need a custom OCSP setup - or if you're using a private CA whose
+certs don't carry AIA - uncomment the relevant lines in
 `dmss-container-and-signature-services/digidoc4j-custom.yaml`:
 
 ```yaml
@@ -1769,7 +1769,7 @@ trusts certificates whose chain is rooted in a qualified EU TSL; in
 commented references).
 
 For production use stay on `PROD`. For internal tests with self-signed
-certs, switch temporarily to `TEST` — but never sign customer-bound
+certs, switch temporarily to `TEST` - but never sign customer-bound
 artefacts in `TEST` mode.
 
 ### Verifying it works
@@ -1808,20 +1808,20 @@ Run these additional checks before declaring local e-sealing production-ready.
 #### Adobe Reader (the canonical PDF verifier)
 
 1. Open the signed PDF in **Adobe Acrobat Reader DC**.
-2. Open the **Signature Panel** (left sidebar — pen icon, or
+2. Open the **Signature Panel** (left sidebar - pen icon, or
    `View → Show/Hide → Navigation Panes → Signatures`).
 3. Expand the signature entry. You should see one of three outcomes:
 
-   - ✅ **"Signed and all signatures are valid"** — green check.
+   - ✅ **"Signed and all signatures are valid"** - green check.
      Acrobat trusts your cert chain and the signature math.
-   - ⚠ **"At least one signature has problems"** — usually means
+   - ⚠ **"At least one signature has problems"** - usually means
      "valid but the signer's identity is unknown / not trusted by
      Acrobat's trust store". This is the expected state for the shipped
      **demo cert** and for any signature whose chain doesn't reach a
      publicly-trusted root. Click *Signature Properties → Show Signer's
      Certificate → Trust* to see the chain. Cryptographically valid, just
      not anchored in Adobe's default trust store.
-   - ❌ **"At least one signature is invalid"** — bad. The signed
+   - ❌ **"At least one signature is invalid"** - bad. The signed
      hash doesn't match, or the cert was revoked, or the trust chain is
      broken in a way verifier flagged as fatal. Compare the cert subject
      in the panel against what
@@ -1852,10 +1852,10 @@ pdfsig sealed.pdf
 
 The last two lines are the meaningful ones:
 
-- **Signature Validation: Signature is Valid** — cryptographic integrity is
+- **Signature Validation: Signature is Valid** - cryptographic integrity is
   good. Anything else (Invalid, Decoding Error) means the signed hash
   doesn't reconcile with the embedded signature.
-- **Certificate Validation** — `Certificate is Trusted` if your CA is in
+- **Certificate Validation** - `Certificate is Trusted` if your CA is in
   the local trust store, `Certificate issuer isn't Trusted` for the demo
   cert and for any private-CA scenario. Trust is a property of the
   verifier's trust store, not of the signature itself.
@@ -1872,7 +1872,7 @@ should make trust decisions on; do not parse `pdfsig` text output.
 
 The shipped demo cert is self-signed, so Adobe Reader and `pdfsig` will
 both report "signature valid, certificate not trusted". That outcome is
-expected — the seal itself is cryptographically sound, but no verifier
+expected - the seal itself is cryptographically sound, but no verifier
 trusts an arbitrary self-signed CA. To get to "valid + trusted":
 
 - Replace the demo cert with a CA-issued one
@@ -1891,7 +1891,7 @@ trusts an arbitrary self-signed CA. To get to "valid + trusted":
   4. In the next dialog tick `Use this certificate as a trusted root`
      and (if you want) `Certified documents` and `Dynamic content`.
      Click `OK`.
-  5. Re-open the signed PDF — the Signature Panel should now show
+  5. Re-open the signed PDF - the Signature Panel should now show
      the green check.
 
   *System-wide trust (so every PDF tool picks it up, not just Adobe):*
@@ -1905,7 +1905,7 @@ trusts an arbitrary self-signed CA. To get to "valid + trusted":
   CA, the only verifiers who will ever return "trusted" are ones whose
   trust stores you control. End-user Adobe Reader on a stranger's
   machine will always show "valid but untrusted" for internal-CA
-  signatures — that's expected, not a stack defect.
+  signatures - that's expected, not a stack defect.
 
 ### Reverting
 
@@ -1926,7 +1926,7 @@ backups created by `upgrade.sh` cover both `docker-compose.yml` and
 
 Failure-mode playbook. Same shape as the main
 [Troubleshooting](#troubleshooting) section: symptom → likely cause →
-diagnostic command → fix. Run these in order — the first checks rule
+diagnostic command → fix. Run these in order - the first checks rule
 out the most common issues.
 
 #### Symptom: `/api/stamp` returns `200 { stampStatus: "skipped", reason: "STAMP_UPSTREAM_UNAVAILABLE" }`
@@ -1991,10 +1991,10 @@ Common causes:
 
 | Symptom in logs | Cause | Fix |
 |---|---|---|
-| `Unknown key format: ...PrivateKeyInfo` | Your keystore has an unencrypted PKCS#8 PEM key (what modern `openssl req -nodes` produces). Stamping accepts encrypted PEM, traditional PKCS#1 RSA PEM, or encrypted PKCS#8 — not unencrypted PKCS#8. | Re-package via `openssl pkcs8 -topk8 -in your.key -out your.encrypted.key -passout pass:<pwd>`, OR convert the key inside the `.p12` build to traditional RSA PEM. |
+| `Unknown key format: ...PrivateKeyInfo` | Your keystore has an unencrypted PKCS#8 PEM key (what modern `openssl req -nodes` produces). Stamping accepts encrypted PEM, traditional PKCS#1 RSA PEM, or encrypted PKCS#8 - not unencrypted PKCS#8. | Re-package via `openssl pkcs8 -topk8 -in your.key -out your.encrypted.key -passout pass:<pwd>`, OR convert the key inside the `.p12` build to traditional RSA PEM. |
 | `invalid configuration, password params must be set for engine P12` (or `for engine PKEY`) | The `password` field in stamping `application.yml` is empty. Mandatory even for unencrypted keys. | Set any non-empty value if the on-disk key is unencrypted; set the real passphrase if encrypted. |
 | `Address already in use: 8084` | Something else on the host already has port 8084 (a USB-token signer, an old stamping container that wasn't cleaned up). | `docker ps -a | grep 8084` to find the squatter; `docker rm -f <name>` to clear it. |
-| Container starts and dies silently with exit 0 | The image's `commands.sh` failed early. | `docker logs <container>` for the full output — usually missing config file at `/conf/application.yml`. |
+| Container starts and dies silently with exit 0 | The image's `commands.sh` failed early. | `docker logs <container>` for the full output - usually missing config file at `/conf/application.yml`. |
 
 #### Symptom: container-signature can't resolve `dmss-digital-stamping-service`
 
@@ -2075,11 +2075,11 @@ fail to load. Fix: remove unknown fields.
 The signature itself is cryptographically valid but the verifier doesn't
 trust your CA. See
 [Verifying signatures end-to-end (beyond the stack)](#verifying-signatures-end-to-end-beyond-the-stack)
-— this is the "valid but untrusted" outcome. You'll either need to add
+- this is the "valid but untrusted" outcome. You'll either need to add
 your CA to the verifier's trust store, or use a publicly-trusted CA in
 the first place.
 
-#### Symptom: signing got slow — where do I look first?
+#### Symptom: signing got slow - where do I look first?
 
 A healthy `B_BES` sign in this stack takes ~100-300 ms end-to-end (most
 of it is multipart upload + PDF rewrite, not the cryptography). A
@@ -2103,12 +2103,12 @@ If latency suddenly jumps:
    ```
    Look for TSA / OCSP timestamps that dominate. If you see
    `ServiceAccessDeniedException` or repeated retries on the TSA URL,
-   the TSA endpoint is degraded — switch to a backup TSA (see
+   the TSA endpoint is degraded - switch to a backup TSA (see
    [Wiring TSA and OCSP](#wiring-tsa-and-ocsp-for-lt-and-lta-signature-profiles))
    or wait for it to recover.
 3. **If `Stamp response time` is fine but the SPA still feels slow,**
    the bottleneck is the visual-signature step (a separate code path
-   from `/api/stamp`) or the archive upload — neither is in the
+   from `/api/stamp`) or the archive upload - neither is in the
    local-eseal scope. Tail `ps-server` for `visual-signature` and
    `uploadStampedPDFVersionToArchive` log lines.
 4. **JVM warm-up:** the FIRST sign after a stamping-container restart
@@ -2159,7 +2159,7 @@ mv  dmss-digital-stamping-service/seal/seal.p12 \
     dmss-digital-stamping-service/seal/_archive/seal-$(date +%Y%m%d).p12
 ```
 
-Note that any documents signed with the OLD cert remain valid — the
+Note that any documents signed with the OLD cert remain valid - the
 verifier checks the embedded cert, not the live one.
 
 #### Back up the keystore
@@ -2173,7 +2173,7 @@ openssl enc -aes-256-cbc -pbkdf2 -salt \
 
 # Now ship seal.p12.enc to your offline backup target (S3 with SSE,
 # cold storage, encrypted USB, whatever your org uses). Document
-# <offline-archive-passphrase> in your secret manager — *not* alongside
+# <offline-archive-passphrase> in your secret manager - *not* alongside
 # the file itself.
 
 # To restore:
@@ -2189,7 +2189,7 @@ verified is not a backup.
 #### Upgrade the stamping image tag
 
 ```bash
-# 1. Edit docker-compose.yml — change the image: line on
+# 1. Edit docker-compose.yml - change the image: line on
 #    dmss-digital-stamping-service. The character class covers digits,
 #    dots, dashes and underscores so tags like 24.0.3.0_dev or 24-test1
 #    match too.
@@ -2238,7 +2238,7 @@ dmss-digital-stamping-service:
 
 (Docker Compose v2 honors `deploy.resources.limits` even outside
 swarm mode.) Performance is essentially I/O-bound and well above what
-psapp's signing throughput will exercise — a single instance handles
+psapp's signing throughput will exercise - a single instance handles
 tens of sign requests per second comfortably.
 
 #### Pulling the stamping image on an air-gapped host
@@ -2254,7 +2254,7 @@ docker save trustlynx/digital-stamping-service:24.0.3.0 \
     | gzip > digital-stamping-service-24.0.3.0.tar.gz
 
 # Transfer digital-stamping-service-24.0.3.0.tar.gz to the deployment host
-# (scp, USB, internal artefact repo — whatever your transfer channel is).
+# (scp, USB, internal artefact repo - whatever your transfer channel is).
 
 # On the deployment host:
 gunzip -c digital-stamping-service-24.0.3.0.tar.gz | docker load
@@ -2265,7 +2265,7 @@ After loading, `upgrade.sh --enable-local-eseal` (or any subsequent
 `docker compose up -d`) finds the image in the local daemon cache and
 skips the Docker Hub pull.
 
-#### Disaster recovery — restoring on a new host
+#### Disaster recovery - restoring on a new host
 
 If the deployment host dies and you need to stand up local e-sealing
 on a new host:
@@ -2286,7 +2286,7 @@ on a new host:
        -pass pass:<offline-archive-passphrase>
    chmod 600 dmss-digital-stamping-service/seal/seal.p12
    ```
-   You'll need the passphrase from your secret manager — without it
+   You'll need the passphrase from your secret manager - without it
    the keystore is unrecoverable. Test this restore procedure once
    before you depend on it.
 3. **Sanity-check `config/config.js` and `.env` survived intact** (the
@@ -2380,13 +2380,13 @@ A one-page summary you can keep open while operating the stack.
 | Port | Service | Exposure |
 |---|---|---|
 | 443 | nginx (TLS) | public |
-| 84 | container-signature | host — restrict to 127.0.0.1 in production |
-| 86 | dmss-archive-services | host — internal use |
-| 93 | dmss-archive-services-fallback | host — internal use |
-| 8080 | keycloak | host — restrict in production |
+| 84 | container-signature | host - restrict to 127.0.0.1 in production |
+| 86 | dmss-archive-services | host - internal use |
+| 93 | dmss-archive-services-fallback | host - internal use |
+| 8080 | keycloak | host - restrict in production |
 | 8084 | stamping | docker network only (no host port by default) |
 | 8092 | container-signature (internal) | docker network |
-| 3001 | ps-server | host — restrict to internal |
+| 3001 | ps-server | host - restrict to internal |
 | 5777 | hazelcast | docker network |
 
 #### Key commands
@@ -2447,8 +2447,8 @@ docker compose logs dmss-digital-stamping-service \
 ### What upgrade does (step by step)
 
 1. **Backs up** `docker-compose.yml` and `config/config.js` (`.bak` files)
-2. **Updates image tags** in `docker-compose.yml` — replaces `ps-server:X.XX` and/or `ps-client:X.XX` with the new versions
-3. **Ensures `DOCUMENT_ROUTING`** config block exists in `config.js` (appends if missing, disabled by default — does not overwrite existing settings)
+2. **Updates image tags** in `docker-compose.yml` - replaces `ps-server:X.XX` and/or `ps-client:X.XX` with the new versions
+3. **Ensures `DOCUMENT_ROUTING`** config block exists in `config.js` (appends if missing, disabled by default - does not overwrite existing settings)
 4. **Ensures `signed-output` volume mount** exists in `docker-compose.yml` for ps-server
 5. **Creates `signed-output/` directory** if it doesn't exist
 6. **(`--enable-local-eseal` only)** Stages `dmss-digital-stamping-service/` from
@@ -2458,8 +2458,8 @@ docker compose logs dmss-digital-stamping-service \
    container-signature, flips `STAMP_MODE` to `"local"` in `config/config.js`,
    and activates the `local-eseal` compose profile in `.env`. See
    [Enabling local e-sealing](#enabling-local-e-sealing) above.
-7. **Pulls new Docker images** — only the services being upgraded
-8. **Restarts changed containers** — only ps-server and/or ps-client and
+7. **Pulls new Docker images** - only the services being upgraded
+8. **Restarts changed containers** - only ps-server and/or ps-client and
    the new stamping service if applicable; Keycloak, DMSS, nginx stay running
 9. **Restarts nginx** to pick up any config changes
 10. **Verifies** ps-server startup and prints running container versions
@@ -2473,12 +2473,12 @@ docker compose logs dmss-digital-stamping-service \
 
 ### What validate-config checks
 
-1. **File existence** — verifies `config/config.js`, `config/constants.json`, `nginx/nginx.conf`, `docker-compose.yml` exist
-2. **Syntax** — validates `constants.json` is valid JSON, `docker-compose.yml` passes `docker compose config`
-3. **Feature checks** — `DOCUMENT_ROUTING` in config.js, `signed-output` volume mount in compose, `signed-output/` directory exists, nginx root→`/portal/` redirect
-4. **Hostname consistency** (if `--host` provided) — verifies `server_name` in nginx, `KEYCLOAK_URL` in constants.json, and `auth-server-url` in config.js all match
-5. **Image tags** — shows current ps-server and ps-client versions from docker-compose.yml, checks README release snapshot matches
-6. **Running containers** (if Docker is available) — verifies running images match docker-compose.yml tags
+1. **File existence** - verifies `config/config.js`, `config/constants.json`, `nginx/nginx.conf`, `docker-compose.yml` exist
+2. **Syntax** - validates `constants.json` is valid JSON, `docker-compose.yml` passes `docker compose config`
+3. **Feature checks** - `DOCUMENT_ROUTING` in config.js, `signed-output` volume mount in compose, `signed-output/` directory exists, nginx root→`/portal/` redirect
+4. **Hostname consistency** (if `--host` provided) - verifies `server_name` in nginx, `KEYCLOAK_URL` in constants.json, and `auth-server-url` in config.js all match
+5. **Image tags** - shows current ps-server and ps-client versions from docker-compose.yml, checks README release snapshot matches
+6. **Running containers** (if Docker is available) - verifies running images match docker-compose.yml tags
 
 ---
 
@@ -2936,7 +2936,7 @@ Client essentials (constants.json)
 - `PDF_ZOOM_VALUE`, `MAX_ZOOM`, `MIN_ZOOM`, `DEFAULT_PAGE_SIZE`, `EXTRA_HEIGHT_MARGIN_PX`, `OPACITY_DELAY`
 - `CANVA_WIDTH`, `CANVA_HEIGHT`
 - `RUN_STAMPING_REQUEST` (optional)
-- ~~`PDF_SIGNING_STATUS_CALLBACK`, `PDF_SIGNING_STATUS_CALLBACK_ENABLED`~~ (deprecated — use server-side `DOCUMENT_ROUTING` webhook strategy instead)
+- ~~`PDF_SIGNING_STATUS_CALLBACK`, `PDF_SIGNING_STATUS_CALLBACK_ENABLED`~~ (deprecated - use server-side `DOCUMENT_ROUTING` webhook strategy instead)
 - Branding: `PS_PAGE_TITLE`, `PS_LOGO_PATH`, `PS_DEFAULT_LOGO_PATH`, `SHOW_USER_DATA_BOX`
 - `SHOW_SIGNER_NAME` (optional, default `false`): show resolved signer name above signature canvas when paired with the virtual-printer + CustomerData lookup flow
 
@@ -2954,7 +2954,7 @@ Server essentials (config.js)
 - `DOC_OPERATION_LOCK_TTL_MS`, `IDEMPOTENCY_TTL_MS`
 - `USER_ENTRY_TTL_MS`, `USER_STATE_CLEANUP_MS`
 - `PRIVILEGED_API_ROLES` (optional privileged bypass for internal cleanup flow)
-- `DOCUMENT_ROUTING` (optional) — post-signing actions (filesystem save, webhook delivery)
+- `DOCUMENT_ROUTING` (optional) - post-signing actions (filesystem save, webhook delivery)
 
 #### Cloud minimal examples
 
@@ -3122,8 +3122,8 @@ Localization and text
 Workflow toggles and callbacks
 - `RUN_STAMPING_REQUEST`: When `true`, triggers a backend call to stamp the PDF after signing. Default: `false`.
 - `DEMO_MODE`: Enables/disables DEMO behavior (`ENABLE`/`DISABLE`). Default: `"DISABLE"`.
-- `PDF_SIGNING_STATUS_CALLBACK`: **Deprecated** — replaced by server-side `DOCUMENT_ROUTING` webhook strategy in `config.js`. Previously an external webhook URL for client-side notification. Default: `"https://example.com/api/signing-status"`.
-- `PDF_SIGNING_STATUS_CALLBACK_ENABLED`: **Deprecated** — replaced by server-side `DOCUMENT_ROUTING` webhook strategy. Default: `false`.
+- `PDF_SIGNING_STATUS_CALLBACK`: **Deprecated** - replaced by server-side `DOCUMENT_ROUTING` webhook strategy in `config.js`. Previously an external webhook URL for client-side notification. Default: `"https://example.com/api/signing-status"`.
+- `PDF_SIGNING_STATUS_CALLBACK_ENABLED`: **Deprecated** - replaced by server-side `DOCUMENT_ROUTING` webhook strategy. Default: `false`.
 
 ---
 
@@ -3797,7 +3797,7 @@ Each entry lists the date the change shipped, what was added/changed,
 which README sections were touched, and which scripts / config files
 gained new options.
 
-### 2026-05-13 — Optional local e-sealing
+### 2026-05-13 - Optional local e-sealing
 
 **Added** an opt-in *local* e-sealing mode. The default external
 e-sealing path (ps-server → cloud signing service) is unchanged. The
@@ -3807,35 +3807,35 @@ PDFs without any outbound call.
 
 **New repo artefacts:**
 
-- `dmss-digital-stamping-service/` (top-level directory) — Spring Boot
+- `dmss-digital-stamping-service/` (top-level directory) - Spring Boot
   config + bind-mounted demo seal.p12 for the new stamping service.
-- `installation-scripts/assets/dmss-digital-stamping-service/` —
+- `installation-scripts/assets/dmss-digital-stamping-service/` -
   pristine reference copy used by `upgrade.sh` to populate existing
   deployments.
 
 **New install-script flags:**
 
-- `installation-scripts/bootstrap.sh` — `--enable-local-eseal` flag
+- `installation-scripts/bootstrap.sh` - `--enable-local-eseal` flag
   (passes through to `configure-host.sh`).
-- `installation-scripts/configure-host.sh` — `--enable-local-eseal`
+- `installation-scripts/configure-host.sh` - `--enable-local-eseal`
   flag, plus a new end-of-script provisioning block.
-- `installation-scripts/upgrade.sh` — `--enable-local-eseal` flag, new
+- `installation-scripts/upgrade.sh` - `--enable-local-eseal` flag, new
   Step 4b. The flag is idempotent and can be combined with the existing
   `--server-tag` / `--client-tag` flags or used alone.
 
 **Config-file additions** (all backwards-compatible; defaults preserve
 pre-feature behaviour):
 
-- `config/config.js` — new `STAMP_MODE: "external" | "local"` field
+- `config/config.js` - new `STAMP_MODE: "external" | "local"` field
   (defaults to `"external"`) and a new `STAMP_LOCAL: { url, username,
   password, timeoutMs }` block. Existing `STAMP_API_*` fields untouched.
-- `docker-compose.yml` — new gated `dmss-digital-stamping-service`
+- `docker-compose.yml` - new gated `dmss-digital-stamping-service`
   service block (carries `profiles: ["local-eseal"]` so it doesn't
   start unless the profile is active).
 - `dmss-container-and-signature-services/documentsigningprofiles.json`
-  — new `LocalDemo` profile prepended (B_BES, esealCompany `TrustLynx`).
+  - new `LocalDemo` profile prepended (B_BES, esealCompany `TrustLynx`).
   Existing profiles untouched.
-- `dmss-container-and-signature-services/application.yml` — the
+- `dmss-container-and-signature-services/application.yml` - the
   `digital-stamping-service.baseUrl` value is unchanged at the file
   level; `upgrade.sh --enable-local-eseal` rewrites it idempotently
   when local mode is opted in.
@@ -3845,31 +3845,31 @@ e-sealing* heading, plus the existing *Bootstrap parameters* gained
 a `--enable-local-eseal` row, and the *Upgrading an Existing Deployment*
 step list gained a new Step 6 entry):
 
-- Concepts and glossary — full glossary of digital-signature terms.
-- Architecture deep-dive — request-flow diagrams for both modes; the
+- Concepts and glossary - full glossary of digital-signature terms.
+- Architecture deep-dive - request-flow diagrams for both modes; the
   profile → company → keystore resolution chain.
-- Initial deployment (fresh install) — `bootstrap.sh --enable-local-eseal`
+- Initial deployment (fresh install) - `bootstrap.sh --enable-local-eseal`
   recipe.
-- Existing deployment (upgrade an already-deployed instance) — full
+- Existing deployment (upgrade an already-deployed instance) - full
   step-by-step walkthrough (Phase 0 prerequisites → Phase 8 rollback).
-- Switching modes after install — config-only flip recipes.
-- Production hardening checklist (local e-sealing specific) — six
+- Switching modes after install - config-only flip recipes.
+- Production hardening checklist (local e-sealing specific) - six
   numbered hardening items.
-- Production setup: deploying with your own key and certificate — the
+- Production setup: deploying with your own key and certificate - the
   centerpiece for production use. Three recipes covering common CA
   artefact shapes (separate cert+key, existing .pfx, alias rename).
-- Adding a new signing profile end-to-end — per-company profile
+- Adding a new signing profile end-to-end - per-company profile
   walkthrough.
-- Wiring TSA and OCSP for LT and LTA signature profiles — required
+- Wiring TSA and OCSP for LT and LTA signature profiles - required
   for eIDAS-grade signatures.
-- Verifying it works — basic smoke-test commands.
-- Verifying signatures end-to-end (beyond the stack) — Adobe Reader,
+- Verifying it works - basic smoke-test commands.
+- Verifying signatures end-to-end (beyond the stack) - Adobe Reader,
   `pdfsig`, programmatic verification.
-- Reverting — recipes to switch back to external mode.
-- Debugging local e-sealing — failure-mode playbook for 8 common issues.
-- Operations cookbook — day-2 procedures: rotate cert, back up
+- Reverting - recipes to switch back to external mode.
+- Debugging local e-sealing - failure-mode playbook for 8 common issues.
+- Operations cookbook - day-2 procedures: rotate cert, back up
   keystore, upgrade stamping image, temporarily disable local mode.
-- Quick reference — files/ports/commands/log-greps summary card.
+- Quick reference - files/ports/commands/log-greps summary card.
 
 **Default-behaviour invariant:** customers who pull the new repo
 version and run plain `docker compose up -d` (without

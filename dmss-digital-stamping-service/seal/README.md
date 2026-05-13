@@ -32,7 +32,7 @@ an RSA-2048 self-signed certificate:
 Real signatures generally also require:
 
 - A trusted CA chain (B_BES profile works as-is; LT / LTA / PAdES_BASELINE_LT
-  profiles need timestamping and OCSP — wire those in via
+  profiles need timestamping and OCSP - wire those in via
   `container-signature-service`'s digidoc4j config, not here).
 - Coordination with the appropriate `documentsigningprofiles.json` entry in
   `../../dmss-container-and-signature-services/` so the profile name's
@@ -40,7 +40,7 @@ Real signatures generally also require:
 
 ## How the shipped seal.p12 was generated
 
-This is purely informational — you do NOT need to regenerate. But if
+This is purely informational - you do NOT need to regenerate. But if
 your demo keystore expires (after 2028-08-13) or you want a fresh demo
 identity for a different evaluation purpose, here's the exact recipe
 that produced the shipped file:
