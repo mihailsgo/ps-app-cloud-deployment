@@ -156,9 +156,14 @@ re-running the upgrade is always safe.
 
 1. **Backed up** `docker-compose.yml` and `config/config.js` to
    `.bak` files in place (rollback safety).
-2. Did not change any image tags (Step 2) - you didn't pass
-   `--server-tag` or `--client-tag` so existing pins on `ps-server` and
-   `ps-client` are preserved. Skip this if you only ran `--enable-local-eseal`.
+2. **Updated image tags** (Step 2): the pre-flight guard refused to
+   continue with `--enable-local-eseal` against a ps-server pin older
+   than `:3.26`, so you passed `--server-tag 3.26` and the script
+   bumped the ps-server tag in `docker-compose.yml`. If your pin was
+   already `:3.26` or newer and you ran `--enable-local-eseal` alone,
+   Step 2 is a no-op and you'll see no "ps-server: X → Y" line.
+   `--client-tag` is not required for local e-sealing - ps-client is
+   unchanged.
 3. Confirmed `DOCUMENT_ROUTING` already in `config.js` (it should be).
 4. Confirmed `signed-output` volume mount already in compose.
 5. **Step 4b is the new part.** Six sub-steps:
@@ -196,14 +201,26 @@ re-running the upgrade is always safe.
    pick up the patched config and env vars. **No other services
    restart.**
 
-After the script finishes, verify the new container is running:
+After the script finishes, verify the new container is running AND
+that ps-server is on the local-eseal-aware image:
 
 ```bash
+# 1. The new stamping container is up.
 docker compose ps
-```
+#    Expect: dmss-digital-stamping-service listed with status "Up"
+#            alongside the services that were already running.
 
-You should see `dmss-digital-stamping-service` listed with status `Up`,
-in addition to the services that were already running.
+# 2. ps-server is running an image that contains the STAMP_MODE dispatch.
+docker compose images ps-server
+#    Expect: TAG = 3.26 (or newer). If you still see :3.25 here, the
+#            tag bump in Step 2 didn't land - re-run the script with
+#            --server-tag 3.26 explicitly.
+
+docker compose exec ps-server grep -c STAMP_STRATEGIES app.js
+#    Expect: a non-zero count (typically 7). If it prints 0 or errors,
+#            the running container is the old image; force-recreate
+#            with: docker compose up -d --force-recreate ps-server
+```
 
 If you see `dmss-digital-stamping-service` is `Restarting` or
 `Exited`, check its logs: `docker compose logs dmss-digital-stamping-service`.
@@ -246,7 +263,8 @@ Common mid-run failures:
 
 | Failure | What happened | Recovery |
 |---|---|---|
-| Docker pull timed out / failed | `Step 5/6` couldn't fetch the stamping image | Verify network, then re-run `./installation-scripts/upgrade.sh --enable-local-eseal`. The earlier idempotent steps will print "already present" and skip ahead. |
+| `ERROR: --enable-local-eseal requires mihailsgordijenko/ps-server:3.26 or newer` | The pre-flight guard caught a ps-server pin older than `:3.26` and refused to run, because that image silently ignores the `STAMP_MODE` field | Re-run with the tag bump included in the same invocation: `./installation-scripts/upgrade.sh --server-tag 3.26 --enable-local-eseal`. The script makes no edits when it exits with this error, so nothing is left in a half-applied state. |
+| Docker pull timed out / failed | `Step 5/6` couldn't fetch the stamping image | Verify network, then re-run `./installation-scripts/upgrade.sh --server-tag 3.26 --enable-local-eseal`. The earlier idempotent steps will print "already present" and skip ahead. |
 | Host ran out of disk during pull | Look for `no space left on device` | Free space (`docker system prune` is a common first action), then re-run the script. |
 | `Conflict. The container name "..." is already in use` | A stale container from a previous attempt is hanging around | `docker rm -f dmss-digital-stamping-service` (or whatever name is in the error), then re-run. |
 | You SIGINT'd the script during edits | Partial state in `config.js` / compose | The `*.bak` files are still there. Either re-run (idempotent) or `cp docker-compose.yml.bak docker-compose.yml; cp config/config.js.bak config/config.js` and start over. |
@@ -497,7 +515,7 @@ Use the same three checks as Phase 3, but adapted for the production
 profile:
 
 ```bash
-# 5.6.1 - Cert endpoint serves your real cert. Replace <YourCompany>
+# 4.6.1 - Cert endpoint serves your real cert. Replace <YourCompany>
 #         with the company name you added in Step 4.4.
 # Note: the stamping service has no HTTP auth itself; the Spring Security
 # credentials you rotated above gate container-signature, not stamping.
@@ -513,7 +531,7 @@ Local Seal Demo" - if it does, the stamping container is still serving
 the demo cert (the swap didn't take effect - re-check Step 4.2 / 4.4).
 
 ```bash
-# 5.6.2 - End-to-end sign through ps-server. Pick a test PDF.
+# 4.6.2 - End-to-end sign through ps-server. Pick a test PDF.
 #         Replace <ProductionProfile> with the profile name from Step 4.4.
 curl -sS -u user:<your-new-spring-security-password> -X POST \
     -F "file=@/path/to/test.pdf;type=application/pdf" \
@@ -538,8 +556,9 @@ forms), and complete the signing flow as you normally would. Then:
 ```bash
 # Watch ps-server logs as the request comes in:
 docker compose logs -f --tail 50 ps-server | grep -E '\[stamp\]|Stamp response'
-# Expect:  [stamp] mode=local url=http://dmss-container-and-signature-services:8092/api/eseal/document/profile/<ProductionProfile>
-#          [DEBUG] Stamp response status: 200
+# Expect two lines (your profile name in place of "AcmeProductionSeal"):
+#   [stamp] mode=local url=http://dmss-container-and-signature-services:8092/api/eseal/document/profile/AcmeProductionSeal
+#   [DEBUG] Stamp response status: 200
 
 # Pull the latest archived version of the signed document. Replace
 # <docid> with the document ID shown after signing (visible in ps-server
