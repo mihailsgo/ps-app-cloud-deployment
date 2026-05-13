@@ -19,8 +19,6 @@
   - [Wiring TSA and OCSP for LT and LTA signature profiles](#wiring-tsa-and-ocsp-for-lt-and-lta-signature-profiles)
   - [Verifying it works](#verifying-it-works)
   - [Verifying signatures end-to-end (beyond the stack)](#verifying-signatures-end-to-end-beyond-the-stack)
-  - [Debugging local e-sealing](#debugging-local-e-sealing)
-  - [Quick reference](#quick-reference)
 - [Upgrading an Existing Deployment](#upgrading-an-existing-deployment)
   - [What upgrade does (step by step)](#what-upgrade-does-step-by-step)
 - [Validating Configuration](#validating-configuration)
@@ -240,6 +238,8 @@ profile overrides this to `B_BES` so the demo certificate works without a
 TSA - see [Production setup: deploying with your own key and certificate](#production-setup-deploying-with-your-own-key-and-certificate)
 for how to choose for your real cert.
 
+---
+
 ### Architecture deep-dive
 
 In **external mode** the stamping container is not running. The request flow
@@ -331,8 +331,12 @@ If any link in this chain has a typo - profile name not in JSON,
 `esealCompany` not in stamping's `application.yml`, alias not in the
 keystore, keystore password mismatch - the request returns 5xx and
 ps-server's graceful-skip path returns `200 { stampStatus: "skipped" }`
-so the SPA flow continues without a seal. See
-[Debugging local e-sealing](#debugging-local-e-sealing) for diagnostics.
+so the SPA flow continues without a seal. Inspect
+`docker compose logs dmss-digital-stamping-service` and
+`docker compose logs dmss-container-and-signature-services` to find the
+root cause.
+
+---
 
 ### Initial deployment (fresh install)
 
@@ -363,6 +367,8 @@ What happens additionally when the flag is set:
   `config/config.js` (or `STAMP_MODE` is flipped if it already existed).
 - `COMPOSE_PROFILES=local-eseal` is appended to `.env` so every subsequent
   `docker compose up -d` includes the new service automatically.
+
+---
 
 ### Existing deployment (upgrade an already-deployed instance)
 
@@ -549,9 +555,10 @@ in addition to the services that were already running.
 
 If you see `dmss-digital-stamping-service` is `Restarting` or
 `Exited`, check its logs: `docker compose logs dmss-digital-stamping-service`.
-Common first-run causes are listed in
-[Debugging local e-sealing](#debugging-local-e-sealing) → "Symptom: stamping
-container won't start / exits immediately".
+The first-run failures are almost always one of: missing `seal.p12`,
+keystore password in `application.yml` not matching the actual P12
+password, or an alias mismatch (`alias:` in `application.yml` not present
+inside the keystore).
 
 **When can I declare the stack healthy?** The new container takes ~10
 seconds to finish Spring Boot startup. Wait until both of these return
@@ -568,8 +575,8 @@ docker compose logs --tail 50 dmss-container-and-signature-services \
 ```
 
 If you don't see "Started Application" for either after ~60 seconds,
-something is wrong - see
-[Debugging local e-sealing](#debugging-local-e-sealing).
+inspect the container's logs with `docker compose logs --tail 200 <service>`
+to find the Spring Boot startup exception.
 
 **Can I run this during business hours?** Yes for the demo flow with a
 caveat. The pieces that restart during `upgrade.sh --enable-local-eseal`
@@ -622,10 +629,12 @@ notBefore=May 11 13:26:58 2026 GMT
 notAfter=Aug 13 13:26:58 2028 GMT
 ```
 
-If `subject` shows a different CN (or the call fails), see
-[Debugging local e-sealing](#debugging-local-e-sealing) → "Symptom: demo
-cert works, real cert fails to load" (the diagnostics apply in either
-direction).
+If `subject` shows a different CN (or the call fails), the stamping
+container is not loading your keystore. Verify that
+`dmss-digital-stamping-service/seal/seal.p12` exists on disk, that
+`dmss-digital-stamping-service/application.yml` lists the matching
+`alias:` (default `seal`) and `password:`, then restart the container:
+`docker compose restart dmss-digital-stamping-service`.
 
 **Check 3.2 - ps-server can reach the chain end-to-end.** This check
 proves the new `STAMP_MODE: "local"` was picked up and ps-server is
@@ -684,9 +693,9 @@ includes a "Download signed PDF" link. Save the file as `signed.pdf`.
 curl -fsS "http://localhost:86/api/document/ARCH-2026-001234/download" -o signed.pdf
 ```
 
-Port 86 is `dmss-archive-services` host-side (see [Ports table](#ports)
-in the Quick reference). If your deployment moved that port, check
-`docker-compose.yml`. If you used Option B in Phase 3.2's CLI shortcut
+Port 86 is `dmss-archive-services` host-side. If your deployment moved
+that port, check `docker-compose.yml`. If you used Option B in Phase 3.2's
+CLI shortcut
 (curl-to-container-signature), the result is already at
 `/tmp/demo-signed.pdf` - use that path directly.
 
@@ -878,9 +887,11 @@ grep -aoE '/Type\s*/Sig|/Filter\s*/Adobe\.PPKLite' /tmp/spa-signed.pdf
 
 If both grep matches print, the SPA-driven sign path is working with
 your production cert. If you get `{ stampStatus: "skipped" }` in
-ps-server logs instead of a 200, see
-[Debugging local e-sealing](#debugging-local-e-sealing) → "Symptom:
-`/api/stamp` returns `200 { stampStatus: "skipped", ... }`".
+ps-server logs instead of a 200, the stamping container or
+container-signature is returning an upstream error - inspect their
+logs (`docker compose logs --tail 200 dmss-digital-stamping-service`
+and `... dmss-container-and-signature-services`) for the underlying
+Spring exception.
 
 ##### Step 5.7 - Verify the signature externally (the real test)
 
@@ -904,9 +915,14 @@ Run the full procedure in
   actually uses, against the test-signed PDF. This is the only check
   that proves your real-world consumers will accept your signatures.
 
-If any verification fails, see
-[Debugging local e-sealing](#debugging-local-e-sealing) → "Symptom:
-signed PDF rejected by downstream / external verifier".
+If any verification fails, the most common causes are: the verifier's
+trust store does not include your CA (re-issue your cert from a CA the
+verifier already trusts, or have your IT add your CA to the verifier's
+trust store); the signature is `B_BES` and the verifier requires `LT` /
+`LTA` (see
+[Wiring TSA and OCSP for LT and LTA signature profiles](#wiring-tsa-and-ocsp-for-lt-and-lta-signature-profiles));
+or the cert's `keyUsage` is missing `digitalSignature` /
+`nonRepudiation` (re-issue with the correct key usage).
 
 #### Phase 6 - Plan for go-live
 
@@ -944,12 +960,11 @@ softest one that fits your situation.
 
 Useful if you want to keep the local stamping container deployed but
 have ps-server temporarily route stamping requests to the cloud
-service. Same as
-[Switching modes after install](#switching-modes-after-install):
+service. Same recipe as
+[Switching modes after install -> From Local back to External](#switching-modes-after-install):
+edit `STAMP_MODE` to `"external"` in `config/config.js`, then:
 
 ```bash
-cd /opt/psapp
-sed -i 's/STAMP_MODE: *"local"/STAMP_MODE: "external"/' config/config.js
 docker compose restart ps-server
 ```
 
@@ -960,14 +975,25 @@ stamping container is still running but receives no traffic.
 
 Frees the resources the stamping container holds (memory, the bind
 mounts), but leaves all the new files in place so you can re-enable
-later by reversing the change:
+later.
 
-```bash
-sed -i '/^COMPOSE_PROFILES=local-eseal/d' .env
-docker compose --profile local-eseal down dmss-digital-stamping-service
-```
+1. Open `.env` and remove (or comment out) the
+   `COMPOSE_PROFILES=local-eseal` line, so `docker compose` no longer
+   includes the stamping service automatically:
 
-To re-enable, follow [Switching modes after install](#switching-modes-after-install).
+   ```
+   # .env  (after edit)
+   # COMPOSE_PROFILES=local-eseal     <-- line deleted or commented out
+   ```
+
+2. Stop the stamping container:
+
+   ```bash
+   docker compose --profile local-eseal down dmss-digital-stamping-service
+   ```
+
+To re-enable, follow
+[Switching modes after install -> From External back to Local](#switching-modes-after-install).
 
 ##### 8.c - Hard rollback to pre-feature state
 
@@ -979,55 +1005,215 @@ before `--enable-local-eseal` ran. The new
 container-signature `application.yml` stay on disk but are no longer
 referenced by the active configs.
 
-```bash
-cd /opt/psapp
-cp docker-compose.yml.bak docker-compose.yml
-cp config/config.js.bak config/config.js
-sed -i '/^COMPOSE_PROFILES=/d' .env
-docker compose --profile local-eseal down dmss-digital-stamping-service
-docker compose up -d
-docker compose restart ps-server  # bind-mounted config.js changed; ps-server
-                                  # must restart to re-read it
-```
+1. Restore the two `.bak` files:
+
+   ```bash
+   cd /opt/psapp
+   cp docker-compose.yml.bak docker-compose.yml
+   cp config/config.js.bak  config/config.js
+   ```
+
+2. Open `.env` and remove the `COMPOSE_PROFILES=` line entirely (it
+   came from `upgrade.sh --enable-local-eseal`):
+
+   ```
+   # .env  (after edit - the line is gone)
+   ```
+
+3. Bring the stack back to the pre-feature state:
+
+   ```bash
+   docker compose --profile local-eseal down dmss-digital-stamping-service
+   docker compose up -d
+   docker compose restart ps-server   # bind-mounted config.js changed; ps-server
+                                      # must restart to re-read it
+   ```
 
 If you want a *complete* rollback that also removes the new files (only
 do this if you are sure you won't re-enable local-eseal soon):
 
-```bash
-docker compose --profile local-eseal down dmss-digital-stamping-service
-rm -rf dmss-digital-stamping-service
-# Re-patch the container-signature baseUrl back to host.docker.internal:
-sed -i 's#^  baseUrl: http://dmss-digital-stamping-service:8084/api#  baseUrl: http://host.docker.internal:8084/api#' \
-    dmss-container-and-signature-services/application.yml
-docker compose up -d
-docker compose restart dmss-container-and-signature-services  # picks up the
-                                                              # baseUrl edit
-```
+1. Stop the stamping container and delete its on-disk directory:
+
+   ```bash
+   docker compose --profile local-eseal down dmss-digital-stamping-service
+   rm -rf dmss-digital-stamping-service
+   ```
+
+2. Open `dmss-container-and-signature-services/application.yml` and
+   change the `digital-stamping-service.baseUrl` line back to the
+   pre-feature value:
+
+   ```yaml
+   # dmss-container-and-signature-services/application.yml  (around line 148)
+   digital-stamping-service:
+     baseUrl: http://host.docker.internal:8084/api      # was: http://dmss-digital-stamping-service:8084/api
+   ```
+
+3. Apply:
+
+   ```bash
+   docker compose up -d
+   docker compose restart dmss-container-and-signature-services   # picks up the baseUrl edit
+   ```
 
 After any hard rollback, sign a test document via the SPA and confirm
 ps-server logs show `[stamp] mode=external` (or that signing simply
 works as it did before, depending on which rollback level you used).
 
+---
+
 ### Switching modes after install
 
-Once the local stack is provisioned, switching is purely a configuration
-change - no scripts required:
+Once the local stack is provisioned, switching between external and local
+e-sealing is purely a configuration change. **No scripts to run** - just
+edit two files in any text editor (`vi`, `nano`, VS Code over SSH, etc.)
+and restart the services that read those files.
+
+There are two files involved:
+
+- `config/config.js` - holds `STAMP_MODE`, which tells `ps-server` which
+  e-sealing path to use on every `/api/stamp` request.
+- `.env` - holds `COMPOSE_PROFILES`, which tells `docker compose` whether
+  to start the `dmss-digital-stamping-service` container.
+
+The two values must agree. The recipes below show exactly which line to
+change in each file.
+
+---
+
+#### From Local back to External
+
+**File 1 of 2: `config/config.js`**
+
+Open the file in an editor and find the `STAMP_MODE` field near the top
+of the `module.exports = {...}` block. Change its value from `"local"` to
+`"external"`:
+
+```js
+// config/config.js  (excerpt - top of the exported config object)
+module.exports = {
+  // ...
+
+  //
+  // ─── E-SEALING MODE ────────────────────────────────────────────
+  //
+  STAMP_MODE: "external",   // ← change this line  (was: "local")
+
+  STAMP_LOCAL: {
+    // (leave this block in place; it is ignored when STAMP_MODE is "external")
+    url:      "http://dmss-container-and-signature-services:8092/api/eseal/document/profile/LocalDemo",
+    username: "user",
+    password: "changeit",
+  },
+
+  // ...
+};
+```
+
+Save and close.
+
+**File 2 of 2: `.env`** (next to `docker-compose.yml`)
+
+Open `.env` and **delete** (or comment out with `#`) the
+`COMPOSE_PROFILES=local-eseal` line:
+
+```
+# .env  (before)
+COMPOSE_PROFILES=local-eseal      # ← delete this entire line
+```
+
+```
+# .env  (after)
+# (line removed)
+```
+
+Save and close.
+
+**Apply the change**
 
 ```bash
-# Local -> External
-sed -i 's/STAMP_MODE: *"local"/STAMP_MODE: "external"/' config/config.js
-sed -i '/^COMPOSE_PROFILES=local-eseal/d' .env       # blank the profile
-docker compose restart ps-server
-docker compose --profile local-eseal down dmss-digital-stamping-service   # optional
-
-# External -> Local (after a previous --enable-local-eseal)
-sed -i 's/STAMP_MODE: *"external"/STAMP_MODE: "local"/' config/config.js
-grep -q '^COMPOSE_PROFILES=' .env \
-  && sed -i 's/^COMPOSE_PROFILES=\(.*\)$/COMPOSE_PROFILES=\1,local-eseal/' .env \
-  || echo 'COMPOSE_PROFILES=local-eseal' >> .env
-docker compose up -d                  # starts the stamping container
-docker compose restart ps-server      # picks up the new config.js
+docker compose restart ps-server                                          # picks up the config.js edit
+docker compose --profile local-eseal down dmss-digital-stamping-service   # optional - stops the now-unused stamping container
 ```
+
+From now on every `/api/stamp` request from the SPA goes to the external
+cloud e-sealing service (`eseal.trustlynx.com`). Confirm with:
+
+```bash
+docker compose logs ps-server --tail 20 | grep '\[stamp\] mode='
+# expect: [stamp] mode=external ...
+```
+
+---
+
+#### From External back to Local
+
+(Use this after you have run `bootstrap.sh --enable-local-eseal` or
+`upgrade.sh --enable-local-eseal` at least once. The stamping
+container's compose service block and the demo keystore must already
+exist on disk - the script invocation puts them there.)
+
+**File 1 of 2: `config/config.js`**
+
+Open the file and change `STAMP_MODE` from `"external"` to `"local"`:
+
+```js
+// config/config.js  (excerpt)
+module.exports = {
+  // ...
+
+  //
+  // ─── E-SEALING MODE ────────────────────────────────────────────
+  //
+  STAMP_MODE: "local",      // ← change this line  (was: "external")
+
+  STAMP_LOCAL: {
+    url:      "http://dmss-container-and-signature-services:8092/api/eseal/document/profile/LocalDemo",
+    username: "user",
+    password: "changeit",
+    // timeoutMs: 30000,    // optional override of the default 30s upstream timeout
+  },
+
+  // ...
+};
+```
+
+Save and close.
+
+**File 2 of 2: `.env`**
+
+Open `.env` and add the `COMPOSE_PROFILES=local-eseal` line if it is
+missing. If `COMPOSE_PROFILES=` already exists with other profiles, add
+`local-eseal` to the comma-separated list:
+
+```
+# .env  (before - line missing or another profile only)
+# (no COMPOSE_PROFILES line)
+```
+
+```
+# .env  (after - new line added)
+COMPOSE_PROFILES=local-eseal      # ← add this line
+```
+
+Save and close.
+
+**Apply the change**
+
+```bash
+docker compose up -d                # starts the stamping container (now part of the active profile set)
+docker compose restart ps-server    # picks up the config.js edit so STAMP_MODE=local takes effect
+```
+
+Confirm with:
+
+```bash
+docker compose ps | grep dmss-digital-stamping-service    # should now appear as Up
+docker compose logs ps-server --tail 20 | grep '\[stamp\] mode='
+# expect: [stamp] mode=local ...
+```
+
+---
 
 ### Production hardening checklist (local e-sealing specific)
 
@@ -1173,8 +1359,10 @@ Useful log markers to alert on:
   signing was skipped. Recurring = stamping container or
   container-signature unhealthy.
 - `dmss-container-and-signature-services`: `ServiceAccessDeniedException`
-  or `OcspException` - TSA or OCSP responder rejected the request.
-  See [Debugging local e-sealing](#debugging-local-e-sealing).
+  or `OcspException` - TSA or OCSP responder rejected the request. Check
+  that the TSA and OCSP endpoints in
+  `dmss-container-and-signature-services/application.yml` are reachable
+  from the host and that any required basic-auth credentials are correct.
 - `dmss-digital-stamping-service`: `Started Application` on a restart -
   expected on intentional restarts only.
 
@@ -1240,6 +1428,8 @@ reject them). The expiry is in your monitoring scope:
 - Keep an automation in place that checks the `notAfter` field from
   the stamping endpoint (`/api/signing/certificate/for/<company>`)
   daily and pages on `< 30 days remaining`.
+
+---
 
 ### Production setup: deploying with your own key and certificate
 
@@ -1482,6 +1672,8 @@ treatment as any production secret:
 - Decide a rotation cadence and document it in your internal runbook.
 - Never reuse the keystore password for any other system.
 
+---
+
 ### Adding a new signing profile end-to-end
 
 You usually want a profile that's distinct from the shipped `LocalDemo`
@@ -1638,6 +1830,8 @@ seal - though out of the box `ps-server` always uses the one profile
 named in `STAMP_LOCAL.url`. Wiring per-flow profile selection is custom
 work outside the scope of this guide.
 
+---
+
 ### Wiring TSA and OCSP for LT and LTA signature profiles
 
 `B_BES` is a self-contained signature: the signing service just signs the
@@ -1764,6 +1958,8 @@ For production use stay on `PROD`. For internal tests with self-signed
 certs, switch temporarily to `TEST` - but never sign customer-bound
 artefacts in `TEST` mode.
 
+---
+
 ### Verifying it works
 
 After bootstrap or upgrade with `--enable-local-eseal`:
@@ -1789,6 +1985,8 @@ docker compose logs ps-server | grep -E 'Stamp response status: 200'
 
 Download the latest archived version of the signed document and confirm the
 PDF contains a signature dictionary (`/Type /Sig` + `/Filter /Adobe.PPKLite`).
+
+---
 
 ### Verifying signatures end-to-end (beyond the stack)
 
@@ -1898,283 +2096,6 @@ trusts an arbitrary self-signed CA. To get to "valid + trusted":
   trust stores you control. End-user Adobe Reader on a stranger's
   machine will always show "valid but untrusted" for internal-CA
   signatures - that's expected, not a stack defect.
-
-### Debugging local e-sealing
-
-Failure-mode playbook. Same shape as the main
-[Troubleshooting](#troubleshooting) section: symptom → likely cause →
-diagnostic command → fix. Run these in order - the first checks rule
-out the most common issues.
-
-#### Symptom: `/api/stamp` returns `200 { stampStatus: "skipped", reason: "STAMP_UPSTREAM_UNAVAILABLE" }`
-
-This is ps-server's graceful-skip path: the stamping call returned a 5xx
-or timed out, and ps-server intentionally let the signing flow continue
-without a seal so the document still saves. The underlying error is in
-the container-signature logs.
-
-**Diagnose:**
-
-```bash
-docker compose logs --tail 100 dmss-container-and-signature-services 2>&1 \
-    | grep -iE 'exception|error|caused|fail' \
-    | grep -v -iE 'tslref|TrustedList|TSL-|<URI|Zipkin|9411'
-```
-
-Common causes from the filtered output:
-
-| Log fragment | Meaning | Fix |
-|---|---|---|
-| `ServiceAccessDeniedException to TSP service <...>` | TSA rejected the request (auth, IP, or quota) | Check TSA reachability and any auth headers, see [TSA + OCSP](#wiring-tsa-and-ocsp-for-lt-and-lta-signature-profiles) |
-| `Could not connect to <tsa-host>` | TSA host unreachable (firewall, DNS) | `docker exec dmss-container-and-signature-services curl -v <tsa-url>` |
-| `Company '<X>' not found` | The profile's `esealCompany` doesn't match any company in stamping's `application.yml` | Cross-check the JSON profile's `esealCompany` against `stamping.companies[].name` |
-| `not alias <X> found into keystore` | The alias your `application.yml` says doesn't exist in `seal.p12` | `keytool -list -keystore seal.p12 -storepass <pwd>` to see what alias is actually there |
-| `cannot load keystoreFile file` | Stamping can't open the `.p12` (wrong path, wrong permissions) | `docker exec dmss-digital-stamping-service ls -l /seal/seal.p12` |
-| `unable to find valid certification path` | digidoc4j's TSL doesn't trust your cert chain (PROD mode) | Either confirm your CA is in an EU TSL or switch to `B_BES` for non-eIDAS use |
-
-#### Symptom: `/api/stamp` returns 500 with `"Stamping configuration is incomplete"`
-
-ps-server's mode-aware validation rejected the config before making any
-upstream call.
-
-**Diagnose:**
-
-```bash
-docker compose logs --tail 50 ps-server | grep -i 'Stamping config'
-# Typical: "Stamping config is incomplete: STAMP_MODE=local requires:
-#          STAMP_LOCAL.url, STAMP_LOCAL.password"
-```
-
-**Fix:** open `config/config.js` and ensure the block matches the mode:
-
-- `STAMP_MODE: "external"` → needs `STAMP_API_URL`, `STAMP_API_KEY`,
-  `STAMP_COMPANY_ID`, `STAMP_COMPANY_SECRET` populated.
-- `STAMP_MODE: "local"` → needs `STAMP_LOCAL.url`, `STAMP_LOCAL.username`,
-  `STAMP_LOCAL.password` populated.
-
-After editing: `docker compose restart ps-server`. Node `require` caches
-the config, so a restart is required.
-
-#### Symptom: stamping container won't start / exits immediately
-
-**Diagnose:**
-
-```bash
-docker compose ps                                       # is it actually crashed?
-docker compose logs --tail 100 dmss-digital-stamping-service
-```
-
-Common causes:
-
-| Symptom in logs | Cause | Fix |
-|---|---|---|
-| `Unknown key format: ...PrivateKeyInfo` | Your keystore has an unencrypted PKCS#8 PEM key (what modern `openssl req -nodes` produces). Stamping accepts encrypted PEM, traditional PKCS#1 RSA PEM, or encrypted PKCS#8 - not unencrypted PKCS#8. | Re-package via `openssl pkcs8 -topk8 -in your.key -out your.encrypted.key -passout pass:<pwd>`, OR convert the key inside the `.p12` build to traditional RSA PEM. |
-| `invalid configuration, password params must be set for engine P12` (or `for engine PKEY`) | The `password` field in stamping `application.yml` is empty. Mandatory even for unencrypted keys. | Set any non-empty value if the on-disk key is unencrypted; set the real passphrase if encrypted. |
-| `Address already in use: 8084` | Something else on the host already has port 8084 (a USB-token signer, an old stamping container that wasn't cleaned up). | `docker ps -a | grep 8084` to find the squatter; `docker rm -f <name>` to clear it. |
-| Container starts and dies silently with exit 0 | The image's `commands.sh` failed early. | `docker logs <container>` for the full output - usually missing config file at `/conf/application.yml`. |
-
-#### Symptom: container-signature can't resolve `dmss-digital-stamping-service`
-
-```bash
-docker exec dmss-container-and-signature-services \
-    bash -c 'getent hosts dmss-digital-stamping-service || echo "DNS failed"'
-```
-
-If DNS fails, the stamping container is not on the same docker network as
-container-signature. Causes:
-
-- `COMPOSE_PROFILES=local-eseal` is not set in `.env` (so the stamping
-  container never started). `cat .env` to check.
-- A custom `networks:` block in `docker-compose.yml` overrides the
-  default and the stamping container isn't joined. The shipped compose
-  uses the default bridge network for both; if you've customised the
-  compose file, ensure both services live on the same network.
-
-#### Symptom: STAMP_MODE flipped but ps-server still calls external (or vice versa)
-
-ps-server reads `config.js` once at startup. A change to the file does
-**not** hot-reload.
-
-**Fix:** `docker compose restart ps-server`. The container restarts and
-re-`require`s the updated config.
-
-To confirm which mode is actually live, check the per-request log line:
-
-```bash
-docker compose logs ps-server | grep '\[stamp\] mode='
-# Expect: [stamp] mode=local url=http://dmss-container-and-signature-services:8092/...
-#     or: [stamp] mode=external url=https://eseal.trustlynx.com/...
-```
-
-#### Symptom: demo cert works, real cert fails to load
-
-Stamping starts, but `/api/signing/certificate/for/<company>` returns
-`{"message": "certificate not found"}`. This is almost always an
-**alias mismatch**.
-
-**Diagnose:**
-
-```bash
-# What aliases are actually in the keystore?
-keytool -list -keystore dmss-digital-stamping-service/seal/seal.p12 \
-    -storepass <your-keystore-password>
-
-# What alias does the stamping config expect?
-grep -E '^\s+alias:' dmss-digital-stamping-service/application.yml
-```
-
-**Fix:** make the two agree. Either re-export the keystore with alias
-`seal` (Recipe C in
-[Production setup](#production-setup-deploying-with-your-own-key-and-certificate)),
-or change the `alias:` value in stamping's `application.yml` to match what's
-actually in the keystore.
-
-#### Symptom: container-signature returns 500 with "documentSigningProfileList is null"
-
-Jackson failed to deserialize `documentsigningprofiles.json`. Almost
-always a JSON syntax error or an unknown property.
-
-**Diagnose:**
-
-```bash
-python3 -m json.tool < dmss-container-and-signature-services/documentsigningprofiles.json > /dev/null
-# Any output = a parse error; the parser tells you where.
-```
-
-The `DocumentSigningProfile` class has a fixed set of allowed fields
-(`name`, `esealCompany`, `esealAsContainer`, `pdfSigningSigner`). Adding
-extra top-level fields (e.g. `// comment` keys, `signatureProfile` at
-profile root instead of under `pdfSigningSigner`) makes the whole file
-fail to load. Fix: remove unknown fields.
-
-#### Symptom: signed PDF rejected by downstream / external verifier
-
-The signature itself is cryptographically valid but the verifier doesn't
-trust your CA. See
-[Verifying signatures end-to-end (beyond the stack)](#verifying-signatures-end-to-end-beyond-the-stack)
-- this is the "valid but untrusted" outcome. You'll either need to add
-your CA to the verifier's trust store, or use a publicly-trusted CA in
-the first place.
-
-#### Symptom: signing got slow - where do I look first?
-
-A healthy `B_BES` sign in this stack takes ~100-300 ms end-to-end (most
-of it is multipart upload + PDF rewrite, not the cryptography). A
-healthy `LT` sign takes 1-3 seconds (the TSA round-trip dominates).
-If latency suddenly jumps:
-
-1. **Is the slowness in ps-server, container-signature, or stamping?**
-   ps-server already logs the round-trip:
-   ```bash
-   docker compose logs --tail 200 ps-server | grep -E 'Stamp response time'
-   # [DEBUG] Stamp response time: 287 ms   ← healthy
-   # [DEBUG] Stamp response time: 12054 ms ← bad
-   ```
-   This is the time ps-server waited for the entire chain (container-signature
-   → stamping → back). It does NOT split per-component.
-2. **If `Stamp response time` is the issue, narrow down with the
-   container-signature logs:**
-   ```bash
-   docker compose logs --tail 200 dmss-container-and-signature-services \
-       | grep -E 'eseal|TokenStamping|/api/sign'
-   ```
-   Look for TSA / OCSP timestamps that dominate. If you see
-   `ServiceAccessDeniedException` or repeated retries on the TSA URL,
-   the TSA endpoint is degraded - switch to a backup TSA (see
-   [Wiring TSA and OCSP](#wiring-tsa-and-ocsp-for-lt-and-lta-signature-profiles))
-   or wait for it to recover.
-3. **If `Stamp response time` is fine but the SPA still feels slow,**
-   the bottleneck is the visual-signature step (a separate code path
-   from `/api/stamp`) or the archive upload - neither is in the
-   local-eseal scope. Tail `ps-server` for `visual-signature` and
-   `uploadStampedPDFVersionToArchive` log lines.
-4. **JVM warm-up:** the FIRST sign after a stamping-container restart
-   takes ~1-2 seconds longer than steady-state (JIT warm-up). If you
-   see this only right after a deploy, ignore it.
-5. **Concurrent signs from many users:** the stamping container is
-   single-instance by default. If you regularly sustain >10
-   simultaneous signs, monitor the stamping container's CPU; if it
-   pegs, scale the JVM heap or add a second instance behind a small
-   nginx upstream (out of scope for this guide).
-
-### Quick reference
-
-A one-page summary you can keep open while operating the stack.
-
-#### Files
-
-| Path | Role |
-|---|---|
-| `config/config.js` | ps-server config; holds `STAMP_MODE` + `STAMP_LOCAL` |
-| `.env` | sets `COMPOSE_PROFILES=local-eseal` to activate the stamping container |
-| `docker-compose.yml` | service definitions; stamping has `profiles: [local-eseal]` |
-| `dmss-container-and-signature-services/application.yml` | Spring config for container-signature; line ~148 sets `digital-stamping-service.baseUrl` |
-| `dmss-container-and-signature-services/documentsigningprofiles.json` | profile catalog; URL profile names look up here |
-| `dmss-container-and-signature-services/digidoc4j-custom.yaml` | digidoc4j TSL/OCSP/TSP overrides (mostly commented templates) |
-| `dmss-digital-stamping-service/application.yml` | stamping config; `stamping.companies` list |
-| `dmss-digital-stamping-service/seal/seal.p12` | the signing keystore (demo by default) |
-| `installation-scripts/assets/dmss-digital-stamping-service/` | pristine reference copies used by `upgrade.sh` to populate existing deployments |
-
-#### Ports
-
-| Port | Service | Exposure |
-|---|---|---|
-| 443 | nginx (TLS) | public |
-| 84 | container-signature | host - restrict to 127.0.0.1 in production |
-| 86 | dmss-archive-services | host - internal use |
-| 93 | dmss-archive-services-fallback | host - internal use |
-| 8080 | keycloak | host - restrict in production |
-| 8084 | stamping | docker network only (no host port by default) |
-| 8092 | container-signature (internal) | docker network |
-| 3001 | ps-server | host - restrict to internal |
-| 5777 | hazelcast | docker network |
-
-#### Key commands
-
-```bash
-# Bring up / restart
-docker compose up -d                              # all services in active profiles
-docker compose --profile local-eseal up -d        # explicitly include stamping
-docker compose restart dmss-digital-stamping-service
-
-# Inspect
-docker compose ps
-docker compose logs -f <service>
-docker compose config --services                  # which services would start
-
-# Switch mode
-sed -i 's/STAMP_MODE: "external"/STAMP_MODE: "local"/' config/config.js && docker compose restart ps-server
-sed -i 's/STAMP_MODE: "local"/STAMP_MODE: "external"/' config/config.js && docker compose restart ps-server
-
-# Verify stamping cert from inside the docker network
-docker exec dmss-container-and-signature-services curl -fsS \
-    http://dmss-digital-stamping-service:8084/api/signing/certificate/for/<company>
-
-# Sign a PDF directly (skip ps-server) to isolate which layer breaks
-curl -sS -u <user>:<pass> -X POST \
-    -F "file=@in.pdf;type=application/pdf" \
-    -o out.pdf -w "%{http_code}\n" \
-    http://localhost:84/api/eseal/document/profile/<profile>
-```
-
-#### Key log greps
-
-```bash
-# Per-request mode (every /api/stamp call):
-docker compose logs ps-server | grep '\[stamp\] mode='
-
-# Graceful-skip events (stamping is degraded):
-docker compose logs ps-server | grep -i STAMP_UPSTREAM_UNAVAILABLE
-
-# Container-signature errors (filter the TSL/zipkin noise):
-docker compose logs dmss-container-and-signature-services \
-    | grep -iE 'exception|error|caused|fail' \
-    | grep -v -iE 'tslref|TrustedList|TSL-|<URI|Zipkin|9411'
-
-# Stamping init / cert load:
-docker compose logs dmss-digital-stamping-service \
-    | grep -iE 'initTokenProvider|loaded certificate|cannot load'
-```
 
 ## Upgrading an Existing Deployment
 
@@ -3606,8 +3527,6 @@ step list gained a new Step 6 entry):
 - Verifying it works - basic smoke-test commands.
 - Verifying signatures end-to-end (beyond the stack) - Adobe Reader,
   `pdfsig`, programmatic verification.
-- Debugging local e-sealing - failure-mode playbook for 8 common issues.
-- Quick reference - files/ports/commands/log-greps summary card.
 
 **Default-behaviour invariant:** customers who pull the new repo
 version and run plain `docker compose up -d` (without
