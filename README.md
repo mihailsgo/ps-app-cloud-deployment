@@ -2,98 +2,99 @@
 
 ## Table of Contents
 
-- [Release Snapshot](#release-snapshot)
-- [Overview](#overview)
-- [Quick Start (New Deployment)](#quick-start-new-deployment)
-  - [What bootstrap does (step by step)](#what-bootstrap-does-step-by-step)
-  - [Bootstrap parameters](#bootstrap-parameters)
-- [Enabling local e-sealing](#enabling-local-e-sealing)
-  - [Concepts and glossary](#concepts-and-glossary)
-  - [Architecture deep-dive](#architecture-deep-dive)
-  - [Initial deployment (fresh install)](#initial-deployment-fresh-install)
-  - [Existing deployment (upgrade an already-deployed instance)](#existing-deployment-upgrade-an-already-deployed-instance)
-  - [Switching modes after install](#switching-modes-after-install)
-  - [Production hardening checklist (local e-sealing specific)](#production-hardening-checklist-local-e-sealing-specific)
-  - [Production setup: deploying with your own key and certificate](#production-setup-deploying-with-your-own-key-and-certificate)
-  - [Adding a new signing profile end-to-end](#adding-a-new-signing-profile-end-to-end)
-  - [Wiring TSA and OCSP for LT and LTA signature profiles](#wiring-tsa-and-ocsp-for-lt-and-lta-signature-profiles)
-  - [Verifying it works](#verifying-it-works)
-  - [Verifying signatures end-to-end (beyond the stack)](#verifying-signatures-end-to-end-beyond-the-stack)
-- [Upgrading an Existing Deployment](#upgrading-an-existing-deployment)
-  - [What upgrade does (step by step)](#what-upgrade-does-step-by-step)
-- [Validating Configuration](#validating-configuration)
-  - [What validate-config checks](#what-validate-config-checks)
-- [Architecture](#architecture)
-- [Application Overview](#application-overview)
-  - [How this solution works](#how-this-solution-works)
-- [Prerequisites](#prerequisites)
-- [Prerequisites (Quick Checklist)](#prerequisites-quick-checklist)
-- [Domain and TLS Certificates](#domain-and-tls-certificates)
-  - [TLS Prerequisites (For Installation Scripts)](#tls-prerequisites-for-installation-scripts)
-- [Running the Stack](#running-the-stack)
-- [Configuration](#configuration)
-- [Keycloak Setup](#keycloak-setup)
-  - [Start Keycloak Container](#1-start-keycloak-container)
-  - [Automated Setup (Recommended)](#2-automated-setup-recommended)
-  - [Access Keycloak Admin Panel (Manual / Verification)](#3-access-keycloak-admin-panel-manual-verification)
-  - [Create Realm (Manual)](#4-create-realm-manual)
-  - [Create Client for Frontend (Manual)](#5-create-client-for-frontend-manual)
-  - [Create Client for Backend (Manual)](#6-create-client-for-backend-manual)
-- [Client Configuration](#client-configuration)
-  - [Update Constants File](#1-update-constants-file)
-  - [Environment Variables (Optional)](#2-environment-variables-optional)
-- [Server Configuration](#server-configuration)
-  - [Update Server Config](#1-update-server-config)
-  - [Replace Client Secret](#2-replace-client-secret)
-- [Environment Variables](#environment-variables)
-  - [Keycloak Container Environment Variables](#keycloak-container-environment-variables)
-  - [Client Environment Variables](#client-environment-variables)
-- [Configuration Constants Reference](#configuration-constants-reference)
-  - [Cloud Essentials (TL;DR)](#cloud-essentials-tldr)
-  - [How configuration is loaded](#how-configuration-is-loaded)
-  - [Client: config/constants.json](#client-configconstantsjson)
-  - [Server: config/config.js](#server-configconfigjs)
-  - [Cloud Flow: /api/registerPDF](#cloud-flow-apiregisterpdf)
-  - [Changing values safely](#changing-values-safely)
-  - [Quick verification](#quick-verification)
-  - [Notes](#notes)
-  - [Debug Steps](#debug-steps)
-- [Testing the Integration](#testing-the-integration)
-  - [Build and Deploy](#1-build-and-deploy)
-  - [Test Authentication Flow](#2-test-authentication-flow)
-  - [Verify Configuration](#3-verify-configuration)
-- [Troubleshooting](#troubleshooting)
-  - [Common Issues](#common-issues)
-- [Troubleshooting (Integration and Auth)](#troubleshooting-integration-and-auth)
-- [Security and Route Protection](#security-and-route-protection)
-- [Data Flow](#data-flow)
-- [Production Deployment](#production-deployment)
-  - [Deployment Checklist (Recommended)](#deployment-checklist-recommended)
-  - [Environment Variables](#1-environment-variables)
-  - [SSL Certificates](#2-ssl-certificates)
-  - [Database Persistence](#3-database-persistence)
-- [Production Hardening](#production-hardening)
-- [Local Development Tips](#local-development-tips)
-- [Security Considerations](#security-considerations)
-- [File Map and References](#file-map-and-references)
-- [Notes on Security](#notes-on-security)
-- [FAQ](#faq)
-  - [Handling many concurrent documents](#1-how-does-the-solution-handle-a-large-number-of-documents-sent-at-the-same-time-or-almost-at-the-same-time)
-  - [Error handling when ps-server is unavailable](#2-how-are-errors-handled-if-ps-server-is-not-available-when-registerpdf-is-called)
-  - [Repeated or parallel document processing](#3-how-are-repeated-or-parallel-document-processing-scenarios-handled-same-document-in-multiple-sessions-repeated-signing-attempts)
-  - [Tablet software and capabilities](#4-what-software-is-used-on-tablets-and-what-is-available-there)
-  - [Integration flow from 3rd-party systems](#5-what-is-the-integration-flow-from-a-3rd-party-system-and-what-response-is-returned-after-signing)
-  - [Signed document format and signature appearance](#6-what-is-the-final-signed-document-format-and-how-does-signaturestamp-appear)
-- [Support](#support)
-- [Additional Resources](#additional-resources)
-- [PSAPP Solution Architecture](#psapp-solution-architecture)
-- [Appendix](#appendix)
-  - [Deployment and integration architecture](#1-deployment-and-integration-architecture)
-  - [Signing and stamping execution flow](#2-signing-and-stamping-execution-flow)
-  - [Very high-level component view](#3-very-high-level-component-view)
-- [Change history](#change-history)
+1. [Release Snapshot](#1-release-snapshot)
+2. [Overview](#2-overview)
+3. [Quick Start (New Deployment)](#3-quick-start-new-deployment)
+   - [3.1 What bootstrap does (step by step)](#31-what-bootstrap-does-step-by-step)
+   - [3.2 Bootstrap parameters](#32-bootstrap-parameters)
+4. [Enabling local e-sealing](#4-enabling-local-e-sealing)
+   - [4.1 Concepts and glossary](#41-concepts-and-glossary)
+   - [4.2 Architecture deep-dive](#42-architecture-deep-dive)
+   - [4.3 Initial deployment (fresh install)](#43-initial-deployment-fresh-install)
+   - [4.4 Existing deployment (upgrade an already-deployed instance)](#44-existing-deployment-upgrade-an-already-deployed-instance)
+   - [4.5 Switching modes after install](#45-switching-modes-after-install)
+   - [4.6 Production hardening checklist (local e-sealing specific)](#46-production-hardening-checklist-local-e-sealing-specific)
+   - [4.7 Production setup: deploying with your own key and certificate](#47-production-setup-deploying-with-your-own-key-and-certificate)
+   - [4.8 Adding a new signing profile end-to-end](#48-adding-a-new-signing-profile-end-to-end)
+   - [4.9 Wiring TSA and OCSP for LT and LTA signature profiles](#49-wiring-tsa-and-ocsp-for-lt-and-lta-signature-profiles)
+   - [4.10 Verifying it works](#410-verifying-it-works)
+   - [4.11 Verifying signatures end-to-end (beyond the stack)](#411-verifying-signatures-end-to-end-beyond-the-stack)
+5. [Upgrading an Existing Deployment](#5-upgrading-an-existing-deployment)
+   - [5.1 What upgrade does (step by step)](#51-what-upgrade-does-step-by-step)
+6. [Validating Configuration](#6-validating-configuration)
+   - [6.1 What validate-config checks](#61-what-validate-config-checks)
+7. [Architecture](#7-architecture)
+8. [Application Overview](#8-application-overview)
+   - [8.1 How this solution works](#81-how-this-solution-works)
+9. [Prerequisites](#9-prerequisites)
+10. [Prerequisites (Quick Checklist)](#10-prerequisites-quick-checklist)
+11. [Domain and TLS Certificates](#11-domain-and-tls-certificates)
+   - [11.1 TLS Prerequisites (For Installation Scripts)](#111-tls-prerequisites-for-installation-scripts)
+12. [Running the Stack](#12-running-the-stack)
+13. [Configuration](#13-configuration)
+14. [Keycloak Setup](#14-keycloak-setup)
+   - [14.1 Start Keycloak Container](#141-start-keycloak-container)
+   - [14.2 Automated Setup (Recommended)](#142-automated-setup-recommended)
+   - [14.3 Access Keycloak Admin Panel (Manual / Verification)](#143-access-keycloak-admin-panel-manual-verification)
+   - [14.4 Create Realm (Manual)](#144-create-realm-manual)
+   - [14.5 Create Client for Frontend (Manual)](#145-create-client-for-frontend-manual)
+   - [14.6 Create Client for Backend (Manual)](#146-create-client-for-backend-manual)
+15. [Client Configuration](#15-client-configuration)
+   - [15.1 Update Constants File](#151-update-constants-file)
+   - [15.2 Environment Variables (Optional)](#152-environment-variables-optional)
+16. [Server Configuration](#16-server-configuration)
+   - [16.1 Update Server Config](#161-update-server-config)
+   - [16.2 Replace Client Secret](#162-replace-client-secret)
+17. [Environment Variables](#17-environment-variables)
+   - [17.1 Keycloak Container Environment Variables](#171-keycloak-container-environment-variables)
+   - [17.2 Client Environment Variables](#172-client-environment-variables)
+18. [Configuration Constants Reference](#18-configuration-constants-reference)
+   - [18.1 Cloud Essentials (TL;DR)](#181-cloud-essentials-tldr)
+   - [18.2 How configuration is loaded](#182-how-configuration-is-loaded)
+   - [18.3 Client: config/constants.json](#183-client-configconstantsjson)
+   - [18.4 Server: config/config.js](#184-server-configconfigjs)
+   - [18.5 Cloud Flow: /api/registerPDF](#185-cloud-flow-apiregisterpdf)
+   - [18.6 Changing values safely](#186-changing-values-safely)
+   - [18.7 Quick verification](#187-quick-verification)
+   - [18.8 Notes](#188-notes)
+   - [18.9 Debug Steps](#189-debug-steps)
+19. [Testing the Integration](#19-testing-the-integration)
+   - [19.1 Build and Deploy](#191-build-and-deploy)
+   - [19.2 Test Authentication Flow](#192-test-authentication-flow)
+   - [19.3 Verify Configuration](#193-verify-configuration)
+20. [Troubleshooting](#20-troubleshooting)
+   - [20.1 Common Issues](#201-common-issues)
+21. [Troubleshooting (Integration and Auth)](#21-troubleshooting-integration-and-auth)
+22. [Security and Route Protection](#22-security-and-route-protection)
+23. [Data Flow](#23-data-flow)
+24. [Production Deployment](#24-production-deployment)
+   - [24.1 Deployment Checklist (Recommended)](#241-deployment-checklist-recommended)
+   - [24.2 Environment Variables](#242-environment-variables)
+   - [24.3 SSL Certificates](#243-ssl-certificates)
+   - [24.4 Database Persistence](#244-database-persistence)
+25. [Production Hardening](#25-production-hardening)
+26. [Local Development Tips](#26-local-development-tips)
+27. [Security Considerations](#27-security-considerations)
+28. [File Map and References](#28-file-map-and-references)
+29. [Notes on Security](#29-notes-on-security)
+30. [FAQ](#30-faq)
+   - [30.1 How does the solution handle a large number of documents sent at the same time (or almost at the same time)?](#301-how-does-the-solution-handle-a-large-number-of-documents-sent-at-the-same-time-or-almost-at-the-same-time)
+   - [30.2 How are errors handled if `ps-server` is not available when `registerPDF` is called?](#302-how-are-errors-handled-if-ps-server-is-not-available-when-registerpdf-is-called)
+   - [30.3 How are repeated or parallel document-processing scenarios handled (same document in multiple sessions, repeated signing attempts)?](#303-how-are-repeated-or-parallel-document-processing-scenarios-handled-same-document-in-multiple-sessions-repeated-signing-attempts)
+   - [30.4 What software is used on tablets, and what is available there?](#304-what-software-is-used-on-tablets-and-what-is-available-there)
+   - [30.5 What is the integration flow from a 3rd-party system, and what response is returned after signing?](#305-what-is-the-integration-flow-from-a-3rd-party-system-and-what-response-is-returned-after-signing)
+   - [30.6 What is the final signed document format, and how does signature/stamp appear?](#306-what-is-the-final-signed-document-format-and-how-does-signaturestamp-appear)
+31. [Support](#31-support)
+32. [Additional Resources](#32-additional-resources)
+33. [PSAPP Solution Architecture](#33-psapp-solution-architecture)
+34. [Appendix](#34-appendix)
+   - [34.1 Deployment and integration architecture](#341-deployment-and-integration-architecture)
+   - [34.2 Signing and stamping execution flow](#342-signing-and-stamping-execution-flow)
+   - [34.3 Very high-level component view](#343-very-high-level-component-view)
+35. [Change history](#35-change-history)
+   - [35.1 2026-05-13 - Optional local e-sealing](#351-2026-05-13---optional-local-e-sealing)
 
-## Release Snapshot
+## 1. Release Snapshot
 
 - `ps-server`: `mihailsgordijenko/ps-server:3.25`
 - `ps-client`: `mihailsgordijenko/ps-client:8.36`
@@ -102,7 +103,7 @@
 - DMSS Container/Signature: `trustlynx/container-signature-service:24.3.0.49`
 - DMSS Archive fallback: `trustlynx/dmss-archive-services-fallback:24.0.5`
 
-## Overview
+## 2. Overview
 
 - Reverse proxy and TLS termination via NGINX.
 - Authentication and authorization via Keycloak.
@@ -113,7 +114,7 @@
 
 ---
 
-## Quick Start (New Deployment)
+## 3. Quick Start (New Deployment)
 
 One command to deploy PadSign on a new server:
 
@@ -126,7 +127,7 @@ One command to deploy PadSign on a new server:
   --cert-key ./installation-scripts/certs/padsign.client.com.key
 ```
 
-### What bootstrap does (step by step)
+### 3.1 What bootstrap does (step by step)
 
 1. **Validates inputs** - checks required parameters (host, company-role, admin-pass) and verifies dependencies (docker, docker compose, python3, perl, curl)
 2. **Backs up config files** - creates `.bak` copies of `config/config.js`, `config/constants.json`, `nginx/nginx.conf`, and `docker-compose.yml` for safe rollback
@@ -156,7 +157,7 @@ One command to deploy PadSign on a new server:
    - Lists all running containers with image versions
 10. **Prints summary** - portal URL, Keycloak admin URL, API URL, test user credentials
 
-### Bootstrap parameters
+### 3.2 Bootstrap parameters
 
 | Parameter | Required | Description |
 |---|---|---|
@@ -169,9 +170,9 @@ One command to deploy PadSign on a new server:
 | `--users` | No | Additional users: `"user1:pass1:role,user2:pass2:role"` |
 | `--enable-routing` | No | Enable filesystem document routing after signing |
 | `--enable-demo` | No | Enable DEMO mode in client |
-| `--enable-local-eseal` | No | Provision local e-sealing (stamping container + demo PKCS12) and set `STAMP_MODE=local`. External e-sealing remains the default when this flag is omitted. See [Enabling local e-sealing](#enabling-local-e-sealing). |
+| `--enable-local-eseal` | No | Provision local e-sealing (stamping container + demo PKCS12) and set `STAMP_MODE=local`. External e-sealing remains the default when this flag is omitted. See [Enabling local e-sealing](#4-enabling-local-e-sealing). |
 
-## Enabling local e-sealing
+## 4. Enabling local e-sealing
 
 PadSign ships with **two e-sealing paths** that you can pick between at deploy
 time without touching source code:
@@ -189,7 +190,7 @@ time without touching source code:
 (`local-eseal`) controls whether the stamping container is actually started.
 `.env` links the two.
 
-### Concepts and glossary
+### 4.1 Concepts and glossary
 
 Local e-sealing is a way to put a cryptographic signature (a "seal") onto a
 PDF before it leaves the server. Instead of sending the document out to a
@@ -235,12 +236,12 @@ guide:
 **Default in `dmss-container-and-signature-services/application.yml`:**
 `pdf.defaultSignatureLevel: PAdES_BASELINE_LT`. The shipped `LocalDemo`
 profile overrides this to `B_BES` so the demo certificate works without a
-TSA - see [Production setup: deploying with your own key and certificate](#production-setup-deploying-with-your-own-key-and-certificate)
+TSA - see [Production setup: deploying with your own key and certificate](#47-production-setup-deploying-with-your-own-key-and-certificate)
 for how to choose for your real cert.
 
 ---
 
-### Architecture deep-dive
+### 4.2 Architecture deep-dive
 
 In **external mode** the stamping container is not running. The request flow
 is short:
@@ -338,7 +339,7 @@ root cause.
 
 ---
 
-### Initial deployment (fresh install)
+### 4.3 Initial deployment (fresh install)
 
 Pass `--enable-local-eseal` to `bootstrap.sh` and the stack comes up with
 local e-sealing ready to use:
@@ -370,7 +371,7 @@ What happens additionally when the flag is set:
 
 ---
 
-### Existing deployment (upgrade an already-deployed instance)
+### 4.4 Existing deployment (upgrade an already-deployed instance)
 
 This is the section to follow if your PadSign deployment is currently
 running on a repo version from **before** this feature was added (any
@@ -384,17 +385,12 @@ version where `installation-scripts/upgrade.sh` does **not** have the
   and verifying that too,
 - the rollback recipes if anything goes wrong.
 
-Total time: ~10 minutes to reach the demo signing milestone; the
-production-cert portion depends on how long your CA takes to issue a
-certificate (could be minutes if you already have one, days/weeks if you
-need to request a new one from a public CA).
-
 The flow is non-destructive: external mode keeps working until you
 explicitly switch `STAMP_MODE` to `"local"`. Every step is reversible
 either via the `*.bak` files the script creates or with a small config
 edit.
 
-#### Phase 1 - Update the deployment scripts and configs (2 minutes)
+#### Phase 1 - Update the deployment scripts and configs
 
 Pull the new version of this repo into your deployment directory.
 
@@ -447,7 +443,7 @@ If any of those three checks fail, the repo version you pulled does not
 contain the local-eseal feature. Stop here and double-check the branch /
 tag you fetched.
 
-#### Phase 2 - Enable local e-sealing with the demo cert (3 minutes)
+#### Phase 2 - Enable local e-sealing with the demo cert
 
 Run the upgrade script with the new flag:
 
@@ -603,7 +599,7 @@ If you need to bail out completely after a failed run and return to
 pre-feature state, see [Phase 8.c](#phase-8---rollback-recipes) - the
 hard rollback works whether or not the upgrade finished.
 
-#### Phase 3 - Verify the demo signing flow (5 minutes)
+#### Phase 3 - Verify the demo signing flow
 
 Three checks. Run them in order; later checks assume earlier ones passed.
 
@@ -747,16 +743,16 @@ paths:
   approach yet, see [Phase 8](#phase-8---rollback-recipes) for the
   reversal options.
 
-#### Phase 5 - Set up for production test with your real key and certificate (timing varies)
+#### Phase 5 - Set up for production test with your real key and certificate
 
 This phase replaces the demo cert with your own production signing
 material and verifies signing still works end to end. It is a *test*
 phase even when using the real cert - meaning you confirm signatures
 verify correctly in a representative environment before going live.
 
-**Time budget:** depends on whether you already have a signing
-certificate. If yes, ~30 minutes. If you need to request one from a
-public CA, days to weeks (your CA's SLA, plus organisational paperwork).
+How long this takes depends on whether you already have a signing
+certificate or still need to request one from a public CA (which can
+be days or weeks of CA SLA + organisational paperwork).
 
 ##### Step 5.1 - Source your signing certificate
 
@@ -784,7 +780,7 @@ already contains all of the above, protected by one password.
 
 ##### Step 5.2 - Build a deployment-ready `seal.p12`
 
-Follow [Production setup: deploying with your own key and certificate](#production-setup-deploying-with-your-own-key-and-certificate)
+Follow [Production setup: deploying with your own key and certificate](#47-production-setup-deploying-with-your-own-key-and-certificate)
 to convert whatever your CA delivered into a PKCS12 keystore that the
 stamping service can consume. Pick the recipe that matches your
 artefact shape (separate files, existing .pfx, or alias rename).
@@ -796,7 +792,7 @@ The shipped `LocalDemo` profile uses `B_BES` because the demo cert is
 self-signed and no TSA will issue a timestamp for it. With a real
 CA-issued cert you usually want a higher level.
 
-Open [Step 4 of Production setup](#production-setup-deploying-with-your-own-key-and-certificate) and use the table there to pick:
+Open [Step 4 of Production setup](#47-production-setup-deploying-with-your-own-key-and-certificate) and use the table there to pick:
 
 - **`B_BES`** if your cert is from an internal CA OR your verifiers
   don't need eIDAS legal validity.
@@ -806,14 +802,14 @@ Open [Step 4 of Production setup](#production-setup-deploying-with-your-own-key-
   scenarios).
 
 If you pick anything other than `B_BES`, complete
-[Wiring TSA and OCSP for LT and LTA signature profiles](#wiring-tsa-and-ocsp-for-lt-and-lta-signature-profiles)
+[Wiring TSA and OCSP for LT and LTA signature profiles](#49-wiring-tsa-and-ocsp-for-lt-and-lta-signature-profiles)
 before continuing - your signing will fail without a TSA configured.
 
 ##### Step 5.4 - Add a production-specific profile (recommended)
 
 Don't modify the shipped `LocalDemo` profile - keep it intact as a known-good
 fallback. Add a new profile (e.g. `AcmeProductionSeal`) following
-[Adding a new signing profile end-to-end](#adding-a-new-signing-profile-end-to-end).
+[Adding a new signing profile end-to-end](#48-adding-a-new-signing-profile-end-to-end).
 The 6 steps in that section walk through editing
 `documentsigningprofiles.json`, adding a new company in
 `dmss-digital-stamping-service/application.yml`, updating
@@ -823,7 +819,7 @@ The 6 steps in that section walk through editing
 
 Now is the right time to replace the three `changeit` defaults with
 strong unique passwords - see
-[Production hardening checklist → 1. Rotate the three demo credentials](#production-hardening-checklist-local-e-sealing-specific).
+[Production hardening checklist → 1. Rotate the three demo credentials](#46-production-hardening-checklist-local-e-sealing-specific).
 Skipping this step leaves your container-signature endpoint open to
 anyone who knows the deployment convention. Don't skip it.
 
@@ -899,7 +895,7 @@ The smoke tests above prove the *stack* produces a signature. The real
 question for a production cert is whether a *verifier* trusts it.
 
 Run the full procedure in
-[Verifying signatures end-to-end (beyond the stack)](#verifying-signatures-end-to-end-beyond-the-stack):
+[Verifying signatures end-to-end (beyond the stack)](#411-verifying-signatures-end-to-end-beyond-the-stack):
 
 - Open the signed PDF in Adobe Acrobat Reader DC and check the
   Signature Panel. With a publicly-trusted CA + a TSA-backed LT
@@ -920,7 +916,7 @@ trust store does not include your CA (re-issue your cert from a CA the
 verifier already trusts, or have your IT add your CA to the verifier's
 trust store); the signature is `B_BES` and the verifier requires `LT` /
 `LTA` (see
-[Wiring TSA and OCSP for LT and LTA signature profiles](#wiring-tsa-and-ocsp-for-lt-and-lta-signature-profiles));
+[Wiring TSA and OCSP for LT and LTA signature profiles](#49-wiring-tsa-and-ocsp-for-lt-and-lta-signature-profiles));
 or the cert's `keyUsage` is missing `digitalSignature` /
 `nonRepudiation` (re-issue with the correct key usage).
 
@@ -931,11 +927,11 @@ on demand. Before opening it up to production traffic:
 
 1. **Schedule the cert-expiry alert.** Calendar reminder + monitor
    probe - see
-   [Production hardening checklist → 6. Decide a cert rotation cadence](#production-hardening-checklist-local-e-sealing-specific).
+   [Production hardening checklist → 6. Decide a cert rotation cadence](#46-production-hardening-checklist-local-e-sealing-specific).
 2. **Back up the production keystore.** Encrypted backup, password
    stored separately from the keystore (different storage, different
    access list - see
-   [Production setup: deploying with your own key and certificate](#production-setup-deploying-with-your-own-key-and-certificate)
+   [Production setup: deploying with your own key and certificate](#47-production-setup-deploying-with-your-own-key-and-certificate)
    Step 5).
 3. **Test the restore** from your backup once. A backup you have not
    verified is not a backup.
@@ -943,7 +939,7 @@ on demand. Before opening it up to production traffic:
 #### Phase 7 - Harden before exposing the stack
 
 Walk through every numbered item in
-[Production hardening checklist (local e-sealing specific)](#production-hardening-checklist-local-e-sealing-specific)
+[Production hardening checklist (local e-sealing specific)](#46-production-hardening-checklist-local-e-sealing-specific)
 before opening the stack to production traffic. The two highest-impact
 items if you do nothing else:
 
@@ -961,7 +957,7 @@ softest one that fits your situation.
 Useful if you want to keep the local stamping container deployed but
 have ps-server temporarily route stamping requests to the cloud
 service. Same recipe as
-[Switching modes after install -> From Local back to External](#switching-modes-after-install):
+[Switching modes after install -> From Local back to External](#45-switching-modes-after-install):
 edit `STAMP_MODE` to `"external"` in `config/config.js`, then:
 
 ```bash
@@ -993,7 +989,7 @@ later.
    ```
 
 To re-enable, follow
-[Switching modes after install -> From External back to Local](#switching-modes-after-install).
+[Switching modes after install -> From External back to Local](#45-switching-modes-after-install).
 
 ##### 8.c - Hard rollback to pre-feature state
 
@@ -1062,7 +1058,7 @@ works as it did before, depending on which rollback level you used).
 
 ---
 
-### Switching modes after install
+### 4.5 Switching modes after install
 
 Once the local stack is provisioned, switching between external and local
 e-sealing is purely a configuration change. **No scripts to run** - just
@@ -1215,10 +1211,10 @@ docker compose logs ps-server --tail 20 | grep '\[stamp\] mode='
 
 ---
 
-### Production hardening checklist (local e-sealing specific)
+### 4.6 Production hardening checklist (local e-sealing specific)
 
 The wider deployment-wide hardening list lives further down in
-[Production Hardening](#production-hardening); this section is the subset
+[Production Hardening](#25-production-hardening); this section is the subset
 that applies specifically when local e-sealing is enabled. Treat it as a
 checklist to walk through before exposing the stack to non-test users.
 
@@ -1230,7 +1226,7 @@ all three** (they must stay consistent with each other):
 
 | Where it lives | Field | Default | Change to |
 |---|---|---|---|
-| `dmss-digital-stamping-service/seal/seal.p12` | keystore password | `changeit` | a strong unique password (when you build the keystore - see [Production setup](#production-setup-deploying-with-your-own-key-and-certificate)) |
+| `dmss-digital-stamping-service/seal/seal.p12` | keystore password | `changeit` | a strong unique password (when you build the keystore - see [Production setup](#47-production-setup-deploying-with-your-own-key-and-certificate)) |
 | `dmss-digital-stamping-service/application.yml` | `password:` under `providers` | `changeit` | must equal the new keystore password |
 | `docker-compose.yml` (on `dmss-container-and-signature-services`) | `SPRING_SECURITY_USER_PASSWORD=` env var | `changeit` | a different strong unique password |
 | `config/config.js` | `STAMP_LOCAL.password` | `changeit` | must equal the new `SPRING_SECURITY_USER_PASSWORD` |
@@ -1424,14 +1420,14 @@ reject them). The expiry is in your monitoring scope:
 - Document the rotation procedure in your internal runbook so whoever
   is on call when the reminder fires knows what to do. The mechanics
   are the same as the initial production-cert install:
-  [Production setup: deploying with your own key and certificate](#production-setup-deploying-with-your-own-key-and-certificate).
+  [Production setup: deploying with your own key and certificate](#47-production-setup-deploying-with-your-own-key-and-certificate).
 - Keep an automation in place that checks the `notAfter` field from
   the stamping endpoint (`/api/signing/certificate/for/<company>`)
   daily and pages on `< 30 days remaining`.
 
 ---
 
-### Production setup: deploying with your own key and certificate
+### 4.7 Production setup: deploying with your own key and certificate
 
 This is the main path for putting local e-sealing into production. The
 shipped `dmss-digital-stamping-service/seal/seal.p12` is a self-signed
@@ -1650,9 +1646,9 @@ you most likely want a higher level. Decide based on what your CA is:
 
 Don't change the shipped `LocalDemo` profile - it's the safe demo path.
 Create your own profile instead:
-[Adding a new signing profile end-to-end](#adding-a-new-signing-profile-end-to-end).
+[Adding a new signing profile end-to-end](#48-adding-a-new-signing-profile-end-to-end).
 If you need timestamping (anything above B_BES), continue to:
-[Wiring TSA and OCSP for LT and LTA signature profiles](#wiring-tsa-and-ocsp-for-lt-and-lta-signature-profiles).
+[Wiring TSA and OCSP for LT and LTA signature profiles](#49-wiring-tsa-and-ocsp-for-lt-and-lta-signature-profiles).
 
 #### Step 5 - Storing the keystore password
 
@@ -1674,7 +1670,7 @@ treatment as any production secret:
 
 ---
 
-### Adding a new signing profile end-to-end
+### 4.8 Adding a new signing profile end-to-end
 
 You usually want a profile that's distinct from the shipped `LocalDemo`
 demo, so the demo and your production behaviour can coexist (and you can
@@ -1697,7 +1693,7 @@ For this walkthrough we use `AcmeProductionSeal` as the profile name and
 
 #### Step 1 - Stage the new keystore
 
-Follow [Production setup](#production-setup-deploying-with-your-own-key-and-certificate)
+Follow [Production setup](#47-production-setup-deploying-with-your-own-key-and-certificate)
 to produce your `.p12` keystore. Drop it next to the demo one with a
 descriptive filename (so you can tell the two apart):
 
@@ -1755,7 +1751,7 @@ Add a new profile object to the array (the existing `LocalDemo`,
 Common knobs:
 
 - `signatureProfile`: `B_BES` / `LT` / `LTA`. For `LT` or `LTA`, complete
-  [Wiring TSA and OCSP](#wiring-tsa-and-ocsp-for-lt-and-lta-signature-profiles)
+  [Wiring TSA and OCSP](#49-wiring-tsa-and-ocsp-for-lt-and-lta-signature-profiles)
   first.
 - `pdfSignatureIsVisible`: `true` to render a visible signature stamp on
   the PDF; `false` for an invisible cryptographic-only signature.
@@ -1832,7 +1828,7 @@ work outside the scope of this guide.
 
 ---
 
-### Wiring TSA and OCSP for LT and LTA signature profiles
+### 4.9 Wiring TSA and OCSP for LT and LTA signature profiles
 
 `B_BES` is a self-contained signature: the signing service just signs the
 PDF hash with your private key, embeds the result, done. The verifier
@@ -1960,7 +1956,7 @@ artefacts in `TEST` mode.
 
 ---
 
-### Verifying it works
+### 4.10 Verifying it works
 
 After bootstrap or upgrade with `--enable-local-eseal`:
 
@@ -1988,7 +1984,7 @@ PDF contains a signature dictionary (`/Type /Sig` + `/Filter /Adobe.PPKLite`).
 
 ---
 
-### Verifying signatures end-to-end (beyond the stack)
+### 4.11 Verifying signatures end-to-end (beyond the stack)
 
 The smoke test above only proves the stack *produces* a signature
 dictionary. It does not prove the signature is **valid** in the eyes of
@@ -2066,9 +2062,9 @@ expected - the seal itself is cryptographically sound, but no verifier
 trusts an arbitrary self-signed CA. To get to "valid + trusted":
 
 - Replace the demo cert with a CA-issued one
-  ([Production setup](#production-setup-deploying-with-your-own-key-and-certificate)).
+  ([Production setup](#47-production-setup-deploying-with-your-own-key-and-certificate)).
 - Use an LT (or higher) profile and wire up TSA + OCSP
-  ([Wiring TSA and OCSP](#wiring-tsa-and-ocsp-for-lt-and-lta-signature-profiles)).
+  ([Wiring TSA and OCSP](#49-wiring-tsa-and-ocsp-for-lt-and-lta-signature-profiles)).
 - Confirm your CA's root certificate is in the verifier's trust store.
 
   *Adobe Reader (per-user import):*
@@ -2097,7 +2093,7 @@ trusts an arbitrary self-signed CA. To get to "valid + trusted":
   machine will always show "valid but untrusted" for internal-CA
   signatures - that's expected, not a stack defect.
 
-## Upgrading an Existing Deployment
+## 5. Upgrading an Existing Deployment
 
 ```bash
 ./installation-scripts/upgrade.sh --server-tag 3.22 --client-tag 8.34
@@ -2105,7 +2101,7 @@ trusts an arbitrary self-signed CA. To get to "valid + trusted":
 # Any combination is valid; --enable-local-eseal alone is allowed too.
 ```
 
-### What upgrade does (step by step)
+### 5.1 What upgrade does (step by step)
 
 1. **Backs up** `docker-compose.yml` and `config/config.js` (`.bak` files)
 2. **Updates image tags** in `docker-compose.yml` - replaces `ps-server:X.XX` and/or `ps-client:X.XX` with the new versions
@@ -2118,7 +2114,7 @@ trusts an arbitrary self-signed CA. To get to "valid + trusted":
    in-network stamping host, pins `SPRING_SECURITY_USER_*` env vars on
    container-signature, flips `STAMP_MODE` to `"local"` in `config/config.js`,
    and activates the `local-eseal` compose profile in `.env`. See
-   [Enabling local e-sealing](#enabling-local-e-sealing) above.
+   [Enabling local e-sealing](#4-enabling-local-e-sealing) above.
 7. **Pulls new Docker images** - only the services being upgraded
 8. **Restarts changed containers** - only ps-server and/or ps-client and
    the new stamping service if applicable; Keycloak, DMSS, nginx stay running
@@ -2126,13 +2122,13 @@ trusts an arbitrary self-signed CA. To get to "valid + trusted":
 10. **Verifies** ps-server startup and prints running container versions
 11. **Prints rollback command** in case anything goes wrong
 
-## Validating Configuration
+## 6. Validating Configuration
 
 ```bash
 ./installation-scripts/validate-config.sh --host padsign.client.com
 ```
 
-### What validate-config checks
+### 6.1 What validate-config checks
 
 1. **File existence** - verifies `config/config.js`, `config/constants.json`, `nginx/nginx.conf`, `docker-compose.yml` exist
 2. **Syntax** - validates `constants.json` is valid JSON, `docker-compose.yml` passes `docker compose config`
@@ -2143,7 +2139,7 @@ trusts an arbitrary self-signed CA. To get to "valid + trusted":
 
 ---
 
-## Architecture
+## 7. Architecture
 
 Services defined in `docker-compose.yml`:
 
@@ -2165,14 +2161,14 @@ High-level routing:
 
 ---
 
-## Application Overview
+## 8. Application Overview
 
 The PadSign application uses Keycloak for authentication and authorization. The setup includes:
 - **Keycloak Server**: Containerized authentication server
 - **Client Application**: React frontend with Keycloak integration
 - **Server Application**: Node.js backend with Keycloak middleware
 
-### How this solution works
+### 8.1 How this solution works
 
 - Users open the PadSign portal in the browser and are redirected to Keycloak to log in securely.
 - After login, the SPA pulls its runtime config and shows the latest PDF that was registered for that user and company.
@@ -2180,7 +2176,7 @@ The PadSign application uses Keycloak for authentication and authorization. The 
 - The SPA polls the backend for that user/company pair; when a PDF is found, it streams the document from the archive service for viewing and signing.
 - All traffic flows through the NGINX reverse proxy over HTTPS, which routes to the SPA (`/portal`), Keycloak (`/auth`), backend (`/api`), and the DMSS services used for document storage and signing.
 
-## Prerequisites
+## 9. Prerequisites
 
 - Docker Desktop 4.x (Docker Engine 20+; Compose v2).
 - A DNS name you control (production) or a local hostname mapping (development).
@@ -2194,18 +2190,18 @@ Optional (local):
 
 ---
 
-## Prerequisites (Quick Checklist)
+## 10. Prerequisites (Quick Checklist)
 
 - Docker and Docker Compose installed
 - Domain name configured (e.g., `padsign.trustlynx.com`)
 - SSL certificates for HTTPS
 - Access to Keycloak admin panel
 
-## Domain and TLS Certificates
+## 11. Domain and TLS Certificates
 
 The NGINX virtual host is configured for `padsign.trustlynx.com` out of the box. Update this to your hostname and provide matching certificates.
 
-### TLS Prerequisites (For Installation Scripts)
+### 11.1 TLS Prerequisites (For Installation Scripts)
 
 The installation scripts expect PEM files named after the hostname you pass in `--host`.
 
@@ -2257,7 +2253,7 @@ Local option (Windows):
 
 ---
 
-## Running the Stack
+## 12. Running the Stack
 
 1) Prepare folders
 
@@ -2298,7 +2294,7 @@ docker compose down
 
 ---
 
-## Configuration
+## 13. Configuration
 
 Review and adjust these files before running:
 
@@ -2350,9 +2346,9 @@ Secrets and credentials
 
 ---
 
-## Keycloak Setup
+## 14. Keycloak Setup
 
-### 1. Start Keycloak Container
+### 14.1 Start Keycloak Container
 
 The Keycloak container is defined in `docker-compose.yml`:
 
@@ -2376,7 +2372,7 @@ keycloak:
     - keycloak_data:/opt/keycloak/data
 ```
 
-### 2. Automated Setup (Recommended)
+### 14.2 Automated Setup (Recommended)
 
 This repo includes an idempotent bootstrap script that creates the realm, clients, and required roles for you.
 
@@ -2433,7 +2429,7 @@ If bootstrap still fails in your environment, perform these manual activities:
 4. Copy backend client secret to:
    - `config/config.js` -> `KEYCLOAK_CONFIG.credentials.secret`
 
-### 3. Access Keycloak Admin Panel (Manual / Verification)
+### 14.3 Access Keycloak Admin Panel (Manual / Verification)
 
 1. Start the containers:
    ```bash
@@ -2447,14 +2443,14 @@ If bootstrap still fails in your environment, perform these manual activities:
    - Username: `admin`
    - Password: `admin`
 
-### 4. Create Realm (Manual)
+### 14.4 Create Realm (Manual)
 
 1. Log in to Keycloak admin panel
 2. Click "Create Realm"
 3. Enter realm name: `padsign`
 4. Click "Create"
 
-### 5. Create Client for Frontend (Manual)
+### 14.5 Create Client for Frontend (Manual)
 
 1. In the `padsign` realm, go to "Clients" ? "Create"
 2. Configure the client:
@@ -2483,7 +2479,7 @@ If bootstrap still fails in your environment, perform these manual activities:
 
 5. Save the configuration
 
-### 6. Create Client for Backend (Manual)
+### 14.6 Create Client for Backend (Manual)
 
 1. Create another client for the backend:
    - **Client ID**: `padsign-backend`
@@ -2498,9 +2494,9 @@ If bootstrap still fails in your environment, perform these manual activities:
 3. Configure settings:
    - **Valid Redirect URIs**: `https://padsign.trustlynx.com/auth/realms/padsign/protocol/openid-connect/auth`
 
-## Client Configuration
+## 15. Client Configuration
 
-### 1. Update Constants File
+### 15.1 Update Constants File
 
 Edit `config/constants.json` to match your domain:
 
@@ -2514,7 +2510,7 @@ Edit `config/constants.json` to match your domain:
 }
 ```
 
-### 2. Environment Variables (Optional)
+### 15.2 Environment Variables (Optional)
 
 You can override constants using environment variables:
 
@@ -2527,9 +2523,9 @@ VITE_PORT=5173
 # Set these in your deployment environment
 ```
 
-## Server Configuration
+## 16. Server Configuration
 
-### 1. Update Server Config
+### 16.1 Update Server Config
 
 Edit `config/config.js` to include Keycloak configuration:
 
@@ -2547,13 +2543,13 @@ module.exports = {
 };
 ```
 
-### 2. Replace Client Secret
+### 16.2 Replace Client Secret
 
 Replace `YOUR_CLIENT_SECRET_HERE` with the actual client secret from the `padsign-backend` client in Keycloak.
 
-## Environment Variables
+## 17. Environment Variables
 
-### Keycloak Container Environment Variables
+### 17.1 Keycloak Container Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
@@ -2563,14 +2559,14 @@ Replace `YOUR_CLIENT_SECRET_HERE` with the actual client secret from the `padsig
 | `KC_HTTP_RELATIVE_PATH` | Auth path | `/auth` |
 | `KC_PROXY` | Proxy mode | `edge` |
 
-### Client Environment Variables
+### 17.2 Client Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `VITE_HOST` | Development host | `padsign.trustlynx.com` |
 | `VITE_PORT` | Development port | `5173` |
 
-## Configuration Constants Reference
+## 18. Configuration Constants Reference
 
 This document describes all configurable values exposed in the two runtime configuration files used by this project:
 
@@ -2585,7 +2581,7 @@ Cloud usage note
 - Internal operator flow (Keycloak token): `/api/latestUser`, `/api/fillPDFDemo`, `/api/visual-signature`, `/api/stamp`, `/api/cleanupUser`, `/api/demo/upload`, `/api/demo/upload/version`, `/api/demo/fill-by-docid`.
 - Any item below explicitly marked �API is not relevant for cloud instance� is not used in standard cloud operation and can be ignored.
 
-### Cloud Essentials (TL;DR)
+### 18.1 Cloud Essentials (TL;DR)
 
 Client essentials (constants.json)
 - `KEYCLOAK_URL`, `KEYCLOAK_REALM`, `KEYCLOAK_CLIENT_ID`, `KEYCLOAK_REDIRECT_URI`, `KEYCLOAK_POST_LOGOUT_REDIRECT_URI`
@@ -2706,7 +2702,7 @@ module.exports = {
 };
 ```
 
-### How configuration is loaded
+### 18.2 How configuration is loaded
 
 - Client (SPA): On load, the SPA fetches `/portal/constants.json` at runtime and merges it into the app. In Docker, this is provided by the `ps-client` container and is volume-mounted from `./config/constants.json`. Changing this file takes effect on next page load (no rebuild required).
 - Server (Node backend): The server reads `config.js` at startup. In Docker, this is provided to the `ps-server` container as `/usr/src/app/config.js` and volume-mounted from `./config/config.js`. Changing this file requires a container restart.
@@ -2720,7 +2716,7 @@ Docker Compose mappings (see `docker-compose.yml`):
 
 ---
 
-### Client: config/constants.json
+### 18.3 Client: config/constants.json
 
 Branding and UI
 - `PS_PAGE_TITLE`: Window title and logo alt text. Default: `"TrustLynx"`.
@@ -2788,7 +2784,7 @@ Workflow toggles and callbacks
 
 ---
 
-### Server: config/config.js
+### 18.4 Server: config/config.js
 
 Service endpoints and templates
 - `CONTAINER_API_BASE_URL`: Base URL for container/signature service. Default: `"https://padsign.trustlynx.com/container/api/"`.
@@ -2842,7 +2838,7 @@ Customer Data lookup (virtual-printer flow)
 
 ---
 
-### Cloud Flow: /api/registerPDF
+### 18.5 Cloud Flow: /api/registerPDF
 
 Purpose
 - Upload a ready PDF to Archive and make it available to the SPA for viewing and signing.
@@ -2918,24 +2914,24 @@ Authentication and security
 
 ---
 
-### Changing values safely
+### 18.6 Changing values safely
 
 - Update `config/constants.json` to tune client behavior, UI, and runtime endpoints. Most changes apply on page reload. Avoid committing real secrets (e.g., Syncfusion license) to VCS.
 - Update `config/config.js` to point the backend to your DMSS services, tune storage paths, and set auth. Restart `ps-server` after changes. Treat the Keycloak secret and API key as sensitive.
 
-### Quick verification
+### 18.7 Quick verification
 
 - Client loads `constants.json`: Open the browser DevTools network tab and verify `/portal/constants.json` loads and values match your changes.
 - Backend uses `config.js`: Check `ps-server` logs on startup. You should see the configured port, output folder, and realm printed.
 
-### Notes
+### 18.8 Notes
 
 - Legacy PDF field-analysis constants (field mappings, country selector injection, survey mapping, etc.) were removed to keep the solution generic and avoid field-name-specific logic.
 - If you need environment-based switching, consider generating these files at deploy time (e.g., mounting environment-specific variants) rather than baking many conditionals into the code.
 2. Verify nginx proxy settings
 3. Ensure containers can reach each other
 
-### Debug Steps
+### 18.9 Debug Steps
 
 1. **Check Keycloak Logs**:
    ```bash
@@ -2958,9 +2954,9 @@ Authentication and security
    curl https://padsign.trustlynx.com/auth/realms/padsign/.well-known/openid_configuration
    ```
 
-## Testing the Integration
+## 19. Testing the Integration
 
-### 1. Build and Deploy
+### 19.1 Build and Deploy
 
 ```bash
 # Build client
@@ -2971,7 +2967,7 @@ npm run build
 docker-compose restart nginx
 ```
 
-### 2. Test Authentication Flow
+### 19.2 Test Authentication Flow
 
 1. Access the application: `https://padsign.trustlynx.com/portal/`
 2. You should be redirected to Keycloak login
@@ -2979,15 +2975,15 @@ docker-compose restart nginx
 4. You should be redirected back to the application
 5. Test logout functionality
 
-### 3. Verify Configuration
+### 19.3 Verify Configuration
 
 Check these URLs are accessible:
 - Keycloak admin: `https://padsign.trustlynx.com/auth/`
 - Application: `https://padsign.trustlynx.com/portal/`
 
-## Troubleshooting
+## 20. Troubleshooting
 
-### Common Issues
+### 20.1 Common Issues
 
 #### 0. Browser shows `Failed to load module script` for `/portal/keycloak.js`
 
@@ -3034,7 +3030,7 @@ Check these URLs are accessible:
 **Solution**:
 1. Check Docker network configuration
 
-## Troubleshooting (Integration and Auth)
+## 21. Troubleshooting (Integration and Auth)
 
 - Port conflicts: Ensure host ports 80/443/8080/3001/84/86/93 are free before starting.
 - TLS/hostname mismatch: Align `server_name`, certificate CN/SANs, and all application URLs with your actual hostname.
@@ -3044,7 +3040,7 @@ Check these URLs are accessible:
 
 ---
 
-## Security and Route Protection
+## 22. Security and Route Protection
 
 - TLS termination: All external traffic enters via NGINX on 443; HTTP 80 redirects to HTTPS.
 - Public routes:
@@ -3061,7 +3057,7 @@ Check these URLs are accessible:
 - NGINX hardening: If DMSS endpoints should not be directly reachable from the internet, remove or restrict the `/container/api` and `/archive/api` locations, or protect them with allowlists or client certificates.
 - Keycloak admin: Limit admin console access (IP allowlist/VPN) and change the default admin password immediately.
 
-## Data Flow
+## 23. Data Flow
 
 ```mermaid
 flowchart TD
@@ -3109,9 +3105,9 @@ sequenceDiagram
 
 ---
 
-## Production Deployment
+## 24. Production Deployment
 
-### Deployment Checklist (Recommended)
+### 24.1 Deployment Checklist (Recommended)
 
 Run these steps in order on a clean target host:
 
@@ -3144,7 +3140,7 @@ curl -kI https://<host>/auth/
 4. If bootstrap fails
    - Follow manual fallback steps in `Keycloak Setup` section (client names, roles, test user, backend secret copy to `config/config.js`).
 
-### 1. Environment Variables
+### 24.2 Environment Variables
 
 Set production environment variables:
 
@@ -3157,7 +3153,7 @@ KC_HOSTNAME=your-production-domain.com
 VITE_HOST=your-production-domain.com
 ```
 
-### 2. SSL Certificates
+### 24.3 SSL Certificates
 
 Ensure SSL certificates are properly configured in nginx:
 
@@ -3166,7 +3162,7 @@ ssl_certificate     /etc/nginx/certs/your-domain.crt;
 ssl_certificate_key /etc/nginx/certs/your-domain.key;
 ```
 
-### 3. Database Persistence
+### 24.4 Database Persistence
 
 For production, use a persistent database instead of the default H2:
 
@@ -3179,7 +3175,7 @@ keycloak:
     - KC_DB_PASSWORD=your_db_password
 ```
 
-## Production Hardening
+## 25. Production Hardening
 
 - Replace all sample secrets and keystore passwords.
 - Use managed TLS (for example, certbot/ACME or cloud load balancer) and rotate certificates.
@@ -3191,7 +3187,7 @@ keycloak:
 
 ---
 
-## Local Development Tips
+## 26. Local Development Tips
 
 - Hosts entry: map your chosen hostname to 127.0.0.1.
 - Certificates: use mkcert to create a locally trusted cert and point `nginx/nginx.conf` to it.
@@ -3199,7 +3195,7 @@ keycloak:
 
 ---
 
-## Security Considerations
+## 27. Security Considerations
 
 1. **Change Default Passwords**: Update `KEYCLOAK_ADMIN_PASSWORD`
 2. **Use Strong Client Secrets**: Generate secure secrets for backend clients
@@ -3207,7 +3203,7 @@ keycloak:
 4. **Regular Updates**: Keep Keycloak updated
 5. **Monitor Logs**: Regularly check authentication logs
 
-## File Map and References
+## 28. File Map and References
 
 - Compose: `docker-compose.yml`
 - Public NGINX: `nginx/nginx.conf`, `nginx/certs/`
@@ -3220,15 +3216,15 @@ keycloak:
 
 ---
 
-## Notes on Security
+## 29. Notes on Security
 
 - Treat any secrets present in this repository as placeholders only; rotate them prior to deployment.
 - Restrict admin endpoints and Keycloak admin console to trusted networks.
 - Regularly back up the `keycloak_data` volume and any persistent stores you configure.
 
-## FAQ
+## 30. FAQ
 
-### 1) How does the solution handle a large number of documents sent at the same time (or almost at the same time)?
+### 30.1 How does the solution handle a large number of documents sent at the same time (or almost at the same time)?
 
 - `/api/registerPDF` is protected with an internal in-memory queue and concurrency limits.
 - Throughput and backpressure are controlled by:
@@ -3239,14 +3235,14 @@ keycloak:
   - `REGISTER_PDF_UPSTREAM_RETRIES`
 - When limits are reached, backend returns deterministic overload/timeout responses (for example `429` queue full, `503` queue timeout or circuit open), instead of unstable random behavior.
 
-### 2) How are errors handled if `ps-server` is not available when `registerPDF` is called?
+### 30.2 How are errors handled if `ps-server` is not available when `registerPDF` is called?
 
 - If `ps-server` is unavailable, the caller will receive a gateway/network failure from the front proxy layer (for example upstream `5xx`).
 - If `ps-server` is available but dependencies are unstable, register flow returns controlled errors (`502/503/504` with `errorCode`, `429`, `503` queue timeout/circuit-open).
 - For completed signing workflows, optional callback can report failures with technical details in `status`, for example:
   - `status: "error: <technical details>"`
 
-### 3) How are repeated or parallel document-processing scenarios handled (same document in multiple sessions, repeated signing attempts)?
+### 30.3 How are repeated or parallel document-processing scenarios handled (same document in multiple sessions, repeated signing attempts)?
 
 - Backend has duplicate/parallel protection controls:
   - `DOC_OPERATION_LOCK_TTL_MS`
@@ -3257,7 +3253,7 @@ keycloak:
   - `/api/cleanupUser` (internal flow, Keycloak protected)
 - Important behavior note: in-memory state is non-persistent; service restart clears current runtime registrations/locks.
 
-### 4) What software is used on tablets, and what is available there?
+### 30.4 What software is used on tablets, and what is available there?
 
 - No special native tablet app is required.
 - Tablet users access the web portal (`/portal`) in a browser.
@@ -3268,7 +3264,7 @@ keycloak:
   - optional digital stamp stage (depends on `RUN_STAMPING_REQUEST`)
   - callback-enabled workflow completion reporting (if enabled)
 
-### 5) What is the integration flow from a 3rd-party system, and what response is returned after signing?
+### 30.5 What is the integration flow from a 3rd-party system, and what response is returned after signing?
 
 - 3rd-party system sends documents to backend API-key-protected endpoints:
   - `/api/registerPDF` (multipart upload; primary production flow)
@@ -3278,7 +3274,7 @@ keycloak:
 - If document routing is enabled (`DOCUMENT_ROUTING.enabled=true` in `config.js`), the server triggers configured post-signing actions (filesystem save, webhook delivery). Webhooks receive both success (`document.signed`) and error (`document.signing_error`) events with retry logic.
   - Note: The previous client-side callback (`PDF_SIGNING_STATUS_CALLBACK`) is deprecated. Use the server-side `DOCUMENT_ROUTING` webhook strategy instead.
 
-### 6) What is the final signed document format, and how does signature/stamp appear?
+### 30.6 What is the final signed document format, and how does signature/stamp appear?
 
 - Final output remains PDF.
 - Visual signature is placed into PDF content via the visual-signature service flow.
@@ -3287,14 +3283,14 @@ keycloak:
   - visible signature graphics/text in document content
   - digital signature/stamp metadata visible in PDF signature panel (viewer-dependent)
 
-## Support
+## 31. Support
 
 For issues related to:
 - **Keycloak Configuration**: Check Keycloak documentation
 - **Application Integration**: Review this guide
 - **Container Issues**: Check Docker and Docker Compose logs
 
-## Additional Resources
+## 32. Additional Resources
 
 - [Keycloak Documentation](https://www.keycloak.org/documentation)
 - [Keycloak JavaScript Adapter](https://www.keycloak.org/docs/latest/securing_apps/#_javascript_adapter)
@@ -3303,12 +3299,12 @@ For issues related to:
 
 
 
-## PSAPP Solution Architecture
+## 33. PSAPP Solution Architecture
 
 
-## Appendix
+## 34. Appendix
 
-### 1) Deployment and integration architecture
+### 34.1 Deployment and integration architecture
 
 ```mermaid
 flowchart LR
@@ -3383,7 +3379,7 @@ flowchart LR
   DCS -->|Timestamp/OCSP/signature trust checks| TRUST
 ```
 
-### 2) Signing and stamping execution flow
+### 34.2 Signing and stamping execution flow
 
 ```mermaid
 sequenceDiagram
@@ -3420,7 +3416,7 @@ sequenceDiagram
   API-->>SPA: Stamp complete or skipped when upstream unavailable
 ```
 
-### 3) Very high-level component view
+### 34.3 Very high-level component view
 
 ```mermaid
 flowchart LR
@@ -3451,14 +3447,14 @@ flowchart LR
 
 ---
 
-## Change history
+## 35. Change history
 
 Customer-visible changes to this deployment kit, reverse-chronological.
 Each entry lists the date the change shipped, what was added/changed,
 which README sections were touched, and which scripts / config files
 gained new options.
 
-### 2026-05-13 - Optional local e-sealing
+### 35.1 2026-05-13 - Optional local e-sealing
 
 **Added** an opt-in *local* e-sealing mode. The default external
 e-sealing path (ps-server → cloud signing service) is unchanged. The
