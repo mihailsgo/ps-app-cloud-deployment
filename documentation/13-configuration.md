@@ -5,7 +5,7 @@ Review and adjust these files before running:
 - `docker-compose.yml`
   - `KC_HOSTNAME` should match your hostname.
   - Host ports 80/443, 8080, 3001, 84, 86, 93 must be free.
-  - Image versions should match the release snapshot (`ps-server:3.25`, `ps-client:8.36`).
+  - Image versions should match the release snapshot (`ps-server:3.26`, `ps-client:8.36`).
 
 - `nginx/nginx.conf`
   - Update `server_name` and TLS files.

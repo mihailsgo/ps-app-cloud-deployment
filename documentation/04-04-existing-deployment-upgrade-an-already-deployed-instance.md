@@ -16,6 +16,36 @@ explicitly switch `STAMP_MODE` to `"local"`. Every step is reversible
 either via the `*.bak` files the script creates or with a small config
 edit.
 
+### Prerequisite: ps-server image version
+
+Local e-sealing is implemented in the ps-server source (the
+`STAMP_STRATEGIES` dispatch table inside `/api/stamp`). **The ps-server
+image must be `mihailsgordijenko/ps-server:3.26` or newer.** Earlier
+tags (`:3.25` and below) silently ignore the `STAMP_MODE` config field
+and always call the external cloud e-sealing service - meaning local
+mode appears to be installed (the stamping container starts, configs
+look right) but signing still goes to the cloud.
+
+How to check what your deployment is running:
+
+```bash
+grep mihailsgordijenko/ps-server docker-compose.yml
+# Expect: image: 'mihailsgordijenko/ps-server:3.26'  (or newer)
+```
+
+If the tag is older than `3.26`, you must bump it *together with*
+`--enable-local-eseal` so the upgrade script updates both in one
+atomic step. The combined invocation looks like this (substitute the
+newest published tag if there is one):
+
+```bash
+./installation-scripts/upgrade.sh --server-tag 3.26 --enable-local-eseal
+```
+
+ps-client (`mihailsgordijenko/ps-client:8.36`) is unchanged - the SPA
+calls `/api/stamp` the same way in both modes, so no `--client-tag`
+is needed for local e-sealing.
+
 ## Phase 1 - Update the deployment scripts and configs
 
 Pull the new version of this repo into your deployment directory.

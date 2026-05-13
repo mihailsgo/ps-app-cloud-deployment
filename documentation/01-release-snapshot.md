@@ -1,6 +1,6 @@
 # 1. Release Snapshot
 
-- `ps-server`: `mihailsgordijenko/ps-server:3.25`
+- `ps-server`: `mihailsgordijenko/ps-server:3.26` (contains the `STAMP_MODE` dispatch for optional local e-sealing; earlier tags ignore `STAMP_MODE` and always call the external service)
 - `ps-client`: `mihailsgordijenko/ps-client:8.36`
 - Keycloak: `quay.io/keycloak/keycloak:26.3.2`
 - DMSS Archive: `trustlynx/dmss-archive-services:24.2.0.8`

@@ -61,6 +61,38 @@ compose_yml="${repo_root}/docker-compose.yml"
 config_js="${repo_root}/config/config.js"
 nginx_conf="${repo_root}/nginx/nginx.conf"
 
+# ── Pre-flight: local-eseal needs a ps-server image that contains the STAMP_MODE
+#    dispatch. The first image with that code is :3.26. If --enable-local-eseal is
+#    set but the effective ps-server tag (either --server-tag or the existing pin
+#    in docker-compose.yml) is older, refuse to run rather than producing a silent
+#    no-op (where STAMP_MODE=local lands in config.js but ps-server ignores it).
+LOCAL_ESEAL_MIN_SERVER_TAG="3.26"
+if [[ "$enable_local_eseal" == true ]]; then
+  # Portable tag extraction (sed -E works in all locales; grep -oP can fail under
+  # non-UTF-8 locales where PCRE is unavailable).
+  current_server="$(sed -nE 's|.*mihailsgordijenko/ps-server:([0-9]+\.[0-9]+(\.[0-9]+)?).*|\1|p' "$compose_yml" 2>/dev/null | head -1)"
+  effective_server="${server_tag:-$current_server}"
+  if [[ -z "$effective_server" ]]; then
+    echo "ERROR: Cannot determine the ps-server image tag from docker-compose.yml." >&2
+    echo "       Pass --server-tag ${LOCAL_ESEAL_MIN_SERVER_TAG} (or newer) explicitly." >&2
+    exit 2
+  fi
+  # Strict less-than via sort -V
+  smaller="$(printf '%s\n%s\n' "$effective_server" "$LOCAL_ESEAL_MIN_SERVER_TAG" | sort -V | head -1)"
+  if [[ "$effective_server" != "$LOCAL_ESEAL_MIN_SERVER_TAG" && "$smaller" == "$effective_server" ]]; then
+    echo "ERROR: --enable-local-eseal requires mihailsgordijenko/ps-server:${LOCAL_ESEAL_MIN_SERVER_TAG} or newer." >&2
+    echo "       The current effective ps-server tag is :${effective_server}, which predates the" >&2
+    echo "       STAMP_MODE dispatch. Without the dispatch, ps-server silently ignores the" >&2
+    echo "       STAMP_MODE field and keeps calling the external e-sealing service - so" >&2
+    echo "       this upgrade would land config + start the stamping container, but signing" >&2
+    echo "       would still go to the cloud (a silent no-op)." >&2
+    echo "" >&2
+    echo "       Re-run with the tag bump in the same invocation, for example:" >&2
+    echo "         ./installation-scripts/upgrade.sh --server-tag ${LOCAL_ESEAL_MIN_SERVER_TAG} --enable-local-eseal" >&2
+    exit 2
+  fi
+fi
+
 echo "========================================"
 echo "PadSign Upgrade"
 [[ -n "$server_tag" ]] && echo "  ps-server: → ${server_tag}"
