@@ -1,19 +1,7 @@
 # 17. Environment Variables
 
-## 17.1 Keycloak Container Environment Variables
+## Sub-sections
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `KEYCLOAK_ADMIN` | Admin username | `admin` |
-| `KEYCLOAK_ADMIN_PASSWORD` | Admin password | `admin` |
-| `KC_HOSTNAME` | Keycloak hostname | `padsign.trustlynx.com` |
-| `KC_HTTP_RELATIVE_PATH` | Auth path | `/auth` |
-| `KC_PROXY` | Proxy mode | `edge` |
-
-## 17.2 Client Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `VITE_HOST` | Development host | `padsign.trustlynx.com` |
-| `VITE_PORT` | Development port | `5173` |
+- [17.1 Keycloak Container Environment Variables](17-01-keycloak-container-environment-variables.md)
+- [17.2 Client Environment Variables](17-02-client-environment-variables.md)
 
