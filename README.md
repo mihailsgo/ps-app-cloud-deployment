@@ -19,9 +19,7 @@
   - [Wiring TSA and OCSP for LT and LTA signature profiles](#wiring-tsa-and-ocsp-for-lt-and-lta-signature-profiles)
   - [Verifying it works](#verifying-it-works)
   - [Verifying signatures end-to-end (beyond the stack)](#verifying-signatures-end-to-end-beyond-the-stack)
-  - [Reverting](#reverting)
   - [Debugging local e-sealing](#debugging-local-e-sealing)
-  - [Operations cookbook](#operations-cookbook)
   - [Quick reference](#quick-reference)
 - [Upgrading an Existing Deployment](#upgrading-an-existing-deployment)
   - [What upgrade does (step by step)](#what-upgrade-does-step-by-step)
@@ -390,79 +388,6 @@ explicitly switch `STAMP_MODE` to `"local"`. Every step is reversible
 either via the `*.bak` files the script creates or with a small config
 edit.
 
-#### Phase 0 - Before you start (10 minutes)
-
-Confirm the prerequisites and capture a known-good baseline you can roll
-back to.
-
-1. **External e-sealing is currently working.** Confirm it:
-   - Open `https://<your-deployment-host>/portal/` in a browser, log in
-     with a test user, upload any small PDF, and complete the signing
-     flow. The SPA shows a "Download signed PDF" link when it's done.
-     (If you don't have a working test user, the bootstrap section above
-     describes the demo user created by `bootstrap.sh`.)
-   - In a separate terminal, watch `docker compose logs --tail 50 ps-server`
-     during signing. You should see `[DEBUG] Stamp response status: 200`
-     (or, if `RUN_STAMPING_REQUEST: false` in `constants.json`, no
-     `[stamp]` log line at all, just the visual-signature flow).
-   - If signing is already broken, fix that first. Debugging
-     "local-eseal upgrade broke signing" is much harder when external
-     mode is also failing.
-2. **You have shell access** to the deployment host and can edit files
-   in the deployment directory. The deployment lives wherever you ran
-   `bootstrap.sh` originally (commonly `/opt/psapp` on Linux hosts).
-3. **You have `docker compose` v2, `openssl`, and `keytool`** (from the
-   JDK) on the host. These are the same prerequisites `bootstrap.sh`
-   already requires; if your deployment is running, you have them.
-4. **You have internet access from the host** to pull the new
-   `trustlynx/digital-stamping-service` image from Docker Hub
-   (~830 MB, one-time download - typically 1-2 minutes on a 100 Mbit
-   link). If your host is air-gapped, see
-   [Operations cookbook → Pulling the stamping image on an air-gapped host](#operations-cookbook)
-   for the offline transfer recipe.
-5. **Capture the current image tags** of the running containers, so you
-   know what to roll back to:
-   ```bash
-   docker ps --format '{{.Names}}: {{.Image}}' | sort > /tmp/predeploy-images.txt
-   cat /tmp/predeploy-images.txt
-   ```
-6. **Note the current `STAMP_MODE`** (it should be missing, since
-   pre-feature deployments don't have this field - meaning external mode):
-   ```bash
-   cd /opt/psapp     # or wherever your deployment is
-   grep -n STAMP_MODE config/config.js || echo "STAMP_MODE not set yet (external mode is implicit)"
-   ```
-   If the command *does* show a match (e.g. `STAMP_MODE: "external"` or
-   `STAMP_MODE: "local"`), you've already enabled local e-sealing at
-   some point - this isn't a true "pre-feature" deployment. The
-   upgrade is still safe to re-run (idempotent), but you may want to
-   skip ahead to [Switching modes after install](#switching-modes-after-install)
-   if all you want is to flip the active mode.
-7. **Snapshot the deployment directory** (belt-and-braces - `upgrade.sh`
-   takes its own `.bak` files but a directory-level snapshot is useful
-   if something else goes wrong). Put it somewhere durable (NOT
-   `/tmp`, which is typically wiped on reboot):
-   ```bash
-   # Choose a backup location that survives a reboot. Common picks:
-   #   /var/backups/                          (Debian/Ubuntu convention)
-   #   /opt/psapp-backups/                    (a sibling of the deployment)
-   #   /mnt/backup/                           (a mounted backup volume)
-   BACKUP_DIR=/var/backups
-   sudo mkdir -p "$BACKUP_DIR"
-   sudo tar czf "$BACKUP_DIR/psapp-before-local-eseal-$(date +%Y%m%d-%H%M).tar.gz" \
-       --exclude='./signed-output' --exclude='./docs' .
-   sudo chmod 600 "$BACKUP_DIR"/psapp-before-local-eseal-*.tar.gz
-   ls -la "$BACKUP_DIR"/psapp-before-local-eseal-*.tar.gz
-   ```
-   The `.tar.gz` contains `config/config.js` with secrets in it, so
-   keep the file mode tight (`chmod 600`). To restore from this
-   snapshot if everything else has failed:
-   `cd /opt/psapp && sudo tar xzf <backup-file>`.
-8. **Read or skim** the [Concepts and glossary](#concepts-and-glossary)
-   section once. You don't need to memorise the acronyms - but knowing
-   that "TSA" means timestamp authority and "PKCS12" means a key+cert
-   bundle file will save time when you read error messages later.
-
 #### Phase 1 - Update the deployment scripts and configs (2 minutes)
 
 Pull the new version of this repo into your deployment directory.
@@ -709,8 +634,7 @@ routing through container-signature → stamping. Two ways to do it:
 *Option A (preferred):* Open `https://<your-deployment-host>/portal/`,
 log in as a test user, upload a PDF, and complete the signing flow
 exactly as a real user would. The SPA shows a "Download signed PDF"
-link when it's done. This is the same recipe you used in Phase 0 step 1
-to confirm external mode was working.
+link when it's done.
 
 *Option B (CLI shortcut, faster but doesn't exercise the SPA):*
 
@@ -993,8 +917,10 @@ on demand. Before opening it up to production traffic:
    probe - see
    [Production hardening checklist → 6. Decide a cert rotation cadence](#production-hardening-checklist-local-e-sealing-specific).
 2. **Back up the production keystore.** Encrypted backup, password
-   stored separately - see
-   [Operations cookbook → Back up the keystore](#operations-cookbook).
+   stored separately from the keystore (different storage, different
+   access list - see
+   [Production setup: deploying with your own key and certificate](#production-setup-deploying-with-your-own-key-and-certificate)
+   Step 5).
 3. **Test the restore** from your backup once. A backup you have not
    verified is not a backup.
 
@@ -1205,8 +1131,8 @@ for the case where the host disk dies and the originals are not handy:
 - **Password backup, separately** - in your secret manager, on paper in
   a safe, etc. Encrypting the keystore with itself defeats the purpose.
 - **Test restore**: a backup you have not verified you can restore from
-  is not a backup. Document the restore procedure (see
-  [Operations cookbook](#operations-cookbook)).
+  is not a backup. Document the restore procedure as part of your
+  internal runbook.
 
 #### 5. Log retention and monitoring
 
@@ -1307,9 +1233,10 @@ reject them). The expiry is in your monitoring scope:
 
 - Schedule a calendar reminder for **60 days before** the
   certificate's `notAfter` date.
-- Document the rotation procedure (see
-  [Operations cookbook](#operations-cookbook)) so whoever is on call
-  when the reminder fires knows what to do.
+- Document the rotation procedure in your internal runbook so whoever
+  is on call when the reminder fires knows what to do. The mechanics
+  are the same as the initial production-cert install:
+  [Production setup: deploying with your own key and certificate](#production-setup-deploying-with-your-own-key-and-certificate).
 - Keep an automation in place that checks the `notAfter` field from
   the stamping endpoint (`/api/signing/certificate/for/<company>`)
   daily and pages on `< 30 days remaining`.
@@ -1468,7 +1395,7 @@ What to check:
   (the CN typically becomes the "Signed by" name shown by Adobe Reader).
 - **Issuer DN** matches the CA that issued your cert.
 - **Validity** - `notAfter` is far enough in the future that you have
-  time to plan rotation (see [Operations cookbook](#operations-cookbook)).
+  time to plan rotation.
 - **Key algorithm** - typically `RSA` 2048+ or `EC` (ECDSA). digidoc4j
   supports both.
 - **Chain length** - for non-self-signed certs you should see at least
@@ -1552,7 +1479,7 @@ treatment as any production secret:
   keystore itself - different storage, different access list. If you
   use a secret manager (Vault, AWS Secrets Manager, etc.) the password
   goes there; the keystore can live on disk or also in the secret manager.
-- Decide a rotation cadence (see [Operations cookbook](#operations-cookbook)).
+- Decide a rotation cadence and document it in your internal runbook.
 - Never reuse the keystore password for any other system.
 
 ### Adding a new signing profile end-to-end
@@ -1972,21 +1899,6 @@ trusts an arbitrary self-signed CA. To get to "valid + trusted":
   machine will always show "valid but untrusted" for internal-CA
   signatures - that's expected, not a stack defect.
 
-### Reverting
-
-To revert to external e-sealing:
-
-```bash
-sed -i 's/STAMP_MODE: *"local"/STAMP_MODE: "external"/' config/config.js
-sed -i '/^COMPOSE_PROFILES=local-eseal/d' .env
-docker compose restart ps-server
-docker compose --profile local-eseal down dmss-digital-stamping-service   # optional
-```
-
-If you want a hard rollback to pre-feature state, the original `*.bak`
-backups created by `upgrade.sh` cover both `docker-compose.yml` and
-`config/config.js`.
-
 ### Debugging local e-sealing
 
 Failure-mode playbook. Same shape as the main
@@ -2184,243 +2096,6 @@ If latency suddenly jumps:
    simultaneous signs, monitor the stamping container's CPU; if it
    pegs, scale the JVM heap or add a second instance behind a small
    nginx upstream (out of scope for this guide).
-
-### Operations cookbook
-
-Day-2 procedures for the local e-sealing stack.
-
-#### Rotate the signing certificate without downtime
-
-When your cert is approaching expiry (or you're rotating preemptively):
-
-```bash
-# 1. Build a new keystore with the same alias 'seal' from the new
-#    cert+key. Follow Production setup, Recipe A or B.
-#    Place it in the deployment folder with a unique name:
-cp /path/to/new-seal.p12 dmss-digital-stamping-service/seal/seal-2026.p12
-chmod 600 dmss-digital-stamping-service/seal/seal-2026.p12
-
-# 2. In dmss-digital-stamping-service/application.yml, point the
-#    company's keystore: line at the NEW file. If the password changed,
-#    update password: too:
-vi dmss-digital-stamping-service/application.yml
-#    keystore: file:/seal/seal-2026.p12      (was: seal.p12)
-
-# 3. Restart only the stamping container. Sign requests during the ~5s
-#    restart window get the graceful-skip; they will not error.
-docker compose restart dmss-digital-stamping-service
-
-# 4. Smoke-test that the new cert is live (subject DN should match new
-#    cert):
-docker exec dmss-container-and-signature-services curl -fsS \
-    http://dmss-digital-stamping-service:8084/api/signing/certificate/for/<company> \
-    | python3 -c "import sys,json; sys.stdout.buffer.write(bytes.fromhex(json.load(sys.stdin)['cert']))" \
-    | openssl x509 -inform DER -noout -subject
-
-# 5. Once you're confident, archive the old keystore and remove it from
-#    /seal:
-mkdir -p dmss-digital-stamping-service/seal/_archive
-mv  dmss-digital-stamping-service/seal/seal.p12 \
-    dmss-digital-stamping-service/seal/_archive/seal-$(date +%Y%m%d).p12
-```
-
-Note that any documents signed with the OLD cert remain valid - the
-verifier checks the embedded cert, not the live one.
-
-#### Back up the keystore
-
-```bash
-# Encrypt the keystore for offline storage (avoid bare copies of the file).
-openssl enc -aes-256-cbc -pbkdf2 -salt \
-    -in   dmss-digital-stamping-service/seal/seal.p12 \
-    -out  seal.p12.enc \
-    -pass pass:<offline-archive-passphrase>
-
-# Now ship seal.p12.enc to your offline backup target (S3 with SSE,
-# cold storage, encrypted USB, whatever your org uses). Document
-# <offline-archive-passphrase> in your secret manager - *not* alongside
-# the file itself.
-
-# To restore:
-openssl enc -d -aes-256-cbc -pbkdf2 \
-    -in   seal.p12.enc \
-    -out  seal.p12 \
-    -pass pass:<offline-archive-passphrase>
-```
-
-Test the restore once before relying on it. A backup you have not
-verified is not a backup.
-
-#### Upgrade the stamping image tag
-
-```bash
-# 1. Edit docker-compose.yml - change the image: line on
-#    dmss-digital-stamping-service. The character class covers digits,
-#    dots, dashes and underscores so tags like 24.0.3.0_dev or 24-test1
-#    match too.
-sed -i 's|trustlynx/digital-stamping-service:[A-Za-z0-9._-]*|trustlynx/digital-stamping-service:<new-tag>|' \
-    docker-compose.yml
-
-# 2. Pull and recreate just the stamping container.
-docker compose pull dmss-digital-stamping-service
-docker compose --profile local-eseal up -d dmss-digital-stamping-service
-
-# 3. Smoke-test the cert endpoint as in cert rotation step 4.
-```
-
-If the new image breaks something, restore the previous tag in
-`docker-compose.yml` and re-pull.
-
-#### Resource footprint of the stamping container
-
-The `trustlynx/digital-stamping-service:24.0.3.0` image runs a Spring
-Boot JVM. Typical resource usage on a host running the rest of the
-psapp stack:
-
-| Resource | Idle | Under signing load |
-|---|---|---|
-| Image size on disk | ~830 MB | (same) |
-| RSS at startup | ~350-450 MB | ~600-800 MB under sustained load |
-| CPU | ~0.0 cores idle | brief spikes per sign (≤0.5 core for ~50ms per request); negligible average even at hundreds of signs/hour |
-| Disk I/O | nil at idle (keystore is read once and cached) | nil per sign (signing happens in-memory) |
-| Network | nil at idle | a few KB per sign request (in-network only) |
-
-Plan for **at least 1 GB RAM** available on the host for this
-container's peak, plus headroom for JVM GC. If you need to pin the
-limit, add to the compose service block:
-
-```yaml
-dmss-digital-stamping-service:
-  # ... existing config ...
-  deploy:
-    resources:
-      limits:
-        memory: 1g       # hard cap; OOM-killed if exceeded
-        cpus: '1.0'
-      reservations:
-        memory: 512m     # minimum guaranteed
-```
-
-(Docker Compose v2 honors `deploy.resources.limits` even outside
-swarm mode.) Performance is essentially I/O-bound and well above what
-psapp's signing throughput will exercise - a single instance handles
-tens of sign requests per second comfortably.
-
-#### Pulling the stamping image on an air-gapped host
-
-If the deployment host can't reach Docker Hub, do the pull on a
-workstation with internet access, export the image to a tarball, copy
-it across, and load it on the deployment host:
-
-```bash
-# On a host with internet access:
-docker pull trustlynx/digital-stamping-service:24.0.3.0
-docker save trustlynx/digital-stamping-service:24.0.3.0 \
-    | gzip > digital-stamping-service-24.0.3.0.tar.gz
-
-# Transfer digital-stamping-service-24.0.3.0.tar.gz to the deployment host
-# (scp, USB, internal artefact repo - whatever your transfer channel is).
-
-# On the deployment host:
-gunzip -c digital-stamping-service-24.0.3.0.tar.gz | docker load
-docker images | grep digital-stamping-service   # confirm it landed
-```
-
-After loading, `upgrade.sh --enable-local-eseal` (or any subsequent
-`docker compose up -d`) finds the image in the local daemon cache and
-skips the Docker Hub pull.
-
-#### Disaster recovery - restoring on a new host
-
-If the deployment host dies and you need to stand up local e-sealing
-on a new host:
-
-1. **Restore the deployment directory** from your most recent snapshot
-   (either the directory-level tarball from Phase 0 step 7 or your
-   regular host backup):
-   ```bash
-   sudo mkdir -p /opt/psapp && cd /opt/psapp
-   sudo tar xzf /path/to/psapp-snapshot.tar.gz
-   ```
-2. **Restore the production keystore** from your encrypted offline
-   backup (see "Back up the keystore" above):
-   ```bash
-   openssl enc -d -aes-256-cbc -pbkdf2 \
-       -in /path/to/seal.p12.enc \
-       -out dmss-digital-stamping-service/seal/seal.p12 \
-       -pass pass:<offline-archive-passphrase>
-   chmod 600 dmss-digital-stamping-service/seal/seal.p12
-   ```
-   You'll need the passphrase from your secret manager - without it
-   the keystore is unrecoverable. Test this restore procedure once
-   before you depend on it.
-3. **Sanity-check `config/config.js` and `.env` survived intact** (the
-   snapshot should have them); in particular confirm `STAMP_MODE: "local"`
-   and `COMPOSE_PROFILES=local-eseal` are present.
-4. **Bring the stack up:**
-   ```bash
-   docker compose pull        # pulls all images including stamping
-   docker compose up -d
-   ```
-   On a fresh host the stamping image will need to download (~830 MB).
-5. **Verify** with the [Phase 3](#phase-3---verify-the-demo-signing-flow-5-minutes)
-   checks (adapted for your production profile / company name from
-   [Adding a new signing profile end-to-end](#adding-a-new-signing-profile-end-to-end)).
-6. **Update any external DNS / load balancer** to point at the new host.
-
-If you do not have a backup of the keystore but you still have the
-original cert + key files from your CA, you can re-build the keystore
-from scratch following [Production setup](#production-setup-deploying-with-your-own-key-and-certificate)
-Recipe A. Documents signed BEFORE the host died remain valid even
-without the keystore (the verifier reads the cert embedded in the
-PDF), but you cannot produce *new* signatures matching the old
-identity without the same private key.
-
-#### Temporarily disable local mode without uninstalling
-
-Useful for short-term troubleshooting when you want to confirm the rest
-of the stack works without local-eseal in the picture:
-
-```bash
-# Stop only the stamping container; leave its config and keystore in place.
-docker compose --profile local-eseal stop dmss-digital-stamping-service
-
-# Switch ps-server to external mode for the duration:
-sed -i 's/STAMP_MODE: "local"/STAMP_MODE: "external"/' config/config.js
-docker compose restart ps-server
-
-# To re-enable later:
-sed -i 's/STAMP_MODE: "external"/STAMP_MODE: "local"/' config/config.js
-docker compose --profile local-eseal up -d dmss-digital-stamping-service
-docker compose restart ps-server
-```
-
-This is reversible; no files are deleted.
-
-#### Tail logs for just the signing flow
-
-```bash
-# Three tabs (or three tmux panes):
-docker compose logs -f ps-server                 | grep -E '\[stamp\]|stampStatus'
-docker compose logs -f dmss-container-and-signature-services | grep -E 'eseal|TokenStamping|/api/sign'
-docker compose logs -f dmss-digital-stamping-service        | grep -E 'signDigest|cert|alias|init'
-```
-
-Issue a test sign request from the SPA and watch the three streams line
-up. Useful for performance tuning and for confirming what each request
-actually does.
-
-#### Health check endpoints summary
-
-| Service | URL | What it reports |
-|---|---|---|
-| ps-server | `http://localhost:3001/health` (proxied via nginx at `/api/health`) | App-level health |
-| container-signature | `http://localhost:84/actuator/health` | Spring Boot health, DB connections |
-| stamping (no host port by default) | `http://localhost:8084/actuator/health` (only reachable via `docker exec` unless you map the port) | Spring Boot health |
-
-Monitor `container-signature` and `stamping` health from your monitoring
-agent. Restart the affected container if either reports DOWN; both have
-`restart: always` set in compose, so a crashed process auto-recovers.
 
 ### Quick reference
 
@@ -3916,7 +3591,8 @@ step list gained a new Step 6 entry):
 - Initial deployment (fresh install) - `bootstrap.sh --enable-local-eseal`
   recipe.
 - Existing deployment (upgrade an already-deployed instance) - full
-  step-by-step walkthrough (Phase 0 prerequisites → Phase 8 rollback).
+  step-by-step walkthrough (Phase 1 scripts/configs update → Phase 8
+  rollback recipes).
 - Switching modes after install - config-only flip recipes.
 - Production hardening checklist (local e-sealing specific) - six
   numbered hardening items.
@@ -3930,10 +3606,7 @@ step list gained a new Step 6 entry):
 - Verifying it works - basic smoke-test commands.
 - Verifying signatures end-to-end (beyond the stack) - Adobe Reader,
   `pdfsig`, programmatic verification.
-- Reverting - recipes to switch back to external mode.
 - Debugging local e-sealing - failure-mode playbook for 8 common issues.
-- Operations cookbook - day-2 procedures: rotate cert, back up
-  keystore, upgrade stamping image, temporarily disable local mode.
 - Quick reference - files/ports/commands/log-greps summary card.
 
 **Default-behaviour invariant:** customers who pull the new repo
