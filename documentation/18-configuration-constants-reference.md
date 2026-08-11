@@ -11,7 +11,7 @@ Cloud usage note
 - This deployment uses two parallel flows:
 - External integration flow (API key): `/api/registerUser`, `/api/registerUserPDF`, `/api/registerPDF`, `/api/removeUser`.
 - Internal operator flow (Keycloak token): `/api/latestUser`, `/api/fillPDFDemo`, `/api/visual-signature`, `/api/stamp`, `/api/cleanupUser`, `/api/demo/upload`, `/api/demo/upload/version`, `/api/demo/fill-by-docid`.
-- Any item below explicitly marked �API is not relevant for cloud instance� is not used in standard cloud operation and can be ignored.
+- Any item below explicitly marked "API is not relevant for cloud instance" is not used in standard cloud operation and can be ignored.
 
 ## Sub-sections
 

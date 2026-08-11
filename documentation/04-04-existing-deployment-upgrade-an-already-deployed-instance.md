@@ -16,6 +16,9 @@ explicitly switch `STAMP_MODE` to `"local"`. Every step is reversible
 either via the `*.bak` files the script creates or with a small config
 edit.
 
+> Just bumping image versions, without enabling local e-sealing? That is the
+> shorter [5. Upgrading an Existing Deployment](05-upgrading-an-existing-deployment.md).
+
 ### Prerequisite: ps-server image version
 
 Local e-sealing is implemented in the ps-server source (the

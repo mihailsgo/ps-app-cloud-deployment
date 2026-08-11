@@ -22,7 +22,10 @@ What happens additionally when the flag is set:
 - `dmss-container-and-signature-services/application.yml` is patched so its
   `digital-stamping-service.baseUrl` resolves to the in-network container.
 - `SPRING_SECURITY_USER_NAME=user` / `SPRING_SECURITY_USER_PASSWORD=changeit`
-  are pinned on container-signature so basic auth from ps-server is stable.
+  are pinned on container-signature so basic auth from ps-server is stable
+  (`changeit` is a demo default — rotate all three demo credentials before
+  production, recipe in
+  [4.4, Step 4.5](04-04-existing-deployment-upgrade-an-already-deployed-instance.md)).
 - `STAMP_MODE: "local"` and a `STAMP_LOCAL` block are inserted into
   `config/config.js` (or `STAMP_MODE` is flipped if it already existed).
 - `COMPOSE_PROFILES=local-eseal` is appended to `.env` so every subsequent

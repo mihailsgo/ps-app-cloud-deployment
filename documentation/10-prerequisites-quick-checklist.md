@@ -1,7 +1,4 @@
 # 10. Prerequisites (Quick Checklist)
 
-- Docker and Docker Compose installed
-- Domain name configured (e.g., `padsign.trustlynx.com`)
-- SSL certificates for HTTPS
-- Access to Keycloak admin panel
-
+Merged into [9. Prerequisites](09-prerequisites.md) — see that section for the
+complete, current list.

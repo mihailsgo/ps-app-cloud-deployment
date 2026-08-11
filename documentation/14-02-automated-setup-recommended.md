@@ -2,27 +2,28 @@
 
 This repo includes an idempotent bootstrap script that creates the realm, clients, and required roles for you.
 
-One-shot (Linux, recommended for new servers):
+One-shot (Linux, recommended for new servers) — this is the same full bootstrap
+described in [3. Quick Start](03-quick-start-new-deployment.md); it starts the
+stack itself, so no separate `docker compose up -d` is needed:
 
 ```bash
 chmod +x ./installation-scripts/*.sh
-./installation-scripts/bootstrap.sh --host padsign.trustlynx.com --company-role "YourCompany"
-docker compose up -d
-./installation-scripts/verify-keycloak.sh --host padsign.trustlynx.com --company-role "YourCompany"
+./installation-scripts/bootstrap.sh --host <host> --company-role "YourCompany" --admin-pass "StrongKeycloakAdminPass"
+./installation-scripts/verify-keycloak.sh --host <host> --company-role "YourCompany"
 ```
 
-Run (Linux):
+Keycloak-only (stack already running, Linux):
 
 ```bash
 docker compose up -d
-./installation-scripts/keycloak-bootstrap.sh --host padsign.trustlynx.com --company-role "YourCompany"
+./installation-scripts/keycloak-bootstrap.sh --host <host> --company-role "YourCompany"
 ```
 
-Run (Windows PowerShell):
+Keycloak-only (Windows PowerShell):
 
 ```powershell
 docker compose up -d
-.\installation-scripts\keycloak-bootstrap.ps1 -PublicHost padsign.trustlynx.com -CompanyRole "YourCompany"
+.\installation-scripts\keycloak-bootstrap.ps1 -PublicHost <host> -CompanyRole "YourCompany"
 ```
 
 The script prints the backend client secret; set it in `config/config.js` under `KEYCLOAK_CONFIG.credentials.secret`.
@@ -40,7 +41,7 @@ If bootstrap still fails in your environment, perform these manual activities:
 2. Bootstrap Keycloak manually in admin UI:
    - Realm: `padsign`
    - Roles: `padsign-admin`, `psapp-integration`, `<CompanyRole>`
-   - User: `test` with password `<company role lowercased>` and role `<CompanyRole>`
+   - User: `test` with role `<CompanyRole>` and a password of your choosing (the automated script generates a random password and prints it at the end of its run)
    - Clients:
      - `padsign-client` (public), Name: `padsign-client`
      - `padsign-backend` (confidential + service accounts), Name: `padsign-backend`

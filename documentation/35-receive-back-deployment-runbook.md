@@ -4,6 +4,10 @@ How to roll the signed-PDF **receive-back** feature (and the supporting
 config changes) onto a real PadSign deployment safely. Execute on a host where
 you have SSH + Docker + registry push access. **Do staging first, then prod.**
 
+> **Audience note:** sections 1–2 are for release engineers with source and
+> registry push access — they build and publish the image. Operators deploying
+> an already-published release start at section 3.
+
 > Scope of the change: ps-server gains `/api/signedPdf`, `/api/signedPdf/pending`,
 > `/api/signedPdf/ack` + an ack-driven signed-PDF buffer; the filesystem routing
 > strategy populates that buffer; per-company webhook scoping; config knobs
@@ -42,8 +46,6 @@ reproducible. Changed files:
 - new: `src/Padsign.Listener/SignedPdfReceiver.cs`, `tests/Padsign.Listener.ReceiveBackTests/`
 - modified: `src/Padsign.Listener/Program.cs`, `src/Padsign.Manager/ManagerConfig.cs`, `MainWindow.xaml`, `MainWindow.xaml.cs`, `config/padsign.sample.json`
 - docs: `README.md`, `CLAUDE.md`
-
-> `virtual printer` has a git dubious-ownership block; `git config --global --add safe.directory 'C:/Repos/virtual printer'` before committing there.
 
 Run the tests before tagging:
 ```bash
@@ -119,9 +121,9 @@ host inside the maintenance window.
 The receive-back client lives in the Manager/Listener (`virtual printer` repo, **`v1.2.0`+** — the release that introduced the receive-back polling client). On each operator desktop:
 1. Build/distribute the new installer:
    `powershell -ExecutionPolicy Bypass -File scripts/create-setup.ps1` (from `virtual printer`), ship `out/installer/Padsign-Setup.cmd`. Confirm the Manager window title reads `Padsign Manager v1.2.0` (or later) after install.
-2. In the Manager Setup tab set: `Signed Output Folder` = `D:\VM\SignedDocs`,
+2. In the Manager Setup tab set: `Signed Output Folder` (e.g. `C:\PadSign\SignedDocs`),
    plus the existing `Company` (e.g. `Acme` or `Acme-Branch`), `Email`, API URL
-   (`https://padsign.trustlynx.com/api/registerPDF`) and the `REGISTER_PDF_API_KEY` bearer.
+   (`https://<host>/api/registerPDF`) and the `REGISTER_PDF_API_KEY` bearer.
 3. Save → installs/updates config at `%LOCALAPPDATA%\Padsign\padsign.json`
    (`ReceiveBackEnabled`, `ReceiveBackPollSeconds`=5, `ReceiveBackTimeoutMinutes`=30 default).
 4. Start the listener.
@@ -133,7 +135,7 @@ The receive-back client lives in the Manager/Listener (`virtual printer` repo, *
 Through nginx the routes are under `/api`. Use the deployment's `REGISTER_PDF_API_KEY`.
 
 ```bash
-BASE=https://padsign.trustlynx.com
+BASE=https://<host>
 KEY=<REGISTER_PDF_API_KEY>
 
 # auth enforced
@@ -149,7 +151,7 @@ curl -s -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' -d '
 Then a **real round trip** (the manual part — needs a human):
 1. Print from the originating line-of-business application (or the Manager test) → register a PDF for a known `email`+`company`.
 2. Sign it on the tablet (browser SPA + Keycloak).
-3. The Manager polls `pending`, downloads, saves to `D:\VM\SignedDocs\<documentNumber>_<timestamp>.pdf`, and acks.
+3. The Manager polls `pending`, downloads, saves to `<Signed Output Folder>\<documentNumber>_<timestamp>.pdf`, and acks.
 4. Confirm the local file appears and the server-side `/signed-output` copy + its `.meta.json` sidecar are deleted within seconds of the ack (`docker compose logs ps-server | grep "acknowledged + removed"`).
 
 ---

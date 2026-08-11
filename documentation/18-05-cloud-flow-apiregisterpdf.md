@@ -32,7 +32,7 @@ Responses
 
 Example (curl)
 ```bash
-curl -X POST "https://padsign.trustlynx.com/api/registerPDF" \
+curl -X POST "https://<host>/api/registerPDF" \
   -H "Authorization: Bearer ${REGISTER_PDF_API_KEY}" \
   -F "file=@/path/to/file.pdf;type=application/pdf" \
   -F "email=user@example.com" \
@@ -42,7 +42,7 @@ curl -X POST "https://padsign.trustlynx.com/api/registerPDF" \
 
 Example (HTTPie)
 ```bash
-http -f POST https://padsign.trustlynx.com/api/registerPDF \
+http -f POST https://<host>/api/registerPDF \
   Authorization:"Bearer ${REGISTER_PDF_API_KEY}" \
   file@/path/to/file.pdf email=user@example.com company=<your-company> clientName='John Doe'
 ```

@@ -34,14 +34,43 @@
 **Cause**: Client secret mismatch or configuration error
 
 **Solution**:
-1. Verify client secret in `server/config.js`
-2. Check realm name matches
-3. Ensure client IDs are correct
+1. Verify the backend client secret in `config/config.js` (`KEYCLOAK_CONFIG.credentials.secret`)
+2. Check realm name matches (`padsign`)
+3. Ensure client IDs are correct (`padsign-client`, `padsign-backend`)
 
-## 4. Container Communication Issues
+## 4. Port conflicts — containers won't start
 
-**Cause**: Network configuration problems
+**Cause**: Another process already holds one of the host ports the stack binds (80, 443, 8080, 3001, 84, 86, 93).
 
 **Solution**:
-1. Check Docker network configuration
+1. Find the holder: `sudo ss -ltnp | grep -E ':(80|443|8080|3001|84|86|93)\b'`
+2. Stop the conflicting service, or change the published port in `docker-compose.yml`.
 
+## 5. TLS / hostname mismatch
+
+**Cause**: `server_name` in nginx, the certificate CN/SANs, and the application URLs don't all agree.
+
+**Solution**:
+1. Run `./installation-scripts/validate-config.sh --host <host>` — it checks hostname consistency across nginx, `constants.json` and `config.js`.
+2. Align `server_name`, certificate CN/SANs, and all application URLs with your actual hostname — see [11.1 TLS Prerequisites](11-01-tls-prerequisites-for-installation-scripts.md).
+3. Self-signed certificate warnings: trust the local root (mkcert) or install a valid certificate.
+4. Certificate renewed but the browser still shows the old one: see [11.2 Monitoring the Served Certificate](11-02-monitoring-the-served-certificate.md).
+
+## 6. Container Communication Issues
+
+**Cause**: A service can't reach another (e.g. ps-server → DMSS). Usually a container is down, still starting, or misconfigured — genuine Docker-network faults are rare.
+
+**Solution**:
+1. `docker compose ps` — every service should be `Up`.
+2. Read the logs of both sides of the failing call: `docker compose logs -f <service>`.
+3. Test connectivity from inside the network, e.g. `docker compose exec keycloak ping ps-server`.
+4. DMSS specifically: review `dmss-container-and-signature-services/application.yml` for endpoints and modes (TEST vs PROD), and check that truststores and referenced files exist under `dmss-container-and-signature-services/`.
+
+## General debug commands
+
+```bash
+docker compose logs keycloak
+docker compose logs ps-server
+docker compose logs nginx
+curl https://<host>/auth/realms/padsign/.well-known/openid-configuration
+```

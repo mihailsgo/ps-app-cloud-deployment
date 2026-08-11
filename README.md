@@ -8,6 +8,8 @@ This repository deploys [PadSign](https://github.com/mihailsgo/psapp-saas) 2.0 -
 
 Prefer the command line? [3. Quick Start (New Deployment)](documentation/03-quick-start-new-deployment.md) covers the same install via `bootstrap.sh` directly.
 
+Either way, read [9. Prerequisites](documentation/09-prerequisites.md) and [11.1 TLS Prerequisites](documentation/11-01-tls-prerequisites-for-installation-scripts.md) first — both paths need a prepared host and a staged TLS certificate.
+
 ## Documentation
 
 1. [Release Snapshot](documentation/01-release-snapshot.md)

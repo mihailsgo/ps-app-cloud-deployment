@@ -12,6 +12,11 @@ To move an already-deployed instance to the **current release** (`ps-server:3.27
 The script only changes what you ask it to — it pulls the new image(s), restarts
 just those containers, and prints a rollback command. It is safe to re-run.
 
+> Upgrading across several releases, or enabling local e-sealing at the same
+> time? [4.4 Existing deployment (upgrade an already-deployed instance)](04-04-existing-deployment-upgrade-an-already-deployed-instance.md)
+> is the complete phase-by-phase walkthrough — preview, upgrade, verification,
+> credential rotation, and rollback.
+
 > Pass the tags for the version you are moving to. The examples use the current
 > release; substitute newer tags as they ship. Older tags are valid too (e.g. for
 > a controlled rollback).

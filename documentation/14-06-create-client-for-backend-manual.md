@@ -11,5 +11,5 @@
 2. Go to "Credentials" tab and copy the client secret
 
 3. Configure settings:
-   - **Valid Redirect URIs**: `https://padsign.trustlynx.com/auth/realms/padsign/protocol/openid-connect/auth`
+   - **Valid Redirect URIs**: `https://<host>/auth/realms/padsign/protocol/openid-connect/auth`
 

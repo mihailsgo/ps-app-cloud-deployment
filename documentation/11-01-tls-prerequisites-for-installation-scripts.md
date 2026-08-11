@@ -27,7 +27,7 @@ Let's Encrypt deployments already produce a fullchain at `/etc/letsencrypt/live/
 The bootstrap script validates the certificate before deploying by calling `installation-scripts/validate-certs.sh`. It checks file format, that the cert and key are the same keypair, expiry, hostname (CN / Subject Alternative Names), and chain completeness. For development with a self-signed cert pass `--allow-self-signed` to `bootstrap.sh` (skips chain check only — all other checks still run).
 
 Password-protected private keys
-- If the private key is encrypted (has `ENCRYPTED` in the PEM header), NGINX won�t be able to start non-interactively.
+- If the private key is encrypted (has `ENCRYPTED` in the PEM header), NGINX won't be able to start non-interactively.
 - Recommended: convert it to an unencrypted key before running the scripts:
 
 ```bash

@@ -2,13 +2,15 @@
 
 1. Start the containers:
    ```bash
-   docker-compose up -d
+   docker compose up -d
    ```
 
 2. Access Keycloak admin panel:
    ```
-   https://padsign.trustlynx.com/auth/
+   https://<host>/auth/
    ```
    - Username: `admin`
-   - Password: `admin`
-
+   - Password: the value you passed to `bootstrap.sh --admin-pass`. The compose
+     default `admin` applies only if you never ran bootstrap — a demo value
+     that must be changed before production
+     (see [25. Production Hardening](25-production-hardening.md)).
