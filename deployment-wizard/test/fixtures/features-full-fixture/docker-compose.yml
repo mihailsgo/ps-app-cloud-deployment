@@ -1,0 +1,7 @@
+services:
+  ps-server:
+    image: mihailsgordijenko/ps-server:3.27
+  dmss-digital-stamping-service:
+    container_name: dmss-digital-stamping-service
+    profiles: ["local-eseal"]
+    image: "trustlynx/digital-stamping-service:24.0.3.0"

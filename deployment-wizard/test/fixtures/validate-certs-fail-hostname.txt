@@ -1,0 +1,28 @@
+PadSign TLS Certificate Validator
+  Host:     wrong.example.com
+  Cert:     /opt/psapp/installation-scripts/certs/test.crt
+  Key:      /opt/psapp/installation-scripts/certs/test.key
+  Mode:     --allow-self-signed (chain check skipped)
+================================================
+
+File checks:
+  OK   cert file readable
+  OK   key file readable
+
+Format checks:
+  OK   cert file is a valid PEM X.509 certificate
+  OK   key file is a valid PEM private key
+  OK   private key is not encrypted
+
+Identity checks:
+  OK   cert and key are the same keypair
+  OK   cert is not expired (notAfter: Aug 20 13:56:34 2026 GMT)
+  WARN cert expires within 30 days — plan renewal
+  FAIL hostname 'wrong.example.com' is NOT present in cert Subject CN or subjectAltName. CN: padsign.test.local; SAN DNS: padsign.test.local. Browsers and Keycloak backchannel calls will reject this cert.
+
+Chain checks:
+  OK   cert file contains 1 PEM certificate block(s)
+  WARN chain verification skipped (--allow-self-signed)
+
+================================================
+Cert validation FAILED. Resolve issues above before deploying.

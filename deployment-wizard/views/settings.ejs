@@ -1,0 +1,415 @@
+<%- include('partials/head', { title: 'Settings — PadSign Deployment Wizard' }) %>
+<%- include('partials/topbar', { hostname, version, hasCompletedSetup, runActive }) %>
+<%- include('partials/collapsed-progress', { sessionNote: 'Change hostname, certificate or feature flags' }) %>
+<main id="main" class="wizard-shell">
+
+  <% if (runActive) { %>
+    <p class="subtitle" style="color:var(--gold);">
+      A run is currently in progress —
+      <a href="/settings/progress?runId=<%= encodeURIComponent(activeRunId) %>">view live progress</a>.
+    </p>
+  <% } %>
+
+  <div class="card">
+    <h1>Hostname</h1>
+    <p class="subtitle">Currently configured for: <strong><%= host || 'unknown' %></strong></p>
+
+    <div class="field">
+      <label for="host-newHost">New hostname</label>
+      <input type="text" id="host-newHost" placeholder="padsign.newclient.com">
+    </div>
+
+    <div class="field">
+      <label style="display:flex; align-items:center; gap:0.5rem; font-weight:400;">
+        <input type="checkbox" id="host-reuseCert" style="width:auto;">
+        The current certificate already covers the new hostname (skip re-upload)
+      </label>
+    </div>
+
+    <div id="host-certFields">
+      <div class="field">
+        <label for="host-crtFile">Certificate for the new hostname (.crt / fullchain.pem)</label>
+        <input type="file" id="host-crtFile" accept=".crt,.pem,.cer">
+        <p class="hint">Or paste PEM text below instead.</p>
+        <textarea id="host-crtText" rows="3" style="width:100%; font-family:monospace; font-size:0.8rem;" placeholder="-----BEGIN CERTIFICATE-----"></textarea>
+      </div>
+      <div class="field">
+        <label for="host-keyFile">Private key for the new hostname (.key)</label>
+        <input type="file" id="host-keyFile" accept=".key,.pem">
+        <textarea id="host-keyText" rows="3" style="width:100%; font-family:monospace; font-size:0.8rem;" placeholder="-----BEGIN PRIVATE KEY-----"></textarea>
+      </div>
+      <div class="field">
+        <label style="display:flex; align-items:center; gap:0.5rem; font-weight:400;">
+          <input type="checkbox" id="host-allowSelfSigned" style="width:auto;">
+          Allow self-signed / skip chain verification (development only)
+        </label>
+      </div>
+      <button id="host-validateBtn" type="button" class="btn btn-secondary">Validate certificate</button>
+      <span id="host-validateStatus" class="subtitle" style="margin:0 0 0 0.75rem;"></span>
+      <div id="host-certResult" style="margin-top:1rem;"></div>
+    </div>
+
+    <hr class="divider">
+
+    <div class="field">
+      <label for="host-adminUser">Keycloak admin username</label>
+      <input type="text" id="host-adminUser" value="admin">
+    </div>
+    <div class="field">
+      <label for="host-adminPass">Current Keycloak admin password</label>
+      <input type="password" id="host-adminPass">
+      <p class="hint">Used to log in to Keycloak and sync its redirect URIs — never persisted anywhere.</p>
+    </div>
+
+    <button id="host-updateBtn" type="button" class="btn btn-danger" <%= runActive ? 'disabled' : '' %>>Update Hostname</button>
+    <p id="host-error" class="error-text" style="margin-top:1rem;"></p>
+  </div>
+
+  <div class="card">
+    <h1>TLS Certificate</h1>
+    <% if (cert) { %>
+      <ul class="checklist">
+        <% cert.checks.forEach((c) => { %>
+          <li>
+            <span class="badge <%= c.status === 'ok' ? 'badge-ok' : c.status === 'fail' ? 'badge-fail' : 'badge-warn' %>"><%= c.status.toUpperCase() %></span>
+            <span><%= c.message %></span>
+          </li>
+        <% }) %>
+      </ul>
+    <% } else { %>
+      <p class="subtitle">No hostname is configured yet — nothing to check.</p>
+    <% } %>
+
+    <%# The checks above read the certificate FILE on disk. These read what
+        nginx is actually presenting over a TLS handshake. nginx loads its
+        certificate only at startup and on reload, so the two can disagree —
+        and when they do, a renewed certificate is sitting unserved. %>
+    <% if (servedCert) { %>
+      <h2 class="subtitle" style="margin-top:1.25rem;">What nginx is actually serving</h2>
+      <ul class="checklist">
+        <% servedCert.checks.forEach((c) => { %>
+          <li>
+            <span class="badge <%= c.status === 'ok' ? 'badge-ok' : c.status === 'fail' ? 'badge-fail' : 'badge-warn' %>"><%= c.status.toUpperCase() %></span>
+            <span><%= c.message %></span>
+          </li>
+        <% }) %>
+      </ul>
+    <% } %>
+
+    <hr class="divider">
+    <p class="subtitle">Upload a renewed certificate for <strong><%= host || 'this deployment' %></strong>.</p>
+
+    <div class="field">
+      <label for="cert-crtFile">Certificate file (.crt / fullchain.pem)</label>
+      <input type="file" id="cert-crtFile" accept=".crt,.pem,.cer">
+      <p class="hint">Or paste PEM text below instead.</p>
+      <textarea id="cert-crtText" rows="3" style="width:100%; font-family:monospace; font-size:0.8rem;" placeholder="-----BEGIN CERTIFICATE-----"></textarea>
+    </div>
+    <div class="field">
+      <label for="cert-keyFile">Private key file (.key)</label>
+      <input type="file" id="cert-keyFile" accept=".key,.pem">
+      <textarea id="cert-keyText" rows="3" style="width:100%; font-family:monospace; font-size:0.8rem;" placeholder="-----BEGIN PRIVATE KEY-----"></textarea>
+    </div>
+    <div class="field">
+      <label style="display:flex; align-items:center; gap:0.5rem; font-weight:400;">
+        <input type="checkbox" id="cert-allowSelfSigned" style="width:auto;">
+        Allow self-signed / skip chain verification (development only)
+      </label>
+    </div>
+
+    <button id="cert-validateBtn" type="button" class="btn btn-secondary">Validate certificate</button>
+    <span id="cert-validateStatus" class="subtitle" style="margin:0 0 0 0.75rem;"></span>
+    <div id="cert-certResult" style="margin-top:1rem;"></div>
+
+    <hr class="divider">
+    <button id="cert-renewBtn" type="button" class="btn btn-danger" disabled <%= runActive ? 'disabled' : '' %>>Renew Certificate</button>
+    <p id="cert-error" class="error-text" style="margin-top:1rem;"></p>
+  </div>
+
+  <div class="card">
+    <h1>Feature Toggles</h1>
+    <p class="subtitle">Live state of this deployment — flip any combination, then Apply.</p>
+
+    <div class="field toggle-row">
+      <label class="toggle-switch">
+        <input type="checkbox" id="feature-routing" <%= features.routing ? 'checked' : '' %>>
+        <span class="toggle-track"><span class="toggle-knob"></span></span>
+      </label>
+      <div>
+        <span class="toggle-label">Document routing</span>
+        <p class="hint" style="margin:0.2rem 0 0;">Save signed documents to disk automatically after signing completes.</p>
+      </div>
+    </div>
+
+    <div class="field toggle-row">
+      <label class="toggle-switch">
+        <input type="checkbox" id="feature-demo" <%= features.demo ? 'checked' : '' %>>
+        <span class="toggle-track"><span class="toggle-knob"></span></span>
+      </label>
+      <div>
+        <span class="toggle-label">Demo mode</span>
+        <p class="hint" style="margin:0.2rem 0 0;">Enables demo-only UI affordances in the client app. Do not use in production.</p>
+      </div>
+    </div>
+
+    <div class="field toggle-row">
+      <label class="toggle-switch">
+        <input type="checkbox" id="feature-localEseal" <%= features.localEseal ? 'checked' : '' %>>
+        <span class="toggle-track"><span class="toggle-knob"></span></span>
+      </label>
+      <div>
+        <span class="toggle-label">Local e-sealing</span>
+        <p class="hint" style="margin:0.2rem 0 0;">
+          Provision the in-stack e-sealing container instead of calling an external cloud e-sealing service.
+        </p>
+      </div>
+    </div>
+
+    <hr class="divider">
+    <button id="features-applyBtn" type="button" class="btn btn-primary" disabled>Apply changes</button>
+    <p id="features-error" class="error-text" style="margin-top:1rem;"></p>
+  </div>
+</main>
+
+<!-- Shared confirm modal — one per page, reused by all 3 actions above.
+     Focus trap / Escape / overlay-dismiss come from public/wizard-ui.js. -->
+<div class="modal-overlay" id="confirm-modal">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
+    <h2 id="confirm-modal-title"></h2>
+    <p id="confirm-modal-body"></p>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-link" onclick="closeModal('confirm-modal')">Cancel</button>
+      <button type="button" class="btn btn-primary" id="confirm-modal-action">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const badgeClass = { ok: 'badge-ok', fail: 'badge-fail', warn: 'badge-warn' };
+  function renderChecklist(checks) {
+    const items = checks.map((c) => `
+      <li>
+        <span class="badge ${badgeClass[c.status] || 'badge-pending'}">${c.status.toUpperCase()}</span>
+        <span>${escapeHtml(c.message).replace(/\n/g, '<br>')}</span>
+      </li>`).join('');
+    return `<ul class="checklist">${items}</ul>`;
+  }
+
+  // ---- Shared confirm modal ----
+  // openModal/closeModal come from public/wizard-ui.js; this only fills in
+  // the copy and decides whether the confirm button is styled as the
+  // destructive tier (anything that restarts a live service).
+  let pendingAction = null;
+  function openConfirmModal(title, body, onConfirm, destructive) {
+    document.getElementById('confirm-modal-title').textContent = title;
+    document.getElementById('confirm-modal-body').textContent = body;
+    const btn = document.getElementById('confirm-modal-action');
+    btn.className = 'btn ' + (destructive ? 'btn-danger' : 'btn-primary');
+    pendingAction = onConfirm;
+    openModal('confirm-modal');
+  }
+  document.getElementById('confirm-modal-action').addEventListener('click', () => {
+    const fn = pendingAction;
+    pendingAction = null;
+    closeModal('confirm-modal');
+    if (fn) fn();
+  });
+
+  function goToProgress(runId) {
+    window.location.href = '/settings/progress?runId=' + encodeURIComponent(runId);
+  }
+
+  // ---- Hostname change ----
+  const hostReuseCert = document.getElementById('host-reuseCert');
+  const hostCertFields = document.getElementById('host-certFields');
+  let hostCertValidated = false;
+
+  hostReuseCert.addEventListener('change', () => {
+    hostCertFields.style.display = hostReuseCert.checked ? 'none' : '';
+  });
+
+  document.getElementById('host-validateBtn').addEventListener('click', async () => {
+    const newHost = document.getElementById('host-newHost').value.trim();
+    const status = document.getElementById('host-validateStatus');
+    const resultBox = document.getElementById('host-certResult');
+    if (!newHost) { status.textContent = 'Enter a new hostname first.'; return; }
+    status.textContent = 'Validating…';
+    hostCertValidated = false;
+
+    const crtFile = document.getElementById('host-crtFile').files[0];
+    const keyFile = document.getElementById('host-keyFile').files[0];
+    const crtText = document.getElementById('host-crtText').value.trim();
+    const keyText = document.getElementById('host-keyText').value.trim();
+    const allowSelfSigned = document.getElementById('host-allowSelfSigned').checked;
+
+    const form = new FormData();
+    form.append('newHost', newHost);
+    if (crtFile) form.append('crtFile', crtFile); else form.append('crtText', crtText);
+    if (keyFile) form.append('keyFile', keyFile); else form.append('keyText', keyText);
+    form.append('allowSelfSigned', allowSelfSigned ? 'on' : 'off');
+
+    try {
+      const resp = await fetch('/api/settings/hostname/cert-upload', { method: 'POST', body: form });
+      const data = await resp.json();
+      if (!resp.ok) {
+        status.textContent = '';
+        resultBox.innerHTML = `<p class="error-text">${escapeHtml(data.error || 'Validation failed to run.')}</p>`;
+        return;
+      }
+      status.textContent = data.passed ? 'All checks passed.' : 'Some checks failed.';
+      resultBox.innerHTML = renderChecklist(data.checks);
+      hostCertValidated = data.passed;
+    } catch (e) {
+      status.textContent = '';
+      resultBox.innerHTML = '<p class="error-text">Request failed — check your connection to the wizard.</p>';
+    }
+  });
+
+  document.getElementById('host-updateBtn').addEventListener('click', () => {
+    const errBox = document.getElementById('host-error');
+    errBox.textContent = '';
+    const newHost = document.getElementById('host-newHost').value.trim();
+    const adminPass = document.getElementById('host-adminPass').value;
+    const reuseCurrentCert = hostReuseCert.checked;
+
+    if (!newHost) { errBox.textContent = 'Enter a new hostname.'; return; }
+    if (!adminPass) { errBox.textContent = 'Enter the current Keycloak admin password.'; return; }
+    if (!reuseCurrentCert && !hostCertValidated) {
+      errBox.textContent = 'Validate a certificate for the new hostname first, or check "reuse existing certificate".';
+      return;
+    }
+
+    openConfirmModal(
+      'Change hostname?',
+      `This deployment will be reconfigured for ${newHost} and both nginx and ps-server will restart. This can briefly interrupt access.`,
+      async () => {
+        try {
+          const resp = await fetch('/api/settings/hostname', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              newHost,
+              adminPass,
+              adminUser: document.getElementById('host-adminUser').value.trim() || 'admin',
+              allowSelfSigned: document.getElementById('host-allowSelfSigned').checked,
+              reuseCurrentCert
+            })
+          });
+          const data = await resp.json();
+          if (!resp.ok) { errBox.textContent = data.error || 'Failed to start hostname update.'; return; }
+          goToProgress(data.runId);
+        } catch (e) {
+          errBox.textContent = 'Request failed — check your connection to the wizard.';
+        }
+      },
+      true // destructive: restarts nginx + ps-server
+    );
+  });
+
+  // ---- TLS certificate renewal ----
+  let certValidated = false;
+  document.getElementById('cert-validateBtn').addEventListener('click', async () => {
+    const status = document.getElementById('cert-validateStatus');
+    const resultBox = document.getElementById('cert-certResult');
+    status.textContent = 'Validating…';
+    certValidated = false;
+    document.getElementById('cert-renewBtn').disabled = true;
+
+    const crtFile = document.getElementById('cert-crtFile').files[0];
+    const keyFile = document.getElementById('cert-keyFile').files[0];
+    const crtText = document.getElementById('cert-crtText').value.trim();
+    const keyText = document.getElementById('cert-keyText').value.trim();
+    const allowSelfSigned = document.getElementById('cert-allowSelfSigned').checked;
+
+    const form = new FormData();
+    if (crtFile) form.append('crtFile', crtFile); else form.append('crtText', crtText);
+    if (keyFile) form.append('keyFile', keyFile); else form.append('keyText', keyText);
+    form.append('allowSelfSigned', allowSelfSigned ? 'on' : 'off');
+
+    try {
+      const resp = await fetch('/api/settings/cert/upload', { method: 'POST', body: form });
+      const data = await resp.json();
+      if (!resp.ok) {
+        status.textContent = '';
+        resultBox.innerHTML = `<p class="error-text">${escapeHtml(data.error || 'Validation failed to run.')}</p>`;
+        return;
+      }
+      status.textContent = data.passed ? 'All checks passed.' : 'Some checks failed.';
+      resultBox.innerHTML = renderChecklist(data.checks);
+      certValidated = data.passed;
+      document.getElementById('cert-renewBtn').disabled = !certValidated;
+    } catch (e) {
+      status.textContent = '';
+      resultBox.innerHTML = '<p class="error-text">Request failed — check your connection to the wizard.</p>';
+    }
+  });
+
+  document.getElementById('cert-renewBtn').addEventListener('click', () => {
+    const errBox = document.getElementById('cert-error');
+    errBox.textContent = '';
+    openConfirmModal(
+      'Renew certificate?',
+      'nginx will restart to pick up the new certificate. This can briefly interrupt access.',
+      async () => {
+        try {
+          const resp = await fetch('/api/settings/cert/renew', { method: 'POST' });
+          const data = await resp.json();
+          if (!resp.ok) { errBox.textContent = data.error || 'Failed to start certificate renewal.'; return; }
+          goToProgress(data.runId);
+        } catch (e) {
+          errBox.textContent = 'Request failed — check your connection to the wizard.';
+        }
+      },
+      true // destructive: restarts nginx
+    );
+  });
+
+  // ---- Feature toggles ----
+  const initialFeatures = {
+    routing: <%- JSON.stringify(Boolean(features.routing)) %>,
+    demo: <%- JSON.stringify(Boolean(features.demo)) %>,
+    localEseal: <%- JSON.stringify(Boolean(features.localEseal)) %>
+  };
+  const featureInputs = {
+    routing: document.getElementById('feature-routing'),
+    demo: document.getElementById('feature-demo'),
+    localEseal: document.getElementById('feature-localEseal')
+  };
+  const applyBtn = document.getElementById('features-applyBtn');
+
+  function refreshApplyState() {
+    const dirty = Object.keys(featureInputs).some((k) => featureInputs[k].checked !== initialFeatures[k]);
+    applyBtn.disabled = !dirty;
+  }
+  Object.values(featureInputs).forEach((el) => el.addEventListener('change', refreshApplyState));
+
+  applyBtn.addEventListener('click', () => {
+    const errBox = document.getElementById('features-error');
+    errBox.textContent = '';
+    const diff = {};
+    Object.keys(featureInputs).forEach((k) => {
+      if (featureInputs[k].checked !== initialFeatures[k]) diff[k] = featureInputs[k].checked;
+    });
+    const changedLabels = Object.keys(diff).map((k) => ({ routing: 'Document routing', demo: 'Demo mode', localEseal: 'Local e-sealing' }[k] + ': ' + (diff[k] ? 'ON' : 'OFF'))).join(', ');
+
+    openConfirmModal(
+      'Apply feature changes?',
+      `${changedLabels}. Demo mode needs no restart; the others restart ps-server (and the e-sealing container, if toggled).`,
+      async () => {
+        try {
+          const resp = await fetch('/api/settings/features/toggle', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(diff)
+          });
+          const data = await resp.json();
+          if (!resp.ok) { errBox.textContent = data.error || 'Failed to start feature toggle.'; return; }
+          goToProgress(data.runId);
+        } catch (e) {
+          errBox.textContent = 'Request failed — check your connection to the wizard.';
+        }
+      }
+    );
+  });
+</script>
+<%- include('partials/foot') %>

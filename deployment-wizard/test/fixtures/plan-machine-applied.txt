@@ -1,0 +1,30 @@
+###PLAN-BEGIN
+server_tag_from=3.28
+server_tag_to=3.28
+client_tag_from=8.38
+client_tag_to=8.38
+###PLAN-ITEM
+id=document-routing
+status=already-applied
+files=config/config.js
+title=Add DOCUMENT_ROUTING block (disabled by default)
+###PLAN-BODY-BEGIN
+###PLAN-BODY-END
+###PLAN-ITEM-END
+###PLAN-ITEM
+id=signed-output
+status=already-applied
+files=docker-compose.yml,signed-output/,docs/
+title=Add signed-output volume mount and create signed-output/ and docs/
+###PLAN-BODY-BEGIN
+###PLAN-BODY-END
+###PLAN-ITEM-END
+###PLAN-ITEM
+id=local-eseal
+status=already-applied
+files=docker-compose.yml,config/config.js,.env,dmss-container-and-signature-services/application.yml,dmss-digital-stamping-service/
+title=Provision local e-sealing (in-stack stamping service)
+###PLAN-BODY-BEGIN
+###PLAN-BODY-END
+###PLAN-ITEM-END
+###PLAN-END

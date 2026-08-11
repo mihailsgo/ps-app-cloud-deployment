@@ -1,0 +1,159 @@
+<%- include('partials/head', { title: 'Dashboard — PadSign Deployment Wizard' }) %>
+<%- include('partials/topbar', { hostname, version, hasCompletedSetup, runActive }) %>
+<%- include('partials/collapsed-progress', { sessionNote: 'Deployment overview, health and upgrades' }) %>
+<main id="main" class="wizard-shell">
+  <h1 class="visually-hidden">Dashboard</h1>
+  <div class="dashboard-grid">
+    <div class="card">
+      <h3>Version</h3>
+      <p class="dashboard-version-number">v<%= tags.serverTag || '?' %> <span class="subtitle" style="font-size:0.85rem;">/ v<%= tags.clientTag || '?' %></span></p>
+      <p class="subtitle">Installed on <code><%= host || 'this host' %></code></p>
+      <% if (runActive) { %>
+        <p class="subtitle" style="color:var(--gold);">
+          A run is currently in progress —
+          <a href="/upgrade/progress?runId=<%= encodeURIComponent(activeRunId) %>">view live progress</a>.
+        </p>
+      <% } else if (staleLock) { %>
+        <p class="subtitle" style="color:var(--gold);">
+          A run (<%= staleLock.scriptName %>) was in progress when the wizard last started and may have
+          completed or failed while it was down — check <code>docker compose logs</code>.
+        </p>
+      <% } %>
+    </div>
+
+    <div class="card">
+      <h3>Health</h3>
+      <p id="verifyStatus" class="subtitle" role="status">Running checks…</p>
+      <div id="resultBox" aria-live="polite"></div>
+    </div>
+  </div>
+
+  <div class="card upgrade-panel">
+    <h3>Upgrade</h3>
+
+    <div id="panel-up-to-date" class="upgrade-state upgrade-state-uptodate" style="display:none;">
+      <div class="upgrade-row upgrade-row-uptodate">
+        <span class="badge-round badge-round-success">✓</span>
+        <span>You're on the latest version<br><span class="subtitle" style="margin:0;">v<%= tags.serverTag %>/<%= tags.clientTag %> — nothing to upgrade to right now.</span></span>
+      </div>
+      <a href="#" class="btn-quiet-link" onclick="showPanel('custom'); return false;">Deploy a specific version instead</a>
+    </div>
+
+    <div id="panel-update-available" class="upgrade-state upgrade-state-available" style="display:none;">
+      <div class="upgrade-row upgrade-row-available">
+        <span>
+          Version <%= latestTags.serverTag || '?' %><% if (latestTags.clientTag) { %>/<%= latestTags.clientTag %><% } %> is available<br>
+          <span class="subtitle" style="margin:0;">You're currently on v<%= tags.serverTag %>/<%= tags.clientTag %>.</span>
+        </span>
+        <button type="button" class="btn btn-primary" onclick="startRecommendedUpgrade()">Preview upgrade to <%= latestTags.serverTag || latestTags.clientTag %></button>
+      </div>
+      <a href="#" class="btn-quiet-link" onclick="showPanel('custom'); return false;">Deploy a specific version instead</a>
+    </div>
+
+    <div id="panel-custom" class="upgrade-state upgrade-state-custom" style="display:none;">
+      <form id="upgradeForm">
+        <div class="field">
+          <label for="serverTag">ps-server tag</label>
+          <input type="text" id="serverTag" name="serverTag" placeholder="<%= tags.serverTag || 'e.g. 3.28' %>">
+        </div>
+        <div class="field">
+          <label for="clientTag">ps-client tag</label>
+          <input type="text" id="clientTag" name="clientTag" placeholder="<%= tags.clientTag || 'e.g. 8.39' %>">
+        </div>
+        <div class="field">
+          <label style="display:flex; align-items:center; gap:0.5rem; font-weight:400;">
+            <input type="checkbox" id="enableLocalEseal" style="width:auto;">
+            Enable local e-sealing
+          </label>
+        </div>
+        <button type="submit" class="btn btn-primary" <%= runActive ? 'disabled' : '' %>>Preview changes</button>
+        <p id="upgradeError" class="error-text" role="alert"></p>
+      </form>
+      <% if (upgradePanelState !== 'unknown') { %>
+        <a href="#" class="btn-quiet-link" onclick="showPanel(defaultPanel); return false;">Use recommended version instead</a>
+      <% } %>
+    </div>
+  </div>
+</main>
+<script>
+  // 'unknown' (can't determine a latest tag at all — e.g. no
+  // documentation/01-release-snapshot.md in this checkout) goes straight to
+  // the custom-tag panel: claiming "up to date" or naming an "available"
+  // version we can't actually name would be misleading either way.
+  const defaultPanel = <%- JSON.stringify(
+    upgradePanelState === 'up-to-date' ? 'up-to-date' :
+    upgradePanelState === 'update-available' ? 'update-available' : 'custom'
+  ) %>;
+  const panels = { 'up-to-date': 'panel-up-to-date', 'update-available': 'panel-update-available', custom: 'panel-custom' };
+
+  function showPanel(name) {
+    Object.values(panels).forEach((id) => { document.getElementById(id).style.display = 'none'; });
+    document.getElementById(panels[name]).style.display = '';
+  }
+  showPanel(defaultPanel);
+
+  function startRecommendedUpgrade() {
+    submitUpgrade({
+      serverTag: <%- JSON.stringify(latestTags.serverTag || '') %>,
+      clientTag: <%- JSON.stringify(latestTags.clientTag || '') %>,
+      enableLocalEseal: false
+    });
+  }
+
+  const badgeClass = { ok: 'badge-ok', fail: 'badge-fail', warn: 'badge-warn' };
+  // escapeHtml comes from /wizard-ui.js.
+  (async () => {
+    const status = document.getElementById('verifyStatus');
+    const box = document.getElementById('resultBox');
+    try {
+      const resp = await fetch('/api/wizard/verify');
+      const data = await resp.json();
+      if (!resp.ok) {
+        status.textContent = '';
+        box.innerHTML = '<p class="error-text">' + escapeHtml(data.error || 'Verification failed to run.') + '</p>';
+        return;
+      }
+      status.textContent = data.passed ? 'All checks passed.' : 'Some checks failed — see below.';
+      box.innerHTML = '<ul class="checklist">' + data.checks.map((c) =>
+        '<li><span class="badge ' + (badgeClass[c.status] || 'badge-pending') + '">' + c.status.toUpperCase() + '</span><span>' + escapeHtml(c.message).replace(/\n/g, '<br>') + '</span></li>'
+      ).join('') + '</ul>';
+    } catch (e) {
+      status.textContent = '';
+      box.innerHTML = '<p class="error-text">Request failed — check your connection to the wizard.</p>';
+    }
+  })();
+
+  // Both entry points go to the preview, never straight to a run. The server
+  // enforces this too — /api/deploy no longer accepts mode:'upgrade'.
+  async function submitUpgrade(payload) {
+    const errBox = document.getElementById('upgradeError');
+    if (errBox) errBox.textContent = '';
+    try {
+      const resp = await fetch('/api/upgrade/plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        if (errBox) errBox.textContent = data.error || 'Failed to build the upgrade plan.';
+        return;
+      }
+      window.location.href = '/upgrade/preview?previewId=' + encodeURIComponent(data.previewId);
+    } catch (e2) {
+      if (errBox) errBox.textContent = 'Request failed — check your connection to the wizard.';
+    }
+  }
+
+  document.getElementById('upgradeForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    submitUpgrade({
+      serverTag: document.getElementById('serverTag').value.trim(),
+      clientTag: document.getElementById('clientTag').value.trim(),
+      enableLocalEseal: document.getElementById('enableLocalEseal').checked
+    }).finally(() => { submitBtn.disabled = false; });
+  });
+</script>
+<%- include('partials/foot') %>

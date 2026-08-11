@@ -1,0 +1,4 @@
+{
+  "KEYCLOAK_URL": "https://padsign.example.com/auth",
+  "DEMO_MODE": "ENABLE"
+}

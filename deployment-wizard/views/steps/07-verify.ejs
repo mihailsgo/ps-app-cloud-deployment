@@ -1,0 +1,52 @@
+<%- include('../partials/head', { title: 'Verify — PadSign Deployment Wizard' }) %>
+<%- include('../partials/topbar', { hostname, version, hasCompletedSetup, runActive }) %>
+<main id="main" class="wizard-shell">
+  <%- include('../partials/stepProgress', { current: 7, furthestStepReached: wizard.furthestStepReached }) %>
+
+  <div class="card">
+    <h1>Verify &amp; Go-Live Checklist</h1>
+    <p class="subtitle">
+      Same checks as <code>validate-config.sh</code>. Failures are shown but won't block you from
+      continuing — fix them at your own pace, they'll keep showing up here until resolved.
+    </p>
+
+    <p id="verifyStatus" class="subtitle" role="status">Running checks…</p>
+    <div id="resultBox" aria-live="polite"></div>
+
+    <ul class="checklist">
+      <li>
+        <span class="badge badge-warn">TODO</span>
+        <span>Delete the demo <code>test</code> Keycloak user before production use.</span>
+      </li>
+    </ul>
+
+    <hr class="divider">
+    <a href="/dashboard" class="btn btn-primary">Continue to Dashboard</a>
+    <a href="/wizard/step/6?runId=<%= wizard.lastRunId %>" class="btn btn-link">Back to deploy log</a>
+  </div>
+</main>
+<script>
+  const badgeClass = { ok: 'badge-ok', fail: 'badge-fail', warn: 'badge-warn' };
+  // escapeHtml comes from /wizard-ui.js.
+  (async () => {
+    const status = document.getElementById('verifyStatus');
+    const box = document.getElementById('resultBox');
+    try {
+      const resp = await fetch('/api/wizard/verify');
+      const data = await resp.json();
+      if (!resp.ok) {
+        status.textContent = '';
+        box.innerHTML = '<p class="error-text">' + escapeHtml(data.error || 'Verification failed to run.') + '</p>';
+        return;
+      }
+      status.textContent = data.passed ? 'All checks passed.' : 'Some checks failed — see below.';
+      box.innerHTML = '<ul class="checklist">' + data.checks.map((c) =>
+        '<li><span class="badge ' + (badgeClass[c.status] || 'badge-pending') + '">' + c.status.toUpperCase() + '</span><span>' + escapeHtml(c.message).replace(/\n/g, '<br>') + '</span></li>'
+      ).join('') + '</ul>';
+    } catch (e) {
+      status.textContent = '';
+      box.innerHTML = '<p class="error-text">Request failed — check your connection to the wizard.</p>';
+    }
+  })();
+</script>
+<%- include('../partials/foot') %>

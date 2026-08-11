@@ -1,0 +1,21 @@
+{
+  "name": "padsign-deployment-wizard",
+  "version": "0.1.1",
+  "private": true,
+  "description": "Browser-based deployment wizard for PadSign (ps-app-cloud-deployment) — wraps installation-scripts/*.sh, does not replace them.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "ejs": "^3.1.10",
+    "express": "^4.19.2",
+    "express-session": "^1.18.0",
+    "multer": "^2.2.0",
+    "selfsigned": "^2.4.1"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

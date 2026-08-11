@@ -1,0 +1,19 @@
+PadSign Served-Certificate Verifier
+  Host:     padsign.example.com  (derived from nginx/nginx.conf)
+  On disk:  /opt/psapp/nginx/certs/padsign.example.com.crt  (derived from nginx/nginx.conf)
+  Endpoint: localhost:9  (--connect)
+================================================
+
+Disk checks:
+  OK   on-disk certificate readable
+  OK   on-disk certificate parses (SHA-256 34:D7:8B:3F:50:5D:AB:2E..., 4 PEM block(s))
+  OK   on-disk certificate is not expiring soon (notAfter: Sep 15 13:37:31 2026 GMT)
+
+nginx service checks:
+  OK   nginx service is running
+
+Served-certificate checks:
+  FAIL no TLS handshake on localhost:9 after 2 attempt(s) — nginx is not answering TLS there
+
+================================================
+Served-certificate check FAILED. Resolve issues above.

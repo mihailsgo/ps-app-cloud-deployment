@@ -1,0 +1,49 @@
+###PLAN-BEGIN
+server_tag_from=3.27
+server_tag_to=3.28
+client_tag_from=8.38
+client_tag_to=8.39
+###PLAN-ITEM
+id=document-routing
+status=already-applied
+files=config/config.js
+title=Add DOCUMENT_ROUTING block (disabled by default)
+###PLAN-BODY-BEGIN
+###PLAN-BODY-END
+###PLAN-ITEM-END
+###PLAN-ITEM
+id=signed-output
+status=will-apply
+files=docker-compose.yml,signed-output/,docs/
+title=Add signed-output volume mount and create signed-output/ and docs/
+###PLAN-BODY-BEGIN
+mkdir -p signed-output/ docs/   (mode 777)
+###PLAN-BODY-END
+###PLAN-ITEM-END
+###PLAN-ITEM
+id=local-eseal
+status=will-apply
+files=docker-compose.yml,config/config.js,.env,dmss-container-and-signature-services/application.yml,dmss-digital-stamping-service/
+title=Provision local e-sealing (in-stack stamping service)
+###PLAN-BODY-BEGIN
+dmss-container-and-signature-services/application.yml:
+  baseUrl: http://dmss-digital-stamping-service:8084/api
+
+docker-compose.yml, on container-signature:
+      - SPRING_SECURITY_USER_NAME=user
+      - SPRING_SECURITY_USER_PASSWORD=changeit
+
+config/config.js:
+    STAMP_MODE: "local",
+    STAMP_LOCAL: {
+      url: "http://dmss-container-and-signature-services:8092/api/eseal/document/profile/LocalDemo",
+      username: "user",
+      password: "changeit",
+      timeoutMs: 30000
+    },
+
+.env:
+COMPOSE_PROFILES=local-eseal
+###PLAN-BODY-END
+###PLAN-ITEM-END
+###PLAN-END

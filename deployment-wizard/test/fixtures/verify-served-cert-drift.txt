@@ -1,0 +1,31 @@
+PadSign Served-Certificate Verifier
+  Host:     padsign.example.com  (derived from nginx/nginx.conf)
+  On disk:  /opt/psapp/nginx/certs/padsign.example.com.crt  (--cert-crt)
+  Endpoint: localhost:443  (default)
+================================================
+
+Disk checks:
+  OK   on-disk certificate readable
+  OK   on-disk certificate parses (SHA-256 F7:56:A9:25:CA:88:72:E4..., 2 PEM block(s))
+  FAIL the on-disk certificate is EXPIRED (notAfter: May  5 05:02:42 2026 GMT) — renewal itself is failing, not just the reload
+
+nginx service checks:
+  OK   nginx service is running
+
+Served-certificate checks:
+  OK   TLS handshake to localhost:443 succeeded
+  FAIL the certificate nginx is SERVING does not match the certificate on disk — nginx has not reloaded since the file changed.
+       Served:  SHA-256 34:D7:8B:3F:50:5D:AB:2E:6D:62:17:9B:D5:98:4D:FC:93:DE:E7:34:9B:30:C5:D5:AF:BD:AB:06:0C:6C:13:81 (notAfter Sep 15 13:37:31 2026 GMT)
+       On disk: SHA-256 F7:56:A9:25:CA:88:72:E4:D8:F7:9B:88:0A:20:19:A1:FE:42:3F:FF:AB:ED:F2:88:45:95:57:1A:C2:B8:B6:75 (notAfter May  5 05:02:42 2026 GMT) — /opt/psapp/nginx/certs/padsign.example.com.crt
+       nginx reads its certificate files only at startup and on reload, so a renewal that copied a new file into place without reloading nginx leaves the OLD certificate live until it expires, while every file-based check keeps passing.
+       Fix — run on the HOST, from the project root (NOT inside an ACME/certbot container):
+           docker compose kill -s HUP nginx
+       Then re-run this script: the two fingerprints above must become identical.
+       If they do NOT change, nginx rejected the new files and kept its old configuration — check 'docker compose logs nginx', then run './installation-scripts/validate-certs.sh --host padsign.example.com --cert-crt /opt/psapp/nginx/certs/padsign.example.com.crt --cert-key /opt/psapp/nginx/certs/padsign.example.com.key'.
+       If your renewal hook performs the reload inside an ACME client container, that container needs both the docker CLI and /var/run/docker.sock, or the hook must run on the host — otherwise it fails with 'docker: not found'. Never end a reload hook with '|| true': that is what turns this into a silent multi-week outage instead of a loud failure.
+  OK   served certificate is not expiring soon (notAfter: Sep 15 13:37:31 2026 GMT)
+  OK   the served certificate is valid for padsign.example.com
+  WARN served chain is longer than the on-disk file (4 vs 2)
+
+================================================
+Served-certificate check FAILED. Resolve issues above.

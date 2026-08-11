@@ -1,0 +1,807 @@
+/*
+ * PadSign Deployment Wizard — visual system
+ * Palette sourced directly from config/TLlogo.png and a live inspection of
+ * https://trustlynx.com (computed CSS custom properties). Do not invent new
+ * brand colors here — see docs/superpowers/... design brief for the source.
+ */
+
+:root {
+  --navy: #001f3e;
+  --navy-dark: #181f29;
+  --indigo: #35355f;
+  /* Two golds, deliberately. --gold is the brand hue and is only ever used
+     for decoration (borders, tints, rules). --gold-ink is the darkened
+     variant used anywhere the colour has to carry text or sit behind white
+     text: brand --gold is 3.3:1 on white, which fails WCAG AA, and it was
+     previously the fill of every primary button in the app. */
+  --gold: #b58635;
+  --gold-ink: #8f6a28;
+  --blue-1: #edf4ff;
+  --blue-2: #f8f9ff;
+  --blue-3: #c9e0ff;
+  --blue-mid: #6fabff;
+  /* Same split for red: --coral is the decorative hue, --danger carries text
+     (white-on-coral is 3.4:1; white-on-danger is 6.5:1). */
+  --coral: #ee5858;
+  --danger: #b3261e;
+  --danger-bg: #fdecea;
+  --success: #2e7d4e;
+  --success-bg: rgba(46, 125, 78, 0.08);
+  --warn-bg: #fff8e6;
+  /* Secondary text. The old --gray-1 (#959393) was 2.9:1 on the page
+     background — below AA for every .subtitle and .hint in the app. */
+  --ink-2: #5c6b7a;
+  --gray-1: #5c6b7a;
+  --gray-3: #cdcdcd;
+  --focus: #1a6fd4;
+  --font: 'Roboto', system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;
+  --radius-pill: 999px;
+  --radius-card: 14px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font);
+  color: var(--navy);
+  background: var(--blue-2);
+}
+
+body {
+  min-height: 100vh;
+}
+
+a { color: var(--navy); }
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 200;
+  background: var(--navy);
+  color: #fff;
+  padding: 0.75rem 1.25rem;
+  border-radius: 0 0 8px 0;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.skip-link:focus { left: 0; }
+
+.wizard-shell {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem 4rem;
+}
+
+.wizard-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 2rem;
+}
+
+.wizard-header img { height: 36px; }
+
+.wizard-header .brand-name {
+  font-weight: 700;
+  font-size: 1.1rem;
+  letter-spacing: 0.02em;
+}
+
+.wizard-header .brand-name .accent { color: var(--gold); }
+
+h1, h2, h3 { color: var(--navy); font-weight: 700; margin: 0 0 0.5rem; }
+
+.subtitle { color: var(--gray-1); font-size: 1rem; margin: 0 0 1.5rem; }
+
+.card {
+  background: #fff;
+  border-radius: var(--radius-card);
+  padding: 2rem;
+  box-shadow: 0 1px 3px rgba(0, 31, 62, 0.08), 0 1px 2px rgba(0, 31, 62, 0.06);
+}
+
+.card + .card { margin-top: 1.5rem; }
+
+.divider {
+  border: none;
+  border-top: 1px solid var(--blue-3);
+  margin: 1.5rem 0;
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: none;
+  border-radius: var(--radius-pill);
+  padding: 0.7rem 1.6rem;
+  font-family: var(--font);
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  text-decoration: none;
+  transition: filter 0.15s ease, transform 0.05s ease;
+}
+
+.btn:active { transform: translateY(1px); }
+
+/* Three tiers, by blast radius — so an operator can tell at a glance what a
+   button will do before reading it:
+     .btn-primary   the one forward action on the screen (safe, expected)
+     .btn-secondary safe helpers that change nothing (Validate, Copy log)
+     .btn-danger    interrupts a live service (hostname change, cert renew) */
+.btn-primary { background: var(--gold-ink); color: #fff; }
+.btn-primary:hover { filter: brightness(1.1); }
+.btn-primary:disabled { background: var(--gray-3); color: #4a4a4a; cursor: not-allowed; }
+
+.btn-secondary {
+  background: #fff;
+  border: 1.5px solid var(--navy);
+  color: var(--navy);
+}
+.btn-secondary:hover { background: var(--blue-1); }
+.btn-secondary:disabled { border-color: var(--gray-3); color: #4a4a4a; cursor: not-allowed; }
+
+.btn-danger { background: var(--danger); color: #fff; }
+.btn-danger:hover { filter: brightness(1.15); }
+.btn-danger:disabled { background: var(--gray-3); color: #4a4a4a; cursor: not-allowed; }
+
+.btn-link {
+  background: transparent;
+  color: var(--navy);
+  padding: 0.7rem 0.25rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* Focus. Inputs used to do `outline: none` unconditionally, leaving a 1px
+   gold border as the only focus signal and buttons/links with nothing at
+   all. :focus-visible keeps mouse clicks clean while restoring a real ring
+   for keyboard users. */
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.btn:focus-visible { outline-offset: 3px; }
+
+/* Form fields */
+.field { margin-bottom: 1.25rem; }
+.field label { display: block; font-weight: 600; font-size: 0.9rem; margin-bottom: 0.4rem; }
+.field .hint { color: var(--gray-1); font-size: 0.85rem; margin-top: 0.35rem; }
+
+.field input[type="text"],
+.field input[type="password"],
+.field input[type="email"],
+.field select,
+.field textarea {
+  width: 100%;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid #748ead; /* 3.4:1 against the field background — WCAG 1.4.11 for control boundaries */
+  border-radius: 8px;
+  font-family: var(--font);
+  font-size: 0.95rem;
+  background: var(--blue-2);
+  color: var(--navy);
+}
+
+.field input:focus, .field select:focus, .field textarea:focus {
+  border-color: var(--gold-ink);
+  background: #fff;
+}
+
+.field input:focus-visible,
+.field select:focus-visible,
+.field textarea:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 1px;
+}
+
+/* Checklist rows (reused: cert validation, verify step, dashboard) */
+.checklist { list-style: none; margin: 0; padding: 0; }
+
+.checklist li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--blue-1);
+  font-size: 0.92rem;
+}
+
+.checklist li:last-child { border-bottom: none; }
+
+.badge {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 52px;
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--radius-pill);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.badge-ok { background: var(--success-bg); color: var(--success); }
+.badge-fail { background: var(--danger-bg); color: var(--danger); }
+.badge-warn { background: var(--warn-bg); color: var(--gold-ink); }
+.badge-pending { background: var(--blue-1); color: var(--ink-2); }
+
+/* Login screen */
+.login-shell {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 420px;
+  text-align: center;
+}
+
+.login-card .wizard-header { justify-content: center; }
+
+.error-text { color: var(--danger); font-size: 0.9rem; margin-bottom: 1rem; }
+.error-text:empty { margin: 0; }
+
+.state-pill {
+  display: inline-block;
+  padding: 0.25rem 0.8rem;
+  border-radius: var(--radius-pill);
+  background: var(--blue-1);
+  color: var(--navy);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+/* ===========================================================
+ * Navigation & UX pass — persistent topbar, clickable step
+ * rail, collapsed-progress, modals, toggles, resume card,
+ * dashboard grid, 3-state upgrade panel.
+ * Source: no-git-assets/design_handoff_deployment_wizard_nav/README.md
+ * =========================================================== */
+
+/* Topbar */
+.topbar {
+  height: 64px;
+  background: #ffffff;
+  border-bottom: 1px solid var(--blue-3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 32px;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.topbar-left {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.topbar-home {
+  display: inline-flex;
+  align-items: baseline;
+  text-decoration: none;
+  border-radius: 4px;
+}
+
+.topbar .brand-name {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  color: var(--navy);
+}
+
+.topbar .brand-name .accent { color: var(--gold-ink); }
+
+/* The app never named itself anywhere except the login screen. */
+.topbar-app-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Active nav state — Dashboard and Settings were two identical pills with
+   nothing indicating which page you were actually on. */
+.btn-outline[aria-current="page"] {
+  background: var(--navy);
+  border-color: var(--navy);
+  color: #fff;
+}
+
+.btn-outline[aria-current="page"]:hover { background: var(--navy); }
+
+/* Replaces the title="" tooltip that could never fire: .is-disabled sets
+   pointer-events:none, which suppresses the hover the tooltip needs. */
+.topbar-lock-note {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--gold-ink);
+  white-space: nowrap;
+}
+
+/* Chips (topbar env/version pills) */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--blue-1);
+  color: var(--navy);
+}
+
+/* Outline / text button variants (topbar actions) */
+.btn-outline {
+  background: transparent;
+  border: 1.5px solid var(--navy);
+  color: var(--navy);
+  padding: 8px 18px;
+  font-size: 13px;
+}
+
+.btn-outline:hover { background: var(--blue-1); }
+
+.btn-text {
+  background: transparent;
+  border: none;
+  color: var(--navy);
+  font-size: 13px;
+  padding: 8px 4px;
+}
+
+.btn-text:hover { text-decoration: underline; }
+
+.is-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Outcome banner + action bar shown when a run finishes (see
+   public/run-progress.js). A failed run used to be a dead end: an error
+   sentence and a permanently-greyed Continue button, with no retry, no way
+   back, and no way to get the log out. */
+.run-outcome {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  border-radius: 8px;
+  padding: 16px 18px;
+  margin-top: 1.25rem;
+  font-size: 0.95rem;
+}
+
+.run-outcome-success {
+  background: var(--success-bg);
+  border: 1px solid var(--success);
+  color: var(--success);
+}
+
+.run-outcome-failure {
+  background: var(--danger-bg);
+  border: 1px solid var(--danger);
+  color: var(--danger);
+}
+
+.run-outcome strong { display: block; margin-bottom: 0.15rem; }
+.run-outcome .run-outcome-detail { color: var(--navy); font-weight: 400; }
+
+.run-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+}
+
+/* Upgrade preview (views/upgrade-preview.ejs) — one row per configuration
+   migration, expanded when it would change something. */
+.plan-item {
+  border: 1px solid var(--blue-3);
+  border-radius: 8px;
+  padding: 0.85rem 1rem;
+  margin-top: 0.75rem;
+  background: #fff;
+}
+
+.plan-item summary {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.plan-item summary::-webkit-details-marker { display: none; }
+
+.plan-item summary::after {
+  content: '▸';
+  margin-left: auto;
+  color: var(--ink-2);
+  font-size: 0.85rem;
+}
+
+.plan-item[open] summary::after { content: '▾'; }
+
+.plan-item-title { font-weight: 600; font-size: 0.95rem; }
+
+.plan-item-id {
+  font-size: 0.78rem;
+  color: var(--ink-2);
+  background: var(--blue-1);
+  padding: 0.1rem 0.45rem;
+  border-radius: var(--radius-pill);
+}
+
+.plan-item-files { margin: 0.6rem 0 0.4rem; }
+
+.plan-body {
+  background: var(--navy-dark);
+  color: #dce8ff;
+  padding: 0.9rem 1rem;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  overflow-x: auto;
+  white-space: pre;
+  margin: 0;
+}
+
+/* Step rail (onboarding pages) */
+.step-rail {
+  background: var(--blue-2);
+  border-bottom: 1px solid var(--blue-3);
+  padding: 18px 32px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.step-track {
+  flex: 1;
+  max-width: 640px;
+  position: relative;
+}
+
+.step-track-line {
+  position: absolute;
+  top: 15px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--blue-3);
+}
+
+.step-track-line-active {
+  position: absolute;
+  top: 15px;
+  left: 0;
+  height: 2px;
+  background: var(--navy);
+  transition: width 0.2s ease;
+}
+
+.step-dots {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.step-dot-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 78px;
+}
+
+/* Any dot rendered as a link is reachable — including a step ahead of the
+   cursor that the operator has already been through. */
+a.step-dot { cursor: pointer; }
+
+.step-dot {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.step-dot-done { background: var(--navy); color: #fff; cursor: pointer; }
+.step-dot-current { background: var(--gold-ink); color: #fff; }
+/* Ahead of the cursor but already reached — navigable, and visibly distinct
+   from both a completed step and a locked one. */
+.step-dot-reached {
+  background: #fff;
+  border: 2px solid var(--navy);
+  color: var(--navy);
+  cursor: pointer;
+}
+.step-dot-upcoming { background: var(--blue-3); color: rgba(0, 31, 62, 0.75); cursor: default; }
+
+.step-dot-done:hover { filter: brightness(1.6); }
+.step-dot-reached:hover { background: var(--blue-1); }
+
+.step-dot-label {
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  line-height: 1.2;
+}
+
+.step-dot-label-done { color: var(--navy); }
+.step-dot-label-reached { color: var(--navy); }
+.step-dot-label-current { color: var(--gold-ink); }
+.step-dot-label-upcoming { color: var(--ink-2); }
+
+.step-rail-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: none;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.step-rail-current-label { font-size: 13px; font-weight: 700; color: var(--navy); }
+
+/* A <button>, not an <a href="#"> — it opens a dialog, it doesn't navigate. */
+.step-rail-exit-link {
+  background: none;
+  border: none;
+  padding: 4px 2px;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--navy);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+/* Collapsed progress (Dashboard / Upgrade-progress) */
+.collapsed-progress {
+  background: var(--blue-2);
+  border-bottom: 1px solid var(--blue-3);
+  padding: 14px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.badge-setup-complete {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(46, 125, 78, 0.1);
+  border: 1px solid var(--success);
+  color: var(--success);
+  border-radius: var(--radius-pill);
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.collapsed-progress-note {
+  font-size: 0.82rem;
+  color: var(--gray-1);
+}
+
+/* Confirm modals (Exit, Logout) */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 31, 62, 0.45);
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal-overlay.modal-open { display: flex; }
+
+.modal-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 32px;
+  width: 380px;
+  max-width: calc(100vw - 2rem);
+  box-shadow: 0 4px 20px rgba(0, 31, 62, 0.25);
+}
+
+.modal-card h2 { font-size: 17px; font-weight: 700; color: var(--navy); margin: 0 0 0.75rem; }
+.modal-card p { font-size: 14px; color: rgba(0, 31, 62, 0.65); line-height: 1.5; margin: 0 0 1.5rem; }
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+/* Toggle switches (Feature Toggles step) */
+.toggle-row { display: flex; align-items: flex-start; gap: 0.85rem; }
+
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  flex: none;
+  cursor: pointer;
+}
+
+.toggle-switch input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.toggle-track {
+  position: absolute;
+  inset: 0;
+  /* Was --blue-3, which is 1.3:1 against a white card — the OFF state of a
+     toggle was all but invisible. */
+  background: #748ead;
+  border-radius: var(--radius-pill);
+  transition: background 0.15s ease;
+}
+
+.toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  background: #fff;
+  border-radius: 50%;
+  transition: left 0.15s ease;
+  box-shadow: 0 1px 2px rgba(0, 31, 62, 0.25);
+}
+
+.toggle-switch input:checked ~ .toggle-track { background: var(--gold-ink); }
+.toggle-switch input:checked ~ .toggle-track .toggle-knob { left: 22px; }
+.toggle-switch input:focus-visible ~ .toggle-track {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.toggle-label { font-weight: 600; font-size: 0.9rem; }
+
+/* Welcome-back resume card */
+.resume-card {
+  background: var(--blue-1);
+  border-radius: 8px;
+  padding: 16px 20px;
+  margin: 1rem 0 1.5rem;
+}
+
+.resume-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+  margin-bottom: 0.35rem;
+}
+
+.resume-step-name {
+  display: block;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--navy);
+}
+
+/* Dashboard */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-bottom: 1.5rem;
+}
+
+@media (max-width: 720px) {
+  .dashboard-grid { grid-template-columns: 1fr; }
+}
+
+.dashboard-version-number {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--navy);
+  margin: 0.25rem 0;
+}
+
+/* Upgrade panel — 3 mutually-exclusive states */
+.upgrade-panel { padding: 32px; }
+
+.upgrade-state { margin-top: 1rem; }
+
+.upgrade-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  border-radius: 8px;
+  padding: 18px 20px;
+}
+
+.upgrade-row-uptodate { background: var(--blue-1); }
+
+.upgrade-row-available {
+  background: rgba(181, 134, 53, 0.08);
+  border: 1px solid rgba(181, 134, 53, 0.35);
+  justify-content: space-between;
+}
+
+.badge-round {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  color: #fff;
+}
+
+.badge-round-success { background: var(--success); }
+
+.btn-quiet-link {
+  display: inline-block;
+  margin-top: 0.85rem;
+  font-size: 0.85rem;
+  color: var(--navy);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Onboarding step cards read as a form, not a full-width panel — narrow and
+   centered, same as the handoff spec (560px). Scoped so it never touches the
+   Dashboard's grid cards or the full-width upgrade panel. */
+.step-rail + .card,
+.wizard-shell > .card:only-child {
+  max-width: 560px;
+  margin: 0 auto;
+}

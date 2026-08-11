@@ -1,0 +1,50 @@
+<%
+  // Expects: hostname, version (nullable), hasCompletedSetup, runActive.
+  // (see lib/topbarContext.js — every route spreads its result into locals).
+  // `activeNav` comes from res.locals in app.js, derived from the request
+  // path, so the current section is highlighted without every route having
+  // to remember to pass it.
+  // Sticky header, present on every page except login.ejs (per the nav/UX
+  // design handoff, no-git-assets/design_handoff_deployment_wizard_nav/).
+  const nav = typeof activeNav !== 'undefined' ? activeNav : '';
+  const homeHref = hasCompletedSetup ? '/dashboard' : '/';
+  // Links are left in the tab order but marked aria-disabled rather than
+  // carrying a title="" tooltip: .is-disabled sets pointer-events:none,
+  // which suppresses the hover a native tooltip needs, so the explanation
+  // was never actually reachable. It's a visible note now instead.
+  const lockedClass = runActive ? 'is-disabled' : '';
+  const lockedAttr = runActive ? 'aria-disabled="true"' : '';
+%>
+<header class="topbar">
+  <div class="topbar-left">
+    <a href="<%= homeHref %>" class="topbar-home" aria-label="PadSign Deployment Wizard — home">
+      <span class="brand-name">TRUST<span class="accent">LYNX</span></span>
+    </a>
+    <span class="topbar-app-name">PadSign Deployment Wizard</span>
+  </div>
+  <nav class="topbar-right" aria-label="Main">
+    <% if (runActive) { %>
+      <span class="topbar-lock-note" id="topbar-lock-note">Run in progress — navigation locked</span>
+    <% } %>
+    <span class="chip chip-env" title="Configured hostname"><%= hostname %></span>
+    <% if (version) { %>
+      <span class="chip chip-version" title="Installed ps-server / ps-client tags">v<%= version %></span>
+    <% } %>
+    <% if (hasCompletedSetup) { %>
+      <a href="/dashboard" class="btn btn-outline <%= lockedClass %>"
+         <%- nav === 'dashboard' ? 'aria-current="page"' : '' %> <%- lockedAttr %>>Dashboard</a>
+      <a href="/settings" class="btn btn-outline <%= lockedClass %>"
+         <%- nav === 'settings' ? 'aria-current="page"' : '' %> <%- lockedAttr %>>Settings</a>
+    <% } %>
+    <button type="button" class="btn btn-text <%= lockedClass %>" <%- lockedAttr %>
+      onclick="openModal('logout-modal')">Log Out</button>
+  </nav>
+</header>
+<%- include('modal', {
+  id: 'logout',
+  title: 'End this session?',
+  body: "You'll need your deployment token to sign back in.",
+  cancelLabel: 'Cancel',
+  confirmLabel: 'Log Out',
+  confirmAction: '/api/logout'
+}) %>

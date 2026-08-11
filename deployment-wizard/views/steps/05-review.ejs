@@ -1,0 +1,77 @@
+<%- include('../partials/head', { title: 'Review — PadSign Deployment Wizard' }) %>
+<%- include('../partials/topbar', { hostname, version, hasCompletedSetup, runActive }) %>
+<main id="main" class="wizard-shell">
+  <%- include('../partials/stepProgress', { current: 5, furthestStepReached: wizard.furthestStepReached }) %>
+
+  <div class="card">
+    <h1>Review &amp; Confirm</h1>
+    <p class="subtitle">Everything below is what a direct <code>bootstrap.sh</code> run would be given, in the same shape.</p>
+
+    <ul class="checklist">
+      <li><span class="badge badge-ok">OK</span><span>Host: <strong><%= wizard.host %></strong></span></li>
+      <li><span class="badge badge-ok">OK</span><span>Company / role: <strong><%= wizard.companyRole %></strong></span></li>
+      <li><span class="badge badge-ok">OK</span><span>Keycloak realm: <strong><%= wizard.realm %></strong></span></li>
+      <li><span class="badge badge-ok">OK</span><span>Keycloak admin: <strong><%= wizard.adminUser %></strong> / <span id="pw-mask">••••••••</span><button type="button" id="pw-toggle" class="btn btn-link" style="padding:0 0.25rem;" aria-label="Show the Keycloak admin password" aria-pressed="false">show</button></span></li>
+      <li><span class="badge badge-ok">OK</span><span>TLS certificate validated for <strong><%= wizard.cert.host %></strong><% if (wizard.allowSelfSigned) { %> (chain check skipped — self-signed allowed)<% } %></span></li>
+      <% features.forEach((f) => { %>
+        <li>
+          <span class="badge <%= wizard.features[f.key] ? 'badge-ok' : 'badge-pending' %>"><%= wizard.features[f.key] ? 'ON' : 'OFF' %></span>
+          <span><%= f.label %></span>
+        </li>
+      <% }) %>
+    </ul>
+
+    <hr class="divider">
+    <p class="subtitle">
+      Deploying runs the same steps as
+      <code>bootstrap.sh --host <%= wizard.host %> --company-role "<%= wizard.companyRole %>" --admin-pass ****<% features.forEach((f) => { if (wizard.features[f.key]) { %> --<%= f.key.replace(/_/g, '-') %><% } }) %><% if (wizard.allowSelfSigned) { %> --allow-self-signed<% } %></code>
+    </p>
+
+    <button id="deployBtn" class="btn btn-primary">Confirm &amp; Deploy</button>
+    <a href="/wizard/step/4" class="btn btn-link">Back</a>
+    <p id="deployError" class="error-text" role="alert" style="margin-top:1rem;"></p>
+  </div>
+</main>
+<script>
+  document.getElementById('deployBtn').addEventListener('click', async function () {
+    this.disabled = true;
+    this.textContent = 'Starting…';
+    const errBox = document.getElementById('deployError');
+    errBox.textContent = '';
+    try {
+      const resp = await fetch('/api/deploy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'bootstrap' })
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        errBox.textContent = data.error || 'Failed to start deploy.';
+        this.disabled = false;
+        this.textContent = 'Confirm & Deploy';
+        return;
+      }
+      window.location.href = '/wizard/step/6?runId=' + encodeURIComponent(data.runId);
+    } catch (e) {
+      errBox.textContent = 'Request failed — check your connection to the wizard.';
+      this.disabled = false;
+      this.textContent = 'Confirm & Deploy';
+    }
+  });
+
+  document.getElementById('pw-toggle').addEventListener('click', function () {
+    const mask = document.getElementById('pw-mask');
+    if (mask.textContent.includes('•')) {
+      mask.textContent = <%- JSON.stringify(wizard.adminPass || '') %>;
+      this.textContent = 'hide';
+      this.setAttribute('aria-label', 'Hide the Keycloak admin password');
+      this.setAttribute('aria-pressed', 'true');
+    } else {
+      mask.textContent = '••••••••';
+      this.textContent = 'show';
+      this.setAttribute('aria-label', 'Show the Keycloak admin password');
+      this.setAttribute('aria-pressed', 'false');
+    }
+  });
+</script>
+<%- include('../partials/foot') %>

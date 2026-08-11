@@ -1,0 +1,137 @@
+[
+	{
+	"name": "DMSSDoc",
+	"id": 0,
+	"archiveName": "FS-MAIN",
+	"baseCategoryId": 0,
+	"basePath": "{YYYY}/{MM}/{DD}",
+	"spec": [
+	  {
+		"operation": "shift",
+		"spec": {
+		  "a": "a"
+		}
+	  }
+	]
+	},
+	{
+	  "name": "Personala dokumenti",
+	  "id": 0,
+	  "archiveName": "FSA-MAIN",
+	  "baseCategoryId": 0,
+	  "basePath": "Personala dokumenti",
+	  "usePipeline": false,
+	  "syncDelay": 10,
+	  "spec": [
+		{
+		  "operation": "shift",
+		  "spec": {
+			"a": "a"
+		  }
+		}
+	  ]
+	},
+	{
+	  "name": "Rikojumi",
+	  "id": 0,
+	  "archiveName": "FSA-MAIN",
+	  "baseCategoryId": 0,
+	  "basePath": "Rikojumi",
+	  "usePipeline": false,
+	  "syncDelay": 10,
+	  "spec": [
+		{
+		  "operation": "shift",
+		  "spec": {
+			"a": "a"
+		  }
+		}
+	  ]
+	},
+	{
+	  "name": "Celazimes",
+	  "id": 0,
+	  "archiveName": "FSA-MAIN",
+	  "baseCategoryId": 0,
+	  "basePath": "Celazimes",
+	  "usePipeline": false,
+	  "syncDelay": 10,
+	  "spec": [
+		{
+		  "operation": "shift",
+		  "spec": {
+			"a": "a"
+		  }
+		}
+	  ]
+	},
+	{
+	  "name": "Algas",
+	  "id": 0,
+	  "archiveName": "FSA-MAIN",
+	  "baseCategoryId": 0,
+	  "basePath": "Algas",
+	  "usePipeline": false,
+	  "syncDelay": 10,
+	  "spec": [
+		{
+		  "operation": "shift",
+		  "spec": {
+			"a": "a"
+		  }
+		}
+	  ]
+	},
+	{
+	  "name": "Ligumi",
+	  "id": 0,
+	  "archiveName": "FSA-MAIN",
+	  "baseCategoryId": 0,
+	  "basePath": "Ligumi",
+	  "usePipeline": false,
+	  "syncDelay": 10,
+	  "spec": [
+		{
+		  "operation": "shift",
+		  "spec": {
+			"a": "a"
+		  }
+		}
+	  ]
+	},
+	{
+	  "name": "Pamatlidzekli",
+	  "id": 0,
+	  "archiveName": "FSA-MAIN",
+	  "baseCategoryId": 0,
+	  "basePath": "Pamatlidzekli",
+	  "usePipeline": false,
+	  "syncDelay": 10,
+	  "spec": [
+		{
+		  "operation": "shift",
+		  "spec": {
+			"a": "a"
+		  }
+		}
+	  ]
+	},
+	{
+	  "name": "Citi dokumenti",
+	  "id": 0,
+	  "archiveName": "FSA-MAIN",
+	  "baseCategoryId": 0,
+	  "basePath": "Citi dokumenti",
+	  "usePipeline": false,
+	  "syncDelay": 10,
+	  "spec": [
+		{
+		  "operation": "shift",
+		  "spec": {
+			"a": "a"
+		  }
+		}
+	  ]
+	}
+]
+

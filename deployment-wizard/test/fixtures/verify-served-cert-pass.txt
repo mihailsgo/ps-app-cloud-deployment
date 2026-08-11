@@ -1,0 +1,23 @@
+PadSign Served-Certificate Verifier
+  Host:     padsign.example.com  (derived from nginx/nginx.conf)
+  On disk:  /opt/psapp/nginx/certs/padsign.example.com.crt  (derived from nginx/nginx.conf)
+  Endpoint: localhost:443  (default)
+================================================
+
+Disk checks:
+  OK   on-disk certificate readable
+  OK   on-disk certificate parses (SHA-256 34:D7:8B:3F:50:5D:AB:2E..., 4 PEM block(s))
+  OK   on-disk certificate is not expiring soon (notAfter: Sep 15 13:37:31 2026 GMT)
+
+nginx service checks:
+  OK   nginx service is running
+
+Served-certificate checks:
+  OK   TLS handshake to localhost:443 succeeded
+  OK   the certificate nginx is serving matches the one on disk (SHA-256 34:D7:8B:3F:50:5D:AB:2E...)
+  OK   served certificate is not expiring soon (notAfter: Sep 15 13:37:31 2026 GMT)
+  OK   the served certificate is valid for padsign.example.com
+  OK   served chain depth matches the on-disk file (4 certificate(s))
+
+================================================
+All served-certificate checks passed.

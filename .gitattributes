@@ -1,0 +1,10 @@
+# installation-scripts/*.sh run on real Linux deployment targets via bash.
+# Windows checkouts with core.autocrlf=true silently rewrite these to CRLF
+# on checkout with no .gitattributes to override it — real bash then fails
+# outright on lines like `set -euo pipefail\r` ("invalid option name").
+# Force LF regardless of the checking-out machine's git config.
+# Found by E2E-testing the deployment wizard against a real Linux server.
+*.sh text eol=lf
+
+# Windows-only counterpart script — keep native CRLF.
+*.ps1 text eol=crlf

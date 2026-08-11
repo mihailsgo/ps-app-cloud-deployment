@@ -1,0 +1,30 @@
+<%- include('../partials/head', { title: 'Feature Toggles — PadSign Deployment Wizard' }) %>
+<%- include('../partials/topbar', { hostname, version, hasCompletedSetup, runActive }) %>
+<main id="main" class="wizard-shell">
+  <%- include('../partials/stepProgress', { current: 4, furthestStepReached: wizard.furthestStepReached }) %>
+
+  <div class="card">
+    <h1>Feature Toggles</h1>
+    <p class="subtitle">All off by default — turn on only what this deployment needs.</p>
+
+    <form method="post" action="/wizard/step/4">
+      <% features.forEach((f) => { %>
+        <div class="field toggle-row">
+          <label class="toggle-switch">
+            <input type="checkbox" name="<%= f.key %>" <%= wizard.features[f.key] ? 'checked' : '' %>>
+            <span class="toggle-track"><span class="toggle-knob"></span></span>
+          </label>
+          <div>
+            <span class="toggle-label"><%= f.label %></span>
+            <p class="hint" style="margin:0.2rem 0 0;"><%= f.description %></p>
+          </div>
+        </div>
+      <% }) %>
+
+      <hr class="divider">
+      <button type="submit" class="btn btn-primary">Next: Review</button>
+      <a href="/wizard/step/3" class="btn btn-link">Back</a>
+    </form>
+  </div>
+</main>
+<%- include('../partials/foot') %>

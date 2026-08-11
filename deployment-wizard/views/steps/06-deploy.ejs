@@ -1,0 +1,55 @@
+<%- include('../partials/head', { title: 'Deploy — PadSign Deployment Wizard' }) %>
+<%- include('../partials/topbar', { hostname, version, hasCompletedSetup, runActive }) %>
+<main id="main" class="wizard-shell">
+  <%- include('../partials/stepProgress', { current: 6, furthestStepReached: wizard.furthestStepReached }) %>
+
+  <div class="card">
+    <h1>Deploying</h1>
+    <p class="subtitle">Running the same steps as a direct <code>bootstrap.sh</code> invocation.</p>
+
+    <ul class="checklist" id="deploySteps" aria-live="polite" aria-relevant="additions text"
+        aria-label="Deployment steps"></ul>
+
+    <p id="overallStatus" class="subtitle" role="status" style="margin-top:1rem;"></p>
+
+    <div id="runActions" class="run-actions" hidden></div>
+
+    <details style="margin-top:1rem;">
+      <summary style="cursor:pointer; color:var(--ink-2); font-size:0.85rem;">Raw output</summary>
+      <pre id="rawLog" tabindex="0" style="background:var(--navy-dark); color:#dce8ff; padding:1rem; border-radius:8px; max-height:320px; overflow:auto; font-size:0.78rem; white-space:pre-wrap;"></pre>
+    </details>
+
+    <hr class="divider">
+    <%
+      // Rendered without an href while disabled. The old version kept the
+      // href and relied on pointer-events:none, which stops the mouse but
+      // not the keyboard — Tab + Enter walked straight past the gate into
+      // step 7 mid-deploy.
+    %>
+    <a id="continueLink" class="btn btn-primary is-disabled" aria-disabled="true">Continue to Verify</a>
+    <span id="continueHint" class="hint" style="display:inline-block; margin-left:0.5rem;">Available once the deploy finishes successfully.</span>
+  </div>
+</main>
+<script src="/run-progress.js"></script>
+<script>
+  initRunProgress({
+    runId: <%- JSON.stringify(runId) %>,
+    successText: 'Bootstrap finished successfully.',
+    failText: 'Bootstrap failed.',
+    backHref: '/wizard/step/5',
+    backLabel: 'Back to Review',
+    retryRedirect: '/wizard/step/6',
+    // bootstrap.sh goes quiet here while it waits on Keycloak; without this
+    // the UI looks hung.
+    stepHints: { '5': 'Keycloak setup — this can take up to a minute, output pauses here' },
+    onSuccess: function () {
+      var link = document.getElementById('continueLink');
+      link.href = '/wizard/step/7';
+      link.classList.remove('is-disabled');
+      link.removeAttribute('aria-disabled');
+      link.focus();
+      document.getElementById('continueHint').remove();
+    }
+  });
+</script>
+<%- include('../partials/foot') %>

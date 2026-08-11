@@ -1,0 +1,11 @@
+<%
+  // Same layout slot as stepProgress.ejs, for Dashboard/Upgrade-progress —
+  // so returning to Dashboard doesn't feel like a different app, while
+  // still showing setup is done, not just omitted. Expects: sessionNote
+  // (optional, e.g. "Session started today").
+  const note = typeof sessionNote !== 'undefined' ? sessionNote : '';
+%>
+<div class="collapsed-progress">
+  <span class="badge-setup-complete">✓ Setup complete</span>
+  <% if (note) { %><span class="collapsed-progress-note"><%= note %></span><% } %>
+</div>

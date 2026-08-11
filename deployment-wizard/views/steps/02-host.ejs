@@ -1,0 +1,70 @@
+<%- include('../partials/head', { title: 'Host & Company — PadSign Deployment Wizard' }) %>
+<%- include('../partials/topbar', { hostname, version, hasCompletedSetup, runActive }) %>
+<main id="main" class="wizard-shell">
+  <%- include('../partials/stepProgress', { current: 2, furthestStepReached: wizard.furthestStepReached }) %>
+
+  <div class="card">
+    <h1>Host &amp; Company</h1>
+    <p class="subtitle">This becomes the hostname clients reach PadSign at, and the Keycloak realm/admin setup.</p>
+
+    <% if (error) { %>
+      <p class="error-text"><%= error %></p>
+    <% } %>
+
+    <form method="post" action="/wizard/step/2">
+      <div class="field">
+        <label for="host">Hostname</label>
+        <input type="text" id="host" name="host" placeholder="padsign.client.com" value="<%= wizard.host || '' %>" required>
+        <p class="hint" id="dns-hint" aria-live="polite"></p>
+      </div>
+
+      <div class="field">
+        <label for="companyRole">Company / role name</label>
+        <input type="text" id="companyRole" name="companyRole" placeholder="Acme Corp" value="<%= wizard.companyRole || '' %>" required>
+        <p class="hint">Used as the Keycloak realm role for this client.</p>
+      </div>
+
+      <div class="field">
+        <label for="realm">Keycloak realm name</label>
+        <input type="text" id="realm" name="realm" value="<%= wizard.realm || 'padsign' %>">
+      </div>
+
+      <div class="field">
+        <label for="adminUser">Keycloak admin username</label>
+        <input type="text" id="adminUser" name="adminUser" value="<%= wizard.adminUser || 'admin' %>">
+      </div>
+
+      <div class="field">
+        <label for="adminPass">Keycloak admin password</label>
+        <input type="password" id="adminPass" name="adminPass" required>
+        <p class="hint">Do not use the default "admin" in a production deployment.</p>
+      </div>
+
+      <hr class="divider">
+      <button type="submit" class="btn btn-primary">Next: TLS Certificate</button>
+      <a href="/" class="btn btn-link">Back</a>
+    </form>
+  </div>
+</main>
+<script>
+  const hostInput = document.getElementById('host');
+  const hint = document.getElementById('dns-hint');
+  let debounceTimer;
+  hostInput.addEventListener('input', () => {
+    clearTimeout(debounceTimer);
+    const host = hostInput.value.trim();
+    if (!host) { hint.textContent = ''; return; }
+    debounceTimer = setTimeout(async () => {
+      try {
+        const resp = await fetch('/api/wizard/dns-check?host=' + encodeURIComponent(host));
+        const data = await resp.json();
+        hint.textContent = data.resolved
+          ? 'Resolves to: ' + data.addresses.join(', ') + ' (informational only)'
+          : 'Does not resolve from this host yet — that\'s fine if DNS/hosts-file setup happens later, but confirm before going live.';
+      } catch (e) {
+        hint.textContent = '';
+      }
+    }, 500);
+  });
+</script>
+<%- include('../partials/foot') %>

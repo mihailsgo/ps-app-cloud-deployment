@@ -1,0 +1,19 @@
+<%
+  // Shared confirm-modal markup — expects: id, title, body, cancelLabel,
+  // confirmLabel, confirmAction (form POST target). Hidden by default;
+  // opened via openModal('<id>-modal') from public/wizard-ui.js, which owns
+  // the focus trap, Escape handling, overlay-click dismiss and focus
+  // restoration (see topbar.ejs / stepProgress.ejs triggers).
+%>
+<div class="modal-overlay" id="<%= id %>-modal">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="<%= id %>-modal-title">
+    <h2 id="<%= id %>-modal-title"><%= title %></h2>
+    <p><%= body %></p>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-link" onclick="closeModal('<%= id %>-modal')"><%= cancelLabel %></button>
+      <form method="post" action="<%= confirmAction %>" style="display:inline;">
+        <button type="submit" class="btn btn-primary"><%= confirmLabel %></button>
+      </form>
+    </div>
+  </div>
+</div>

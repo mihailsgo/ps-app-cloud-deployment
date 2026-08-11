@@ -1,0 +1,63 @@
+server:
+  port: 8084
+
+spring:
+  application:
+    name: dmss-digital-stamping-services
+  threads:
+    virtual:
+      enabled: true
+
+# The prebuilt trustlynx/digital-stamping-service:24.0.3.0 image ships an
+# application.yml in its jar that contains a `management.endpoints.enable: true`
+# typo (the correct property is `enabled-by-default`). With SPRING_CONFIG_LOCATION
+# that override would silently kill all actuator endpoints except health. We
+# layer this file via SPRING_CONFIG_ADDITIONAL_LOCATION so the in-jar defaults
+# still load, and we explicitly re-enable each endpoint we need.
+management:
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  tracing:
+    enabled: false
+  endpoint:
+    health:
+      enabled: true
+    loggers:
+      enabled: true
+    mappings:
+      enabled: true
+    env:
+      enabled: true
+    beans:
+      enabled: true
+  endpoints:
+    enabled-by-default: true
+    web:
+      exposure:
+        include: [ "health","metrics","prometheus","loggers","mappings","env","beans" ]
+
+stamping:
+  companies:
+    # Single demo company matching the existing `TrustLynx` profile baked into
+    # container-signature's documentsigningprofiles.json. Its esealCompany is
+    # "TrustLynx", so a request to /api/eseal/document/profile/TrustLynx will
+    # resolve here without any JSON edits.
+    - name: "TrustLynx"
+      providers:
+        - name: P12
+          engine: P12
+          keystore: file:/seal/seal.p12
+          password: changeit
+          alias: seal
+
+logging:
+  pattern:
+    console: '%d{yyyy-MM-dd HH:mm:ss.SSS} [%X{X-Session-ID} %X{X-Request-ID} %X{traceId} %X{spanId}] %-5p [%t] %logger{36} - %msg%n'
+  level:
+    root: info
+    ee:
+      digitalmind: info
+
+service-data-collector:
+  enabled: false

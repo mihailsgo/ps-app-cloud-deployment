@@ -1,0 +1,10 @@
+#TSL_LOCATION: "https://open-eid.github.io/test-TL/tl-mp-test-EE.xml"
+#TSP_SOURCE: "http://demo.sk.ee/tsa"
+#TSP_SOURCE: "http://tsa.sk.ee"
+#OCSP_SOURCE: http://ocsp.sk.ee/_proxy
+#TSL_CACHE_EXPIRATION_TIME: 86400000000
+#SSL_TRUSTSTORE_PATH: file: "file:/confs/ssl_tsl_truststore.p12"
+#SSL_TRUSTSTORE_TYPE: SSL TrustStore type (default is "jks")</li>
+#SSL_TRUSTSTORE_PASSWORD: changeit
+#TRUSTED_TERRITORIES: EE_T, LV
+

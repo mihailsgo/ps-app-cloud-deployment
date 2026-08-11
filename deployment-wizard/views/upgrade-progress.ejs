@@ -1,0 +1,36 @@
+<%- include('partials/head', { title: 'Upgrade — PadSign Deployment Wizard' }) %>
+<%- include('partials/topbar', { hostname, version, hasCompletedSetup, runActive: true }) %>
+<%- include('partials/collapsed-progress', { sessionNote: 'Upgrade in progress' }) %>
+<main id="main" class="wizard-shell">
+  <div class="card">
+    <h1>Upgrading</h1>
+    <p class="subtitle">Running the same steps as a direct <code>upgrade.sh</code> invocation.</p>
+
+    <ul class="checklist" id="deploySteps" aria-live="polite" aria-relevant="additions text"
+        aria-label="Upgrade steps"></ul>
+
+    <p id="overallStatus" class="subtitle" role="status" style="margin-top:1rem;"></p>
+
+    <div id="runActions" class="run-actions" hidden></div>
+
+    <details style="margin-top:1rem;">
+      <summary style="cursor:pointer; color:var(--ink-2); font-size:0.85rem;">Raw output</summary>
+      <pre id="rawLog" tabindex="0" style="background:var(--navy-dark); color:#dce8ff; padding:1rem; border-radius:8px; max-height:320px; overflow:auto; font-size:0.78rem; white-space:pre-wrap;"></pre>
+    </details>
+
+    <hr class="divider">
+    <a href="/dashboard" class="btn btn-secondary">Back to Dashboard</a>
+  </div>
+</main>
+<script src="/run-progress.js"></script>
+<script>
+  initRunProgress({
+    runId: <%- JSON.stringify(runId) %>,
+    successText: 'Upgrade finished successfully.',
+    failText: 'Upgrade failed.',
+    backHref: '/dashboard',
+    backLabel: 'Back to Dashboard',
+    retryRedirect: '/upgrade/progress'
+  });
+</script>
+<%- include('partials/foot') %>

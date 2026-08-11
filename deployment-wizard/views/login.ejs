@@ -1,0 +1,44 @@
+<%- include('partials/head', { title: 'Sign in — PadSign Deployment Wizard' }) %>
+<main id="main" class="login-shell">
+  <div class="login-card card">
+    <%- include('partials/brand') %>
+    <h1>Enter access token</h1>
+    <p class="subtitle">
+      Run <code>docker logs padsign-wizard</code> on this host and copy the token printed
+      at startup. It's regenerated every time the wizard container starts.
+    </p>
+    <% if (error) { %>
+      <p class="error-text" role="alert"><%= error %></p>
+    <% } %>
+    <form method="post" action="/api/auth">
+      <div class="field" style="text-align:left;">
+        <label for="token">Access token</label>
+        <input type="password" id="token" name="token" autocomplete="off" autofocus required>
+        <%
+          // The token is a long opaque random string that gets pasted, not
+          // typed — with no way to reveal it, a bad paste just returns
+          // "invalid token" with nothing to compare against.
+        %>
+        <button type="button" class="btn btn-link" id="token-toggle" style="padding:0.25rem;"
+                aria-controls="token" aria-pressed="false">Show token</button>
+      </div>
+      <button type="submit" class="btn btn-primary" style="width:100%;">Unlock</button>
+    </form>
+    <p class="subtitle" style="margin-top:1.5rem; font-size:0.85rem;">
+      Your browser may warn that this connection is not private — that's expected. The wizard
+      uses a throwaway self-signed certificate for its own admin UI, separate from the real
+      TLS certificate you'll upload for PadSign itself in a later step.
+    </p>
+  </div>
+</main>
+<script>
+  document.getElementById('token-toggle').addEventListener('click', function () {
+    var input = document.getElementById('token');
+    var shown = input.type === 'text';
+    input.type = shown ? 'password' : 'text';
+    this.textContent = shown ? 'Show token' : 'Hide token';
+    this.setAttribute('aria-pressed', String(!shown));
+    input.focus();
+  });
+</script>
+<%- include('partials/foot') %>

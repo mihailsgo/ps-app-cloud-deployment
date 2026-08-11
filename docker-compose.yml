@@ -1,0 +1,178 @@
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.3.2
+    environment:
+      - KEYCLOAK_ADMIN=admin
+      - KEYCLOAK_ADMIN_PASSWORD=admin
+      - KC_HOSTNAME=padsign.trustlynx.com
+      - KC_HTTP_RELATIVE_PATH=/auth
+      - KC_PROXY=edge
+      - KC_HOSTNAME_STRICT=false
+      - KC_HOSTNAME_STRICT_HTTPS=false
+      - KC_PROXY_HEADERS=xforwarded
+    command: start-dev
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    volumes:
+      - keycloak_data:/opt/keycloak/data
+  dmss-archive-services:
+    container_name: dmss-archive-services
+    restart: always
+    ports:
+      - '86:8090'
+    volumes:
+      - './dmss-archive-services:/confs'
+    environment:
+      - SPRING_CONFIG_LOCATION=/confs/
+    image: 'trustlynx/dmss-archive-services:24.2.0.8'
+  dmss-container-and-signature-services:
+    container_name: dmss-container-and-signature-services
+    restart: always
+    ports:
+      - '84:8092'
+    volumes:
+      - './dmss-container-and-signature-services:/confs'
+    environment:
+      - SPRING_CONFIG_LOCATION=/confs/
+    image: 'trustlynx/container-signature-service:24.3.0.49'
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Optional local e-sealing backend. Only starts when the "local-eseal"
+  # compose profile is active (set COMPOSE_PROFILES=local-eseal in .env or
+  # pass --profile local-eseal). Existing deployments that don't opt in are
+  # completely unaffected.
+  #
+  # When active, this container is reached over the docker bridge network at
+  # `dmss-digital-stamping-service:8084` by dmss-container-and-signature-services.
+  # No host port mapping by design — avoids collision with any USB-token
+  # signing service that customers may already be running on host:8084.
+  # ─────────────────────────────────────────────────────────────────────────
+  dmss-digital-stamping-service:
+    container_name: dmss-digital-stamping-service
+    profiles: ["local-eseal"]
+    restart: always
+    image: 'trustlynx/digital-stamping-service:24.0.3.0'
+    environment:
+      # ADDITIONAL_LOCATION (not LOCATION) so the in-jar baked YAML still loads;
+      # ours layers on top and overrides only what we need to change.
+      - SPRING_CONFIG_ADDITIONAL_LOCATION=file:/conf/
+    volumes:
+      - './dmss-digital-stamping-service:/conf:ro'
+      - './dmss-digital-stamping-service/seal:/seal:ro'
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+  dmss-archive-services-fallback:
+    container_name: dmss-archive-services-fallback
+    restart: always
+    ports:
+      - '93:8095'
+    volumes:
+      - './dmss-archive-services-fallback:/dmss-archive-services-fallback'
+      - './docs:/docs'
+    environment:
+      - SPRING_CONFIG_LOCATION=/dmss-archive-services-fallback/application.yml
+    image: 'trustlynx/dmss-archive-services-fallback:24.0.5'
+  ps-server:
+    image: 'mihailsgordijenko/ps-server:3.27'
+    container_name: ps-server
+    ports:
+      - "3001:3001"
+    restart: always
+    depends_on:
+      - nginx
+    environment:
+      - NO_PROXY=keycloak,ps-server,nginx,localhost,127.0.0.1
+      - no_proxy=keycloak,ps-server,nginx,localhost,127.0.0.1
+      - HTTP_PROXY=
+      - http_proxy=
+      - HTTPS_PROXY=
+      - https_proxy=
+    volumes:
+      - ./config/config.js:/usr/src/app/config.js
+      - ./signed-output:/signed-output
+  nginx:
+    image: nginx:latest
+    container_name: nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - ps-client
+    volumes:
+     - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+     - ./nginx/certs:/etc/nginx/certs:ro
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      default:
+        aliases:
+          - padsign.trustlynx.com
+
+  ps-client:
+    image: mihailsgordijenko/ps-client:8.38
+    container_name: ps-client
+    restart: unless-stopped
+    # No host port mapping; accessed via nginx by service name
+    volumes:
+      # Override runtime configuration file inside the client image
+      - ./config/constants.json:/usr/share/nginx/html/portal/constants.json:ro
+      # Runtime Keycloak override (prevents fallback to bundled default host)
+      - ./config/keycloak.js:/usr/share/nginx/html/portal/keycloak.js:ro
+      # Override logo used by the SPA
+      - ./config/TLlogo.png:/usr/share/nginx/html/portal/logo.png:ro
+    networks:
+      - default
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Optional browser-based deployment wizard. Only starts when the "wizard"
+  # compose profile is active (`docker compose --profile wizard up -d wizard`).
+  # Wraps installation-scripts/bootstrap.sh, upgrade.sh, validate-config.sh,
+  # and validate-certs.sh — never reimplements their logic. Fully optional:
+  # ignoring it and running the scripts by hand works exactly as before.
+  #
+  # Requires this compose command to be run FROM the project root — the
+  # bind mount and working_dir below use ${PWD} on both sides so that the
+  # `docker compose` commands this container spawns (via the mounted socket,
+  # talking to the HOST daemon) resolve their own relative bind mounts
+  # against a path the host actually has, instead of some path that only
+  # exists inside this container's filesystem. See documentation/36-*.
+  #
+  # First-ever privileged container in this stack: /var/run/docker.sock
+  # grants root-equivalent host access. The real security boundary is who
+  # can reach its HTTPS port and who holds the token it prints to
+  # `docker logs` on every start — see documentation/36-05.
+  # ─────────────────────────────────────────────────────────────────────────
+  wizard:
+    image: mihailsgordijenko/padsign-wizard:0.1.1
+    container_name: padsign-wizard
+    profiles: ["wizard"]
+    restart: unless-stopped
+    ports:
+      - "8443:8443"
+    environment:
+      - HOST_PROJECT_DIR=${PWD}
+      - WIZARD_PORT=8443
+      # Extra names/IPs to put in the wizard's own self-signed certificate.
+      # The wizard always covers localhost, 127.0.0.1 and its own container
+      # hostname/IP, but it CANNOT discover the host address you actually
+      # type into the browser. Without listing it here you get a browser
+      # name-mismatch error on top of the expected self-signed warning —
+      # bypassable on desktop, sometimes not on mobile. Comma-separated,
+      # names or IPv4:
+      # - WIZARD_TLS_SANS=10.0.0.42,padsign-host.internal
+    volumes:
+      - "${PWD}:${PWD}"
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - default
+
+networks:
+  default:
+    driver: bridge 
+
+volumes:
+  keycloak_data: 

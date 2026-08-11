@@ -1,0 +1,55 @@
+<%- include('partials/head', { title: 'Welcome — PadSign Deployment Wizard' }) %>
+<%- include('partials/topbar', { hostname, version, hasCompletedSetup, runActive }) %>
+<main id="main" class="wizard-shell">
+  <% if (saved) { %>
+    <div class="card">
+      <h1>Welcome back</h1>
+      <p class="subtitle">You have setup in progress. Pick up where you left off, or start fresh.</p>
+
+      <div class="resume-card">
+        <span class="resume-label">RESUME AT</span>
+        <span class="resume-step-name"><%= savedStepLabel %></span>
+      </div>
+
+      <hr class="divider">
+      <a href="/api/wizard/resume" class="btn btn-primary">Resume Setup</a>
+      <form method="post" action="/api/wizard/start-over" style="display:inline;">
+        <button type="submit" class="btn btn-link">Start Over</button>
+      </form>
+    </div>
+  <% } else { %>
+    <%- include('partials/stepProgress', { current: 1, furthestStepReached: 2 }) %>
+    <div class="card">
+      <h1>Welcome</h1>
+      <p class="subtitle">Environment check before we get started.</p>
+
+      <ul class="checklist">
+        <li>
+          <span class="badge <%= dockerOk ? 'badge-ok' : 'badge-fail' %>"><%= dockerOk ? 'OK' : 'FAIL' %></span>
+          <span>Docker daemon reachable from the wizard container</span>
+        </li>
+        <li>
+          <span class="badge badge-ok">OK</span>
+          <span>Project directory: <code><%= projectDir %></code></span>
+        </li>
+      </ul>
+
+      <hr class="divider">
+
+      <p>
+        Detected deployment state: <span class="state-pill"><%= state.state %></span>
+      </p>
+      <p class="subtitle" style="margin-bottom:0;">
+        <% if (state.state === 'FRESH') { %>
+          No previous bootstrap detected in this checkout — ready for a first-time install.
+        <% } else { %>
+          This checkout has already been bootstrapped, but the stack isn't currently running.
+        <% } %>
+      </p>
+
+      <hr class="divider">
+      <a href="/wizard/step/2" class="btn btn-primary">Begin Setup</a>
+    </div>
+  <% } %>
+</main>
+<%- include('partials/foot') %>

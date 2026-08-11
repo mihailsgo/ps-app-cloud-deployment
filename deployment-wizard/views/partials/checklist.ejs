@@ -1,0 +1,12 @@
+<%
+  // expects: checks = [{ status: 'ok'|'fail'|'warn', message: '...' }, ...]
+  const badgeClass = { ok: 'badge-ok', fail: 'badge-fail', warn: 'badge-warn' };
+%>
+<ul class="checklist">
+  <% checks.forEach((c) => { %>
+    <li>
+      <span class="badge <%= badgeClass[c.status] || 'badge-pending' %>"><%= c.status.toUpperCase() %></span>
+      <span><%= c.message %></span>
+    </li>
+  <% }) %>
+</ul>

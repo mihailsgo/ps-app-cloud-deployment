@@ -1,0 +1,115 @@
+server:
+  port: 8090
+spring:
+  sleuth:
+    propagation:
+      type: B3
+  application:
+    name: dmss-archive-services
+  servlet:
+    multipart:
+      maxFileSize: 1000MB
+      maxRequestSize: 1000MB
+      max-file-size: 1000MB
+      max-request-size: 1000MB
+#  datasource:
+#    url: jdbc:postgresql://localhost:5432/dmss_archive
+#    username: postgres
+#    password: livelink
+  datasource:
+    url: jdbc:hsqldb:mem:myDb
+    driver-class-name: org.hsqldb.jdbc.JDBCDriver
+    username: sa
+    password: sa
+  jpa:
+    hibernate:
+      ddl-auto: validate
+      #ddl-auto: create-drop
+  liquibase:
+    change-log: classpath:liquibase-changeLog.xml
+  zipkin:
+    enabled: false
+management:
+  security:
+#    enabled: false
+  health:
+    probes:
+      enabled: true
+
+springdoc:
+  swagger-ui:
+    use-root-path: true
+
+auth-providers:
+  - name: ot_credentials
+    type: "CREDENTIAL"
+    userName: "Admin"
+    password: "00000000000000000000000"
+
+authentication:
+  documentAccess:
+    enabled: false
+    identificationCodeHeaderName: "identificationCode"
+    documentIdHeaderName: "documentId"
+    rootRelativeUrl: /v1/auth/user
+  jwt:
+#    useCert: true
+    enabled: false
+    validation: false
+    headerName: X-User-Context
+    systemCodeNameInClaim: appName
+    authorizationClaim: appName
+    private: false
+    secret: "0a8d927b56cb9a1ebfdda90b3dd3f07a8bd8a747d6ce02bcc55f36086791dd2b0a8d927b56cb9a1ebfdda90b3dd3f07a8bd8a747d6ce02bcc55f36086791dd2b0a8d927b56cb9a1ebfdda90b3dd3f07a8bd8a747d6ce02bcc55f36086791dd2b"
+    allowedClockSkewSeconds: 100000000
+certificateService:
+  username: test
+  password: test
+  enabled: false
+#  cron: "1 * * * * ?"
+  cron: "0 0 0 21 2 ?"
+  url: http://localhost/OTCS1625/certs_live.txt
+  authentication:
+    basic:
+      username: test
+      password: test
+logRequests: true
+fileMimeTypesAndExtensions: "classpath:mime.types"
+#requestMappings: ./src/main/resources/requestmappings.json
+opentext:
+  retryCount401: 3
+  transformSpecJsonPath:
+    cateogries: file:/confs/mappings.json
+    docBody: "classpath:metaForDoc.json"
+filesystem-service:
+  baseurl: http://localhost:8086/api
+archive-connections:
+  connections:
+    -
+      name: "FS-MAIN"
+      url: http://dmss-archive-services-fallback:8095/api
+      type: EXTERNAL_FILE_SYSTEM
+      priority: 1
+    - 
+      name: "FSA-MAIN"
+      url: http://dmss-archive-file-system:8096/api
+      type: FILE_ARCHIVE_SYSTEM
+      priority: 2
+      encodeDocumentID: true
+archive-general-settings:
+  database:
+    enabled: false
+  # Can use SEQUENCE or UID if database is enabled. Without database one can use UNMODIFIED or PREFIX values.
+  externalIdType: UNMODIFIED
+synchronisation:
+  cron: "5 * * * * ?"
+  maxRetry: 100
+  factory: 3
+
+logging:
+  pattern:
+    console: '%d{yyyy-MM-dd HH:mm:ss.SSS} [%X{traceId}/%X{spanId}] %-5p [%t] %logger{36} - %msg%n'
+  level:
+    root: info
+    ee:
+      digitalmind: info
