@@ -1,6 +1,6 @@
 ---
 name: padsign-deploy
-description: Deploy, upgrade, validate, or troubleshoot a PadSign 2.0 stack (ps-server + ps-client + Keycloak + DMSS) using the scripts in installation-scripts/. Use when the user asks to deploy/install/bootstrap PadSign on a new host, upgrade image versions, rotate the Keycloak backend secret, validate config consistency, switch hostnames, enable document routing or demo mode, or diagnose a broken deployment.
+description: Deploy, upgrade, validate, or troubleshoot a PadSign 2.0 stack (ps-server + ps-client + Keycloak + DMSS) using the scripts in installation-scripts/. Use when the user asks to deploy/install/bootstrap PadSign on a new host, upgrade image versions, rotate the Keycloak backend secret, validate config consistency, switch hostnames, renew the TLS certificate, enable document routing / demo mode / local e-sealing, or diagnose a broken deployment.
 ---
 
 # PadSign 2.0 Deployment
@@ -15,8 +15,11 @@ Decide which workflow the user actually needs before doing anything:
 |---|---|---|
 | First-time deploy on a host | `bootstrap.sh` | End-to-end: backups → config rewrite → Keycloak realm → image pull → start → verify |
 | Bump `ps-server` and/or `ps-client` image tags | `upgrade.sh` | Only restarts the changed services; Keycloak/DMSS/nginx stay up |
+| Preview what an upgrade would change, without writing anything | `upgrade.sh [same args] --plan-only` | Read-only; renders every pending config migration and exits 0 |
 | Sanity-check files after manual edits or before handoff | `validate-config.sh --host <h>` | Read-only; exits non-zero on failure |
-| Re-point an existing deployment at a new hostname | `configure-host.sh --host <h> --company-role "<C>"` then `docker compose up -d` | Skips Keycloak (already bootstrapped) |
+| Change the hostname of a LIVE deployment | `update-hostname.sh --host <new> --admin-pass <p> [--cert-crt/--cert-key]` | Rewrites configs, syncs the Keycloak client's redirect URIs, restarts nginx + ps-server. Do NOT use bare `configure-host.sh` for this — it skips the Keycloak sync. |
+| Renew the TLS certificate (hostname unchanged) | `renew-cert.sh --host <h> --cert-crt <crt> --cert-key <key>` | Pure cert swap; restarts nginx and verifies the served cert over the wire |
+| Toggle features after go-live (routing / demo / local e-sealing) | `toggle-features.sh --enable-*/--disable-*` | Restarts only what each change needs; demo mode needs no restart |
 | Just rotate the backend client secret into config.js | `configure-host.sh --host <h> --backend-secret <s>` | Standalone; no other side effects |
 | Confirm nginx is actually serving the certificate that is on disk | `verify-served-cert.sh` | Read-only wire check; catches a renewal that landed on disk but never reached nginx. File-level checks cannot see this. |
 
@@ -38,13 +41,15 @@ Optional flags:
 - `--users "user1:pass1:role,user2:pass2:role"` to seed extra users
 - `--enable-routing` to turn on filesystem document routing
 - `--enable-demo` to enable client DEMO mode
+- `--enable-local-eseal` to provision the local e-sealing stack (stamping container + demo seal.p12; external e-sealing stays the default without it)
+- `--allow-self-signed` to skip cert chain verification for dev/test self-signed certs (all other cert checks still run)
 - `--realm` (default `padsign`), `--admin-user` (default `admin`)
 
 If the user gives partial input, ask for the missing required fields in one pass.
 
 ### `upgrade.sh` (version bump)
 
-At least one of `--server-tag` or `--client-tag` is required. Confirm the target tags exist on Docker Hub before running (current registry: `mihailsgordijenko/ps-server` and `mihailsgordijenko/ps-client`). If the user just says "upgrade", check `git log --oneline -- docker-compose.yml` for the recent bump pattern before guessing.
+At least one of `--server-tag` or `--client-tag` is required (exception: `--enable-local-eseal` alone is valid — it opts an existing deployment into local e-sealing without a tag bump). Confirm the target tags exist on Docker Hub before running (current registry: `mihailsgordijenko/ps-server` and `mihailsgordijenko/ps-client`). If the user just says "upgrade", check `git log --oneline -- docker-compose.yml` for the recent bump pattern before guessing. Run `upgrade.sh [same args] --plan-only` first and show the user the pending config migrations — the deployment wizard enforces this preview as a mandatory gate, and CLI runs should match that discipline.
 
 ### `validate-config.sh`
 
@@ -54,7 +59,7 @@ At least one of `--server-tag` or `--client-tag` is required. Confirm the target
 
 The scripts are bash. On Linux/macOS run them directly; on Windows use Git Bash, WSL, or invoke via the Bash tool. There is a `keycloak-bootstrap.ps1` PowerShell companion for the Keycloak step only — there is **no** PowerShell port of `bootstrap.sh` / `upgrade.sh` / `configure-host.sh`, so don't try to translate them on the fly.
 
-Bootstrap requires: `docker`, `docker compose` v2, `awk`, `perl`, `python3`, `curl`. Verify with `command -v` if a run fails on a fresh machine.
+Bootstrap requires: `docker`, `docker compose` v2, `awk`, `perl`, `python3`, `curl`, `openssl`. Verify with `command -v` if a run fails on a fresh machine.
 
 ## Safety rules
 

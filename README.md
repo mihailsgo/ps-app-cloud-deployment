@@ -119,4 +119,5 @@ Either way, read [9. Prerequisites](documentation/09-prerequisites.md) and [11.1
     - [37.3 Renewing the TLS certificate](documentation/37-03-renewing-the-tls-certificate.md)
     - [37.4 Toggling features after go-live](documentation/37-04-toggling-features-after-go-live.md)
     - [37.5 Known gap: Keycloak admin password rotation](documentation/37-05-known-gaps-keycloak-admin-password-rotation.md)
+38. [AI Agent Deployment Skill](documentation/38-ai-agent-deployment-skill.md)
 
