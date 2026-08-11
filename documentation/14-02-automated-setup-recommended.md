@@ -7,7 +7,6 @@ described in [3. Quick Start](03-quick-start-new-deployment.md); it starts the
 stack itself, so no separate `docker compose up -d` is needed:
 
 ```bash
-chmod +x ./installation-scripts/*.sh
 ./installation-scripts/bootstrap.sh --host <host> --company-role "YourCompany" --admin-pass "StrongKeycloakAdminPass"
 ./installation-scripts/verify-keycloak.sh --host <host> --company-role "YourCompany"
 ```
@@ -36,16 +35,14 @@ Compatibility notes (important):
   - sets client `name` fields for `padsign-client` and `padsign-backend` (same as client IDs)
 
 If bootstrap still fails in your environment, perform these manual activities:
-1. Ensure scripts are executable:
-   - `chmod +x ./installation-scripts/*.sh`
-2. Bootstrap Keycloak manually in admin UI:
+1. Bootstrap Keycloak manually in admin UI:
    - Realm: `padsign`
    - Roles: `padsign-admin`, `psapp-integration`, `<CompanyRole>`
    - User: `test` with role `<CompanyRole>` and a password of your choosing (the automated script generates a random password and prints it at the end of its run)
    - Clients:
      - `padsign-client` (public), Name: `padsign-client`
      - `padsign-backend` (confidential + service accounts), Name: `padsign-backend`
-3. Set these values for `padsign-client`:
+2. Set these values for `padsign-client`:
    - Redirect URIs:
      - `https://<host>/portal/*`
      - `https://<host>/portal/`
@@ -53,6 +50,6 @@ If bootstrap still fails in your environment, perform these manual activities:
    - Web Origins:
      - `https://<host>/portal/`
      - `https://<host>/portal`
-4. Copy backend client secret to:
+3. Copy backend client secret to:
    - `config/config.js` -> `KEYCLOAK_CONFIG.credentials.secret`
 

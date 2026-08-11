@@ -132,7 +132,7 @@ MAILTO=ops@example.com
 
 Note the deliberate asymmetry. **cron** gets `--quiet`, because cron mails any output and silence-unless-broken is the correct idiom there — but be aware that on a host with no configured MTA, cron's mail goes nowhere, which is the same silent-failure mode this section is about. **systemd** gets full output, because journald captures it unconditionally, a non-zero exit marks the unit failed, and `systemctl --failed` and `OnFailure=` give you real alerting surfaces.
 
-Scripts in `installation-scripts/` are committed without the executable bit, so scheduled jobs should invoke `bash <script>` explicitly rather than relying on `./<script>`.
+Scripts in `installation-scripts/` are committed with the executable bit set, so `./<script>` works directly. The examples above still invoke `bash <script>` explicitly, which is equally valid and keeps scheduled jobs working regardless of local file permissions.
 
 ## When it reports drift
 

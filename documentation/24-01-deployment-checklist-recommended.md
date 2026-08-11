@@ -13,7 +13,6 @@ Run these steps in order on a clean target host:
    is needed afterwards:
 
 ```bash
-chmod +x ./installation-scripts/*.sh
 ./installation-scripts/bootstrap.sh \
   --host <host> \
   --company-role "<CompanyRole>" \
