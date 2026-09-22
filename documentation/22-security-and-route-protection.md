@@ -33,3 +33,12 @@ Keep the Docker-subnet `allow` (ps-server's own internal downloads send no crede
 
 Copy-paste instructions with the exact nginx blocks: https://github.com/mihailsgo/tl-service-route-protection
 
+**Check the client is new enough before you close the route.** An older `ps-client` fetches that URL anonymously, so closing it breaks the PDF viewer. The minimum tag is recorded in `release/capabilities.json` as `closable-download-route`; assert it and the upgrade refuses rather than leaving you to find out from a broken viewer:
+
+```bash
+./installation-scripts/upgrade.sh --client-tag 8.38 \
+  --require-capability closable-download-route
+```
+
+Add `--plan-only` to check the current pin without changing anything.
+

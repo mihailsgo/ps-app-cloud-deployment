@@ -15,12 +15,31 @@ client_tag=""
 enable_local_eseal=false
 plan_only=false
 plan_format="text"
+require_capabilities=()
 
 usage() {
   cat <<'EOF'
 Usage:
   ./installation-scripts/upgrade.sh [--server-tag X.XX] [--client-tag X.XX] [--enable-local-eseal]
+  ./installation-scripts/upgrade.sh [same args] --require-capability NAME
   ./installation-scripts/upgrade.sh [same args] --plan-only [--plan-format text|machine]
+
+Asserting a capability:
+  --require-capability  Refuse the upgrade unless the resulting image tags are new
+                        enough for NAME. Repeatable. Names and minimum tags are
+                        defined in release/capabilities.json - run
+                        `python3 -m json.tool release/capabilities.json` to list them.
+
+                        Use this when a change outside this script depends on the
+                        image version. The main case is closing
+                        GET /archive/api/document/{docid}/download behind
+                        authentication at nginx, which only works against a
+                        ps-client that sends the Keycloak Bearer token:
+
+                          ./installation-scripts/upgrade.sh --client-tag 8.38 \
+                            --require-capability closable-download-route
+
+                        Combine with --plan-only to check without changing anything.
 
 Previewing before you commit:
   --plan-only    Evaluate every configuration migration and print exactly what
@@ -61,6 +80,8 @@ while [[ $# -gt 0 ]]; do
     --server-tag) server_tag="${2:-}"; shift 2;;
     --client-tag) client_tag="${2:-}"; shift 2;;
     --enable-local-eseal) enable_local_eseal=true; shift;;
+    --require-capability) require_capabilities+=("${2:-}"); shift 2;;
+    --require-capability=*) require_capabilities+=("${1#*=}"); shift;;
     --plan-only) plan_only=true; shift;;
     --plan-format) plan_format="${2:-}"; shift 2;;
     --plan-format=*) plan_format="${1#*=}"; shift;;
@@ -103,35 +124,78 @@ current_tag() {
   sed -nE "s|.*mihailsgordijenko/$1:([0-9]+\.[0-9]+(\.[0-9]+)?).*|\1|p" "$compose_yml" 2>/dev/null | head -1
 }
 
-# ── Pre-flight: local-eseal needs a ps-server image that contains the STAMP_MODE
-#    dispatch. The first image with that code is :3.26. If --enable-local-eseal is
-#    set but the effective ps-server tag (either --server-tag or the existing pin
-#    in docker-compose.yml) is older, refuse to run rather than producing a silent
-#    no-op (where STAMP_MODE=local lands in config.js but ps-server ignores it).
-LOCAL_ESEAL_MIN_SERVER_TAG="3.26"
+# ── Capability pre-flight ───────────────────────────────────────────────────
+#
+# Some deployment decisions only work against an image new enough to contain the
+# code they depend on. Enabling local e-sealing against a ps-server that predates
+# the STAMP_MODE dispatch produces a silent no-op; closing the archive download
+# route against a ps-client that still fetches it anonymously breaks the viewer.
+#
+# Those minimums live in release/capabilities.json - one machine-readable file,
+# rather than a constant copied into each script and restated in prose. Do not
+# reintroduce a hardcoded tag here; add an entry to the registry instead.
+# shellcheck source=lib/capabilities.sh
+. "${scripts_dir}/lib/capabilities.sh"
+
+# Refuses the run when the effective image tags are older than <capability>
+# needs. Same strict-less-than comparison as before, now driven by the registry
+# and applied to whichever component(s) that capability names - which is what
+# lets the identical gate cover the client-side route-protection case.
+require_capability() {  # <capability> <what-requested-it> <example-flags>
+  local cap="$1" reason="$2" example="${3:-}"
+  local components component min effective flag
+
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "ERROR: python3 is required to read ${capabilities_json}," >&2
+    echo "       which is needed because ${reason}." >&2
+    exit 2
+  fi
+
+  components="$(capability_read "$cap" components)" || exit 2
+  if [[ -z "$components" ]]; then
+    echo "ERROR: capability '${cap}' in ${capabilities_json} names no minimum tags." >&2
+    exit 2
+  fi
+
+  while IFS= read -r component; do
+    [[ -z "$component" ]] && continue
+    min="$(capability_read "$cap" "min:${component}")" || exit 2
+    [[ -z "$min" ]] && continue
+
+    case "$component" in
+      ps-server) effective="${server_tag:-$(current_tag ps-server)}"; flag="--server-tag";;
+      ps-client) effective="${client_tag:-$(current_tag ps-client)}"; flag="--client-tag";;
+      *) echo "ERROR: capability '${cap}' names unknown component '${component}'." >&2; exit 2;;
+    esac
+
+    if [[ -z "$effective" ]]; then
+      echo "ERROR: Cannot determine the ${component} image tag from docker-compose.yml." >&2
+      echo "       ${reason} requires ${component} ${min} or newer." >&2
+      echo "       Pass ${flag} ${min} (or newer) explicitly." >&2
+      exit 2
+    fi
+
+    if capability_tag_older "$effective" "$min"; then
+      echo "ERROR: ${reason} requires mihailsgordijenko/${component}:${min} or newer." >&2
+      echo "       The current effective ${component} tag is :${effective}." >&2
+      echo "" >&2
+      capability_explain "$cap" >&2
+      echo "" >&2
+      echo "       Re-run with the tag bump in the same invocation, for example:" >&2
+      echo "         ./installation-scripts/upgrade.sh ${flag} ${min} ${example}" >&2
+      exit 2
+    fi
+  done <<< "$components"
+}
+
 if [[ "$enable_local_eseal" == true ]]; then
-  current_server="$(current_tag ps-server)"
-  effective_server="${server_tag:-$current_server}"
-  if [[ -z "$effective_server" ]]; then
-    echo "ERROR: Cannot determine the ps-server image tag from docker-compose.yml." >&2
-    echo "       Pass --server-tag ${LOCAL_ESEAL_MIN_SERVER_TAG} (or newer) explicitly." >&2
-    exit 2
-  fi
-  # Strict less-than via sort -V
-  smaller="$(printf '%s\n%s\n' "$effective_server" "$LOCAL_ESEAL_MIN_SERVER_TAG" | sort -V | head -1)"
-  if [[ "$effective_server" != "$LOCAL_ESEAL_MIN_SERVER_TAG" && "$smaller" == "$effective_server" ]]; then
-    echo "ERROR: --enable-local-eseal requires mihailsgordijenko/ps-server:${LOCAL_ESEAL_MIN_SERVER_TAG} or newer." >&2
-    echo "       The current effective ps-server tag is :${effective_server}, which predates the" >&2
-    echo "       STAMP_MODE dispatch. Without the dispatch, ps-server silently ignores the" >&2
-    echo "       STAMP_MODE field and keeps calling the external e-sealing service - so" >&2
-    echo "       this upgrade would land config + start the stamping container, but signing" >&2
-    echo "       would still go to the cloud (a silent no-op)." >&2
-    echo "" >&2
-    echo "       Re-run with the tag bump in the same invocation, for example:" >&2
-    echo "         ./installation-scripts/upgrade.sh --server-tag ${LOCAL_ESEAL_MIN_SERVER_TAG} --enable-local-eseal" >&2
-    exit 2
-  fi
+  require_capability local-eseal "--enable-local-eseal" "--enable-local-eseal"
 fi
+
+for cap in ${require_capabilities[@]+"${require_capabilities[@]}"}; do
+  [[ -z "$cap" ]] && { echo "ERROR: --require-capability needs a value." >&2; exit 2; }
+  require_capability "$cap" "--require-capability ${cap}" "--require-capability ${cap}"
+done
 
 # ── Config-migration table ──────────────────────────────────────────────────
 #

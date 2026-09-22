@@ -96,24 +96,43 @@ if [[ -z "$host" ]]; then
   exit 1
 fi
 
-# ── Pre-flight: local-eseal needs a ps-server image that contains the
-#    STAMP_MODE dispatch (ported from upgrade.sh's identical gate) — refuse
-#    rather than produce a silent no-op where STAMP_MODE=local lands in
-#    config.js but ps-server ignores it.
-LOCAL_ESEAL_MIN_SERVER_TAG="3.26"
+# ── Pre-flight: refuse to enable local e-sealing against an image that predates
+#    the code it needs, rather than produce a silent no-op where STAMP_MODE=local
+#    lands in config.js but ps-server ignores it.
+#
+#    The minimum tag used to be a constant copied here from upgrade.sh. It now
+#    comes from release/capabilities.json through the shared reader, so this gate
+#    and upgrade.sh's cannot drift apart the way two hand-maintained copies did.
+# shellcheck source=lib/capabilities.sh
+. "${scripts_dir}/lib/capabilities.sh"
+
+current_tag() {
+  sed -nE "s|.*mihailsgordijenko/$1:([0-9]+\.[0-9]+(\.[0-9]+)?).*|\1|p" "$compose_yml" 2>/dev/null | head -1
+}
+
 if [[ "$eseal_action" == "enable" ]]; then
-  current_server="$(sed -nE 's|.*mihailsgordijenko/ps-server:([0-9]+\.[0-9]+(\.[0-9]+)?).*|\1|p' "$compose_yml" 2>/dev/null | head -1)"
-  if [[ -z "$current_server" ]]; then
-    echo "ERROR: Cannot determine the ps-server image tag from docker-compose.yml." >&2
-    exit 2
-  fi
-  smaller="$(printf '%s\n%s\n' "$current_server" "$LOCAL_ESEAL_MIN_SERVER_TAG" | sort -V | head -1)"
-  if [[ "$current_server" != "$LOCAL_ESEAL_MIN_SERVER_TAG" && "$smaller" == "$current_server" ]]; then
-    echo "ERROR: Enabling local e-sealing requires mihailsgordijenko/ps-server:${LOCAL_ESEAL_MIN_SERVER_TAG} or newer." >&2
-    echo "       The current ps-server tag is :${current_server}, which predates the STAMP_MODE dispatch." >&2
-    echo "       Upgrade ps-server first (Dashboard -> Upgrade), then retry this toggle." >&2
-    exit 2
-  fi
+  eseal_components="$(capability_read local-eseal components)" || exit 2
+  while IFS= read -r component; do
+    [[ -z "$component" ]] && continue
+    min_tag="$(capability_read local-eseal "min:${component}")" || exit 2
+    [[ -z "$min_tag" ]] && continue
+
+    have_tag="$(current_tag "$component")"
+    if [[ -z "$have_tag" ]]; then
+      echo "ERROR: Cannot determine the ${component} image tag from docker-compose.yml." >&2
+      exit 2
+    fi
+
+    if capability_tag_older "$have_tag" "$min_tag"; then
+      echo "ERROR: Enabling local e-sealing requires mihailsgordijenko/${component}:${min_tag} or newer." >&2
+      echo "       The current ${component} tag is :${have_tag}." >&2
+      echo "" >&2
+      capability_explain local-eseal >&2
+      echo "" >&2
+      echo "       Upgrade ${component} first (Dashboard -> Upgrade), then retry this toggle." >&2
+      exit 2
+    fi
+  done <<< "$eseal_components"
 fi
 
 echo "========================================"

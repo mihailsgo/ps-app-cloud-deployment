@@ -1,0 +1,17 @@
+{
+  "//": "Minimum image tags for capabilities that a deployment decision depends on. This file is the single source of truth for those minimums: installation-scripts/upgrade.sh and installation-scripts/toggle-features.sh read it at run time, and documentation cites it rather than restating the numbers. Adding a capability: add an entry here, do not hardcode a tag in a script. Never lower an existing minimum - tags are immutable, so a lower minimum means the fact was wrong, not that it changed.",
+  "capabilities": {
+    "local-eseal": {
+      "min": { "ps-server": "3.26" },
+      "why": "STAMP_MODE dispatch. An older ps-server silently ignores the STAMP_MODE field and keeps calling the external cloud e-sealing service, so the upgrade would land config and start the stamping container while signing still goes to the cloud - a silent no-op."
+    },
+    "receive-back": {
+      "min": { "ps-server": "3.27" },
+      "why": "Signed-PDF receive-back buffer and its endpoints (GET /api/signedPdf/pending, GET /api/signedPdf, POST /api/signedPdf/ack). An older ps-server returns 404 for all three, so the Padsign Manager can never pull a signed PDF back onto the originating desktop."
+    },
+    "closable-download-route": {
+      "min": { "ps-client": "8.38" },
+      "why": "The pad browser downloads archive PDFs with the user's Keycloak Bearer token instead of letting the viewer fetch the URL anonymously. An older ps-client needs GET /archive/api/document/{docid}/download to stay publicly reachable; closing that route at nginx against an older client breaks the PDF viewer."
+    }
+  }
+}
