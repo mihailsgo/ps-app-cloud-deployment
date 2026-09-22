@@ -12,6 +12,8 @@ For that question, read in this order:
 2. `documentation/01-release-snapshot.md` - what each tag contains and what it implies for deployment.
 3. `release/capabilities.json` - the minimum tag each deployment-relevant capability needs.
 
+Nothing enforces that these three, plus `psapp`'s own git tags, agree with each other - see `psapp/scripts/release-check.sh` in step 7 below, which is the automated form of this cross-check.
+
 ## The tag scheme
 
 `ps-client` and `ps-server` are versioned independently, by Docker tag (`ps-client:8.x`, `ps-server:3.x`), because they deploy independently. These are **not** semver and nothing consumes them as semver.
@@ -22,28 +24,30 @@ For that question, read in this order:
 
 ## Cutting a release
 
-Steps 1-3 happen in the application repo (`psapp`); 4-6 happen here.
+Steps 1-3 happen in the application repo (`psapp`); 4-6 happen here; 7 happens in `psapp` again, as the final check.
 
-**1. Build the image with provenance.** Use the helper, never a bare `docker build` - it stamps the OCI labels that make the image traceable:
+There is no CI and no git hook enforcing this order - it is discipline, checked at the end by step 7. `build-image.sh` enforces step 1 before step 2 itself (it refuses to build from an untagged commit), but nothing stops steps 4-6 from being forgotten; that is what `release-check.sh` is for.
+
+**1. Anchor the commit first.** The tag is what makes the image traceable, so it comes before the image exists, not after:
 
 ```bash
 cd psapp
+git tag ps-server/3.28
+git push origin ps-server/3.28
+```
+
+**2. Build the image with provenance.** Use the helper, never a bare `docker build` - it stamps the OCI labels that make the image traceable, and refuses to run at all if HEAD isn't already tagged `ps-<component>/<tag>`:
+
+```bash
 ./scripts/build-image.sh server 3.28          # or: client 8.39
 ```
 
-It refuses to move an existing `ps-<component>/<tag>` git tag, and stamps the revision `-dirty` if the working tree is not clean. A dirty release is not reproducible; commit first.
+It also refuses to move an existing `ps-<component>/<tag>` git tag to a different commit, and stamps the revision `-dirty` if the working tree is not clean. A dirty release is not reproducible; commit first.
 
-**2. Push the image.**
+**3. Push the image.**
 
 ```bash
 ./scripts/build-image.sh server 3.28 --push
-```
-
-**3. Anchor it to the commit.**
-
-```bash
-git tag ps-server/3.28 <the commit that was built>
-git push origin ps-server/3.28
 ```
 
 **4. Pin the new tag here.** Either edit `docker-compose.yml` directly, or let the upgrade script do it on a target host:
@@ -64,6 +68,15 @@ git push origin ps-server/3.28
 ```
 
 This is the only place that number belongs. `upgrade.sh` and `toggle-features.sh` read it at run time, so the gate and the documentation cannot disagree. Do not add a matching constant to a script.
+
+**7. Run the release checker.** Back in `psapp`, cross-validate that steps 1-6 actually agree with each other:
+
+```bash
+cd ../psapp
+./scripts/release-check.sh
+```
+
+It reads this repo's `docker-compose.yml`, `documentation/01-release-snapshot.md`, and `release/capabilities.json`, and cross-checks them against `psapp`'s own `ps-client/*` / `ps-server/*` git tags: does the compose pin match what the snapshot doc says, and does every tag mentioned anywhere (including every capability minimum) actually exist as an anchor commit. It exits non-zero and prints one `DRIFT:` line per disagreement if anything is out of sync - a release is not done until it passes clean. It defaults to finding this repo as a sibling checkout of `psapp`; pass `--deployment-dir <path>` if your layout differs. It is read-only and makes no changes to either repo.
 
 ## Verifying provenance
 
