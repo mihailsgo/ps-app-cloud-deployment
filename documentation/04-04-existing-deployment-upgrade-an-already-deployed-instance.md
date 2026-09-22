@@ -340,7 +340,9 @@ link when it's done.
 ```bash
 # This calls container-signature's /api/eseal directly with the demo
 # profile, skipping the SPA + ps-server. Useful for a quick smoke test
-# but does NOT verify the ps-server side of the chain.
+# but does NOT verify the ps-server side of the chain. Port 84 is bound to
+# 127.0.0.1 only (see 22. Security and Route Protection), so run this on the
+# deployment host itself, or over an SSH tunnel (ssh -L 84:localhost:84 <host>).
 curl -sS -u user:changeit -X POST \
     -F "file=@/path/to/any-small.pdf;type=application/pdf" \
     -o /tmp/demo-signed.pdf -w "HTTP=%{http_code} bytes=%{size_download}\n" \
@@ -383,7 +385,8 @@ includes a "Download signed PDF" link. Save the file as `signed.pdf`.
 curl -fsS "http://localhost:86/api/document/ARCH-2026-001234/download" -o signed.pdf
 ```
 
-Port 86 is `dmss-archive-services` host-side. If your deployment moved
+Port 86 is `dmss-archive-services` host-side, bound to `127.0.0.1` only — run this
+on the deployment host itself, or over an SSH tunnel. If your deployment moved
 that port, check `docker-compose.yml`. If you used Option B in Phase 3.2's
 CLI shortcut
 (curl-to-container-signature), the result is already at
@@ -515,7 +518,10 @@ anyone who knows the deployment convention. Don't skip it.
 ### Step 4.6 - Smoke-test the production cert
 
 Use the same three checks as Phase 3, but adapted for the production
-profile:
+profile. Ports 84/86 below are bound to `127.0.0.1` only (see
+[22. Security and Route Protection](22-security-and-route-protection.md)), so run
+these `curl` commands on the deployment host itself, or over an SSH tunnel
+(`ssh -L 84:localhost:84 -L 86:localhost:86 <host>`):
 
 ```bash
 # 4.6.1 - Cert endpoint serves your real cert. Replace <YourCompany>

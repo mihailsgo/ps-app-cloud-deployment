@@ -12,8 +12,13 @@ services:
       - KC_PROXY_HEADERS=xforwarded
       - KC_HEALTH_ENABLED=true
     command: start-dev
+    # Loopback-only: reached externally via nginx (/auth/), by service name, on the
+    # Docker network. Bound to the host at 127.0.0.1 only for keycloak-bootstrap.ps1
+    # (Windows dev convenience, see documentation/14-02) and local `curl localhost:8080`
+    # diagnostics. The Linux bootstrap path never uses the host port (docker compose exec).
+    # See psapp-saas#13.
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     restart: unless-stopped
     volumes:
       - keycloak_data:/opt/keycloak/data
@@ -30,8 +35,12 @@ services:
   dmss-archive-services:
     container_name: dmss-archive-services
     restart: always
+    # Loopback-only: nginx reaches this by service name on the Docker network
+    # (see nginx/nginx.conf `/archive/api/`). Bound to the host at 127.0.0.1 only for
+    # the direct operator diagnostics in documentation/04-04 and 04-07 (curl
+    # localhost:86/... run on the host, or via SSH tunnel). See psapp-saas#13.
     ports:
-      - '86:8090'
+      - '127.0.0.1:86:8090'
     volumes:
       - './dmss-archive-services:/confs'
     environment:
@@ -54,8 +63,12 @@ services:
   dmss-container-and-signature-services:
     container_name: dmss-container-and-signature-services
     restart: always
+    # Loopback-only: nginx reaches this by service name on the Docker network
+    # (see nginx/nginx.conf `/container/api/`). Bound to the host at 127.0.0.1 only for
+    # the direct operator diagnostics in documentation/04-04 and 04-07 (curl
+    # localhost:84/... run on the host, or via SSH tunnel). See psapp-saas#13.
     ports:
-      - '84:8092'
+      - '127.0.0.1:84:8092'
     volumes:
       - './dmss-container-and-signature-services:/confs'
     environment:
@@ -111,8 +124,9 @@ services:
   dmss-archive-services-fallback:
     container_name: dmss-archive-services-fallback
     restart: always
-    ports:
-      - '93:8095'
+    # No host port mapping: only called internally, by service name, by
+    # dmss-archive-services and dmss-container-and-signature-services. Nothing
+    # in this repo (config, scripts, docs) reaches it via the host. See psapp-saas#13.
     volumes:
       - './dmss-archive-services-fallback:/dmss-archive-services-fallback'
       - './docs:/docs'
@@ -128,8 +142,9 @@ services:
   ps-server:
     image: 'mihailsgordijenko/ps-server:3.28'
     container_name: ps-server
-    ports:
-      - "3001:3001"
+    # No host port mapping: nginx reaches this by service name on the Docker
+    # network (see nginx/nginx.conf `/api/`). Nothing else in this repo needs
+    # a host-level path to it. See psapp-saas#13.
     restart: always
     depends_on:
       keycloak:
@@ -175,8 +190,6 @@ services:
      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
      - ./nginx/certs:/etc/nginx/certs:ro
     restart: unless-stopped
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     networks:
       default:
         aliases:

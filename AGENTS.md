@@ -13,13 +13,19 @@ The application source code lives in its own repository ([psapp](https://github.
 ```
 nginx (reverse proxy, :443)
 ├── /portal/     → ps-client  (React SPA)
-├── /api/        → ps-server  (Express, :3001)
-├── /auth/       → Keycloak   (:8080)
-├── /archive/api → dmss-archive-services (:86)
-└── /container/api → dmss-container-and-signature-services (:84)
+├── /api/        → ps-server  (internal container port 3001, no host publish)
+├── /auth/       → Keycloak   (internal 8080, host-published 127.0.0.1:8080 only)
+├── /archive/api → dmss-archive-services (internal 8090, host-published 127.0.0.1:86 only)
+└── /container/api → dmss-container-and-signature-services (internal 8092, host-published 127.0.0.1:84 only)
 ```
 
-Plus `dmss-archive-services-fallback` (:93) as a filesystem-based archive backup, and — only when the `local-eseal` compose profile is active — `dmss-digital-stamping-service` (internal port 8084; no host port mapping by default) for **local e-sealing** (see *Local e-sealing* below). Also — only when the `wizard` compose profile is active — a `wizard` container (:8443) providing an optional browser UI for bootstrap/upgrade (see *Deployment Wizard* below).
+All five of these are reached by nginx over the internal Docker network by service
+name — the loopback host publishes above exist only for local operator diagnostics
+(see `documentation/22-security-and-route-protection.md`), not for nginx itself.
+`installation-scripts/validate-config.sh` fails if any of them (or a future
+service) binds to a non-loopback host interface without a documented exception.
+
+Plus `dmss-archive-services-fallback` (internal 8095, no host port at all) as a filesystem-based archive backup, and — only when the `local-eseal` compose profile is active — `dmss-digital-stamping-service` (internal port 8084; no host port mapping by default) for **local e-sealing** (see *Local e-sealing* below). Also — only when the `wizard` compose profile is active — a `wizard` container (:8443, published to all interfaces — a deliberate, documented exception, see `documentation/36-05-security-considerations.md`) providing an optional browser UI for bootstrap/upgrade (see *Deployment Wizard* below).
 
 ## Directory structure
 
@@ -100,6 +106,10 @@ Backs up config, updates image tags, ensures latest config patterns (DOCUMENT_RO
 ```bash
 ./installation-scripts/validate-config.sh --host padsign.client.com
 ```
+
+Includes a port-bindings check: fails if any internal service (Keycloak, the DMSS
+services, ps-server) publishes to a non-loopback host interface without an entry in
+the script's own allow-list (`nginx` and `wizard` are the only two by default).
 
 ### Verify the certificate nginx is actually serving
 
@@ -186,7 +196,7 @@ Three `changeit` defaults so the demo "just works":
 2. `dmss-digital-stamping-service/application.yml` → `password:` under `providers` (must equal #1)
 3. `SPRING_SECURITY_USER_PASSWORD` on container-signature in `docker-compose.yml` — and the matching `STAMP_LOCAL.password` in `config/config.js`
 
-The keystore password (rows 1-2) unlocks the signing key; the Spring Security password (row 3 + `STAMP_LOCAL.password`) gates the HTTP endpoint container-signature exposes on host port 84.
+The keystore password (rows 1-2) unlocks the signing key; the Spring Security password (row 3 + `STAMP_LOCAL.password`) gates the HTTP endpoint container-signature exposes on port 84 (host-published to `127.0.0.1` only).
 
 ### Operator playbook locations
 

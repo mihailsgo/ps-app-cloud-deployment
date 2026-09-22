@@ -40,10 +40,12 @@
 
 ## 4. Port conflicts — containers won't start
 
-**Cause**: Another process already holds one of the host ports the stack binds (80, 443, 8080, 3001, 84, 86, 93).
+**Cause**: Another process already holds one of the host ports the stack binds — 80, 443
+(all interfaces), or 8080/84/86 (loopback only; ps-server 3001 and the DMSS fallback
+service 93 no longer bind a host port at all — see [22. Security and Route Protection](22-security-and-route-protection.md)).
 
 **Solution**:
-1. Find the holder: `sudo ss -ltnp | grep -E ':(80|443|8080|3001|84|86|93)\b'`
+1. Find the holder: `sudo ss -ltnp | grep -E ':(80|443|8080|84|86)\b'`
 2. Stop the conflicting service, or change the published port in `docker-compose.yml`.
 
 ## 5. TLS / hostname mismatch
