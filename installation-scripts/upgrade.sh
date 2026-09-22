@@ -105,6 +105,10 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 scripts_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 compose_yml="${repo_root}/docker-compose.yml"
 config_js="${repo_root}/config/config.js"
+# shellcheck source=lib/rollback-snapshot.sh
+. "${scripts_dir}/lib/rollback-snapshot.sh"
+# shellcheck source=lib/deployment-evidence.sh
+. "${scripts_dir}/lib/deployment-evidence.sh"
 # Hoisted out of the local-eseal block so the migration predicates below can
 # read them without executing anything.
 assets_src="${scripts_dir}/assets/dmss-digital-stamping-service"
@@ -603,6 +607,12 @@ echo ""
 
 # ── Step 1: Backup ──
 echo "Step 1/6: Backing up..."
+# Timestamped, non-overwriting snapshot FIRST (before anything below mutates
+# either file) - this is what rollback.sh restores from. The single-generation
+# .bak copy is kept alongside it for the manual "cp ...bak" recipe printed at
+# the end, unchanged from before.
+snapshot_dir="$(write_rollback_snapshot)"
+echo "  Rollback snapshot: ${snapshot_dir}"
 cp -f "$compose_yml" "${compose_yml}.bak"
 cp -f "$config_js" "${config_js}.bak"
 echo "  Backups created"
@@ -674,8 +684,10 @@ else
   echo "  WARNING: ps-server may not have started. Check: docker compose logs ps-server" >&2
 fi
 
+write_deployment_evidence "upgrade.sh"
+
 echo ""
 echo "========================================"
 echo "Upgrade complete!"
-echo "  Rollback: cp docker-compose.yml.bak docker-compose.yml && cp config/config.js.bak config/config.js && docker compose up -d"
+echo "  Rollback: ./installation-scripts/rollback.sh --yes   (restores snapshot ${snapshot_dir})"
 echo "========================================"

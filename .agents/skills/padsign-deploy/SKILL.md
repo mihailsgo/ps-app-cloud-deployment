@@ -23,6 +23,9 @@ Decide which workflow the user actually needs before doing anything:
 | Just rotate the backend client secret into config.js | `configure-host.sh --host <h> --backend-secret <s>` | Standalone; no other side effects |
 | Confirm nginx is actually serving the certificate that is on disk | `verify-served-cert.sh` | Read-only wire check; catches a renewal that landed on disk but never reached nginx. File-level checks cannot see this. |
 | Provision/remove a short-lived, single-purpose test login without touching the shared `test` account | `smoke-user.sh create --host <h> --company-role <role>` / `smoke-user.sh delete --host <h> --username <name>` | Never grants `padsign-admin`; requires the realm and role to already exist (run `keycloak-bootstrap.sh` first); the generated password is shown once at an interactive terminal only, never in a capturable log |
+| Run every post-deploy check in one pass (redirects, portal config, Keycloak discovery, protected API behavior, TLS, signing smoke test if available) | `postdeploy-check.sh --host <h> [--company-role <role>]` | Orchestrates `validate-config.sh` + `verify-keycloak.sh` + `verify-served-cert.sh` plus new checks it owns directly; writes `deployment-evidence.json` at the end |
+| Read-only observability snapshot (health, restarts, cert expiry, stamping/archive/routing failure counts, disk usage) | `monitor-status.sh [--host <h>]` | Reporting only — not an alerting system; see documentation/40-03 |
+| Undo a bad `upgrade.sh` run (bad tag, broken image) | `rollback.sh [--to latest\|<snapshot>] [--yes]` | Restores the image tags + `config/config.js` from the snapshot `upgrade.sh` took immediately before that run; never touches `signed-output/`, `docs/`, `nginx/nginx.conf`, or `config/constants.json` |
 
 If the user is vague ("deploy padsign"), ask which of these they want — the wrong choice is destructive (e.g. running `bootstrap.sh` against a live deployment re-runs the Keycloak bootstrap and may rewrite configs).
 
@@ -69,22 +72,17 @@ Bootstrap requires: `docker`, `docker compose` v2, `awk`, `perl`, `python3`, `cu
 3. **Never commit `nginx/certs/*.key`, the captured backend secret, or any Keycloak admin password.** `nginx/certs/` is git-ignored; double-check `git status` before committing after a deploy.
 4. **The Keycloak backend client secret is captured from `keycloak-bootstrap.sh` stdout.** If `bootstrap.sh` fails after step 4 but before step 5, the secret is lost — re-running bootstrap regenerates it (idempotent realm setup, but secret rotates). Note this if asked to "resume" a partial bootstrap.
 5. **Encrypted private keys break nginx startup.** If `--cert-key` points at an encrypted PEM, `configure-host.sh` exits with an error unless `--allow-encrypted-key` is set. Decrypt with `openssl pkey -in encrypted.key -out plain.key` rather than bypassing.
-6. **Rollback is documented in each script's final output** — surface that command verbatim if a step fails. Do not invent rollback procedures.
+6. **Rollback after a bad `upgrade.sh` run is `rollback.sh [--to latest] --yes`**, not a hand-typed `cp`. Every `upgrade.sh` run writes a timestamped snapshot first; `rollback.sh` restores from it and waits for health checks to pass. Don't invent a different rollback procedure.
 7. **Don't run destructive Docker commands without asking** — `docker compose down -v` wipes the Keycloak realm volume and forces a re-bootstrap.
 8. **Never echo a generated Keycloak password to a stream a caller could capture or retain** (CI output, a redirected file, the deployment wizard's live log). `keycloak-bootstrap.sh` and `smoke-user.sh` both write generated passwords only via `print_secret()` (`installation-scripts/lib/kcadm.sh`), which goes straight to `/dev/tty` and is invisible to stdout/stderr redirection. If you add a script that generates a credential, reuse that helper rather than a plain `echo`.
 
 ## Verification after any deploy/upgrade
 
-The scripts already do basic checks. Add these if the user wants a thorough handoff:
+Run `bash installation-scripts/postdeploy-check.sh --host <host> [--company-role <role>]` — it chains `validate-config.sh`, `verify-keycloak.sh`, `verify-served-cert.sh`, and its own redirect/portal-config/Keycloak-discovery/protected-API checks into one pass and writes `deployment-evidence.json`. `docker compose ps` should show every service `healthy`, not just `running` — a service still `starting` or `unhealthy` means don't consider the deploy done yet.
 
-- `bash installation-scripts/validate-config.sh --host <host>` — exit 0 means files are consistent
-- `docker compose ps` — all services should be `running` / `healthy`
-- `docker compose logs ps-server | grep "PadSign Server listening"` — backend boot
-- `curl -ksI https://<host>/` — expect `301` to `/portal/`
-- `curl -ksI https://<host>/auth/realms/padsign/.well-known/openid-configuration` — expect `200` (Keycloak realm reachable)
-- `bash installation-scripts/verify-served-cert.sh --host <host>` — exit 0 means nginx is serving the certificate that is on disk (see documentation/11-02)
+For a point-in-time health/observability snapshot (not part of deploy verification, useful for a handoff or a support ticket): `bash installation-scripts/monitor-status.sh --host <host>`.
 
-If any of these fail, surface the exact failing command and its output to the user; don't paraphrase.
+If any check fails, surface the exact failing command and its output to the user; don't paraphrase.
 
 ## Files this skill touches (and the source of truth for each)
 
@@ -93,7 +91,7 @@ If any of these fail, surface the exact failing command and its output to the us
 | `nginx/nginx.conf` | `configure-host.sh` | server_name, cert paths, root→/portal/ redirect |
 | `config/constants.json` | `configure-host.sh` (Python JSON edit) | client-side Keycloak URLs, redirect URIs, download API |
 | `config/config.js` | `configure-host.sh` + `upgrade.sh` | server-side service URLs, backend secret, ALLOWED_ORIGINS, DEMO_COMPANY_ROLE, DOCUMENT_ROUTING, CUSTOMER_DATA_* |
-| `docker-compose.yml` | `upgrade.sh` (image tags) + `configure-host.sh` (volume mount) | image tags, volumes, network |
+| `docker-compose.yml` | `upgrade.sh` (image tags) + `configure-host.sh` (volume mount) | image tags, volumes, network, per-service `healthcheck:`/`depends_on: condition: service_healthy` (see documentation/40-01) |
 | `nginx/certs/<host>.{crt,key}` | `configure-host.sh` copies from `installation-scripts/certs/` | TLS material — git-ignored |
 
 When the user asks to change something in these files manually, prefer running the appropriate script (with the right flag) over hand-editing — the scripts encode constraints (JSON validation, hostname escaping, redirect placement) that are easy to break.
