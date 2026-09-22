@@ -39,7 +39,7 @@ Review and adjust these files before running:
   - Default uses in-memory HSQL database. For persistence, configure Postgres (uncomment and set `spring.datasource.*`) and provide the DB instance.
 
 - `dmss-archive-services-fallback/application.yml`
-  - File paths point to `/docs` inside the container. The `./docs` folder on the host is bind-mounted; `bootstrap.sh` and `upgrade.sh` create it automatically (`mkdir -p docs && chmod 777 docs`) so the container can write signed PDFs into it. If you create it manually, ensure it is writable by the container's UID.
+  - File paths point to `/docs` inside the container. The `./docs` folder on the host is bind-mounted; `bootstrap.sh` and `upgrade.sh` create it automatically (`mkdir -p docs && chmod 777 docs`) so the container can write signed PDFs into it. If you create it manually, ensure it is writable by the container's UID. If `bootstrap.sh`/`upgrade.sh` already ran but signing still fails with a permissions error, Docker likely auto-created the directory as root before the script ran — see [20.1 Common Issues, issue 8](20-01-common-issues.md) for the fix.
 
 - Keycloak database persistence
   - A named Docker volume `keycloak_data` is created by compose and used for Keycloak; back it up for production.

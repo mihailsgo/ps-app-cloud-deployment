@@ -78,7 +78,7 @@ if [[ -d "${repo_root}/docs" ]]; then
   if [[ -w "${repo_root}/docs" ]]; then
     ok "docs directory exists and is writable"
   else
-    bad "docs directory exists but is NOT writable (dmss-archive-services-fallback writes here). Fix: chmod 777 docs"
+    bad "docs directory exists but is NOT writable (dmss-archive-services-fallback writes here). Fix: chmod 777 docs — if that also fails silently, Docker likely auto-created it as root; use: sudo chown $(id -u):$(id -g) docs  or  sudo chmod 777 docs"
   fi
 else
   bad "docs directory missing (create with: mkdir -p docs && chmod 777 docs)"
