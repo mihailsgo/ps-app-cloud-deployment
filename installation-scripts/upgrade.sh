@@ -343,6 +343,14 @@ mig_signed_output_apply() {
   chmod 777 "${repo_root}/signed-output" 2>/dev/null || true
   mkdir -p "${repo_root}/docs"
   chmod 777 "${repo_root}/docs" 2>/dev/null || true
+  for dir in "${repo_root}/signed-output" "${repo_root}/docs"; do
+    if [[ ! -w "$dir" ]]; then
+      echo "  WARNING: ${dir} is not writable even after 'chmod 777' — likely root-owned" >&2
+      echo "           because Docker auto-created it on an earlier 'docker compose up', or" >&2
+      echo "           this mount predates upgrading to v1.0.10+. Fix:" >&2
+      echo "           sudo chown $(id -u):$(id -g) ${dir}   (or: sudo chmod 777 ${dir})" >&2
+    fi
+  done
 }
 
 # ---- local-eseal ----

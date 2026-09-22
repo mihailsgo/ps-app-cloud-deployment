@@ -181,6 +181,14 @@ echo "  Created ${repo_root}/signed-output"
 mkdir -p "${repo_root}/docs"
 chmod 777 "${repo_root}/docs" 2>/dev/null || true
 echo "  Created ${repo_root}/docs (mounted by dmss-archive-services-fallback)"
+for dir in "${repo_root}/signed-output" "${repo_root}/docs"; do
+  if [[ ! -w "$dir" ]]; then
+    echo "  WARNING: ${dir} is not writable even after 'chmod 777' — likely root-owned" >&2
+    echo "           because Docker auto-created it on an earlier 'docker compose up' before" >&2
+    echo "           this script ran. Fix:" >&2
+    echo "           sudo chown $(id -u):$(id -g) ${dir}   (or: sudo chmod 777 ${dir})" >&2
+  fi
+done
 
 # ── Step 5: Bootstrap Keycloak ──
 echo "Step 5/8: Bootstrapping Keycloak (realm/clients/roles/users)..."

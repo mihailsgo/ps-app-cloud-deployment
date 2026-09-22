@@ -66,6 +66,24 @@
 3. Test connectivity from inside the network, e.g. `docker compose exec keycloak ping ps-server`.
 4. DMSS specifically: review `dmss-container-and-signature-services/application.yml` for endpoints and modes (TEST vs PROD), and check that truststores and referenced files exist under `dmss-container-and-signature-services/`.
 
+## 7. Keycloak errors or broken login despite a certificate that "looks fine" in the browser
+
+**Cause**: The supplied `<host>.crt` contains only the leaf certificate, not the full chain (missing intermediate CA certificates). NGINX serves the file as-is via a single `ssl_certificate` directive, so a browser that already trusts/caches the intermediate can look fine while Keycloak's own backchannel requests (e.g. its JWKS fetch) fail TLS verification and login breaks.
+
+**Solution**:
+1. Run `./installation-scripts/validate-certs.sh --host <host> --cert-crt <path> --cert-key <path>` — it counts PEM certificate blocks and verifies the chain, failing with a clear message when intermediates are missing. `bootstrap.sh` also runs this automatically before starting any container.
+2. Build a fullchain file (leaf + intermediates, in order) — see [11.1 TLS Prerequisites](11-01-tls-prerequisites-for-installation-scripts.md) for the exact `cat leaf.crt intermediate.crt > fullchain.crt` recipe and the Let's Encrypt shortcut.
+3. Re-run with the corrected fullchain file as `--cert-crt`.
+
+## 8. `docs/` directory permission errors even after `bootstrap.sh`/`upgrade.sh` ran
+
+**Cause**: `bootstrap.sh` and `upgrade.sh` run `mkdir -p docs && chmod 777 docs`, but if Docker already auto-created `docs/` as root on an earlier `docker compose up` (or the mount predates upgrading to v1.0.10+), a non-root operator's `chmod` silently no-ops — the script still reports success, and `docs/` stays writable only by root.
+
+**Solution**:
+1. Check ownership: `ls -ld docs/` — if it's owned by `root` and you're not running as root, that's the cause.
+2. Fix with: `sudo chown $(id -u):$(id -g) docs/` or `sudo chmod 777 docs/`.
+3. Re-run `./installation-scripts/validate-config.sh --host <host>` to confirm it reports `docs directory exists and is writable`.
+
 ## General debug commands
 
 ```bash
