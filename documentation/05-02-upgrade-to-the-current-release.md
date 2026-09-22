@@ -103,11 +103,31 @@ deletes its buffered copy).
 
 ## Rollback
 
-The upgrade script prints the exact revert command. To go back to the previous
-images, re-run with the old tags, e.g.:
+**Prefer restoring the backup files** — `docker-compose.yml.bak` / `config.js.bak`,
+written in Step 1 of every `upgrade.sh` run — over re-running with old tags. The
+`.bak` is a byte-for-byte copy of what was running before, so it already carries
+the exact prior image **digests**, not just tags:
+
+```bash
+cp docker-compose.yml.bak docker-compose.yml
+cp config/config.js.bak config/config.js
+docker compose up -d
+```
+
+If you instead reconstruct the rollback by re-running `upgrade.sh` with the old
+tags, note that a tag bump deliberately drops any digest pin (the old digest
+belongs to the old content, not the tag you're moving to) — the images below
+are unpinned again until you resolve and pin the digest, and
+`installation-scripts/validate-config.sh` will fail until you do:
 
 ```bash
 ./installation-scripts/upgrade.sh --server-tag 3.27 --client-tag 8.37
+# Then look up the digests that were approved for :3.27 / :8.37 - either
+# `git log -p -- release/approved-digests.json` in this repo, or the
+# matching CHANGELOG.md entry - and pin them:
+#   docker buildx imagetools inspect mihailsgordijenko/ps-server:3.27
+# Edit docker-compose.yml + release/approved-digests.json together, then:
+./installation-scripts/validate-config.sh
 ```
 
 > Note: if you protected the download route per
@@ -115,6 +135,5 @@ images, re-run with the old tags, e.g.:
 > rolling the client back below `8.38` requires re-opening that route first,
 > otherwise pads cannot render PDFs.
 
-Or restore the `docker-compose.yml.bak` / `config.js.bak` written in Step 1 and
-`docker compose up -d`. To keep `:3.27` but stop delivering documents back, set
+To keep `:3.27` but stop delivering documents back, set
 `DOCUMENT_ROUTING.enabled: false` and `docker compose restart ps-server`.

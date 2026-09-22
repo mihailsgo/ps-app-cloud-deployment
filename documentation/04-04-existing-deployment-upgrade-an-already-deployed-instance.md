@@ -274,7 +274,8 @@ Common mid-run failures:
 
 If you need to bail out completely after a failed run and return to
 pre-feature state, restore the two `.bak` files the script created
-in Step 1:
+in Step 1 — since each is a byte-for-byte copy, this restores the
+exact prior image digests, not just tags:
 
 ```bash
 cd /opt/psapp
