@@ -9,10 +9,13 @@ set -euo pipefail
 #   ./installation-scripts/rollback.sh [--to latest|<snapshot-dir-name>] [--yes]
 #
 # What this restores (and nothing else):
-#   - docker-compose.yml's ps-server/ps-client image TAG lines only (a
-#     targeted sed, not a wholesale file overwrite - so any unrelated
-#     docker-compose.yml edit made after the snapshot, e.g. a
-#     configure-host.sh --enable-local-eseal block, survives)
+#   - docker-compose.yml's ps-server/ps-client image lines only (a targeted
+#     sed, not a wholesale file overwrite - so any unrelated docker-compose.yml
+#     edit made after the snapshot, e.g. a configure-host.sh
+#     --enable-local-eseal block, survives). Restores tag@digest when the
+#     snapshot's manifest.json recorded a digest (every snapshot since
+#     psapp-saas#11 does); falls back to a bare tag, with a re-pin reminder,
+#     for older snapshots that predate digest recording.
 #   - config/config.js, restored verbatim from the snapshot
 #
 # What this NEVER touches:
@@ -92,6 +95,13 @@ with open(os.environ['MANIFEST_PATH'], encoding='utf-8') as fh:
 " 2>/dev/null || echo "{}")"
 manifest_server_tag="$(MANIFEST_JSON="$manifest_json" python3 -c "import json,os;print(json.loads(os.environ['MANIFEST_JSON']).get('image_tags',{}).get('ps-server') or '')" 2>/dev/null || echo "")"
 manifest_client_tag="$(MANIFEST_JSON="$manifest_json" python3 -c "import json,os;print(json.loads(os.environ['MANIFEST_JSON']).get('image_tags',{}).get('ps-client') or '')" 2>/dev/null || echo "")"
+# Recorded by write_rollback_snapshot() (lib/rollback-snapshot.sh) via
+# `docker inspect --format '{{.Image}}'` on the pre-upgrade container - this
+# is the exact content digest that was running, independent of whether
+# docker-compose.yml pinned by digest at snapshot time. Empty for snapshots
+# taken before this field existed.
+manifest_server_digest="$(MANIFEST_JSON="$manifest_json" python3 -c "import json,os;print(json.loads(os.environ['MANIFEST_JSON']).get('image_digests',{}).get('ps-server') or '')" 2>/dev/null || echo "")"
+manifest_client_digest="$(MANIFEST_JSON="$manifest_json" python3 -c "import json,os;print(json.loads(os.environ['MANIFEST_JSON']).get('image_digests',{}).get('ps-client') or '')" 2>/dev/null || echo "")"
 taken_at="$(MANIFEST_JSON="$manifest_json" python3 -c "import json,os;print(json.loads(os.environ['MANIFEST_JSON']).get('taken_at') or '')" 2>/dev/null || echo "")"
 
 current_server_tag="$(sed -nE 's|.*mihailsgordijenko/ps-server:([0-9]+\.[0-9]+(\.[0-9]+)?).*|\1|p' "$compose_yml" 2>/dev/null | head -1)"
@@ -102,8 +112,8 @@ echo "================================"
 echo "Snapshot:        ${snap_dir}"
 echo "Snapshot taken:  ${taken_at}"
 echo ""
-echo "  ps-server: ${current_server_tag:-unknown} -> ${manifest_server_tag:-<unchanged>}"
-echo "  ps-client: ${current_client_tag:-unknown} -> ${manifest_client_tag:-<unchanged>}"
+echo "  ps-server: ${current_server_tag:-unknown} -> ${manifest_server_tag:-<unchanged>}${manifest_server_digest:+@${manifest_server_digest}}"
+echo "  ps-client: ${current_client_tag:-unknown} -> ${manifest_client_tag:-<unchanged>}${manifest_client_digest:+@${manifest_client_digest}}"
 echo ""
 echo "This restores docker-compose.yml's image tags and config/config.js to"
 echo "their state immediately before that upgrade.sh run. It never touches"
@@ -125,13 +135,28 @@ fi
 
 echo ""
 echo "Step 1/3: Restoring image tags in docker-compose.yml..."
+# -E and the trailing (@sha256:[0-9a-f]+)? deliberately strip whatever digest
+# is CURRENTLY pinned before writing the new reference - that digest belongs
+# to the tag being rolled back FROM, not the one being rolled back TO.
+# Carrying it forward would silently pin the restored tag to the wrong
+# content (the same bug fixed in upgrade.sh's Step 2 for the same reason).
 if [[ -n "$manifest_server_tag" ]]; then
-  sed -i "s|mihailsgordijenko/ps-server:[0-9.]*|mihailsgordijenko/ps-server:${manifest_server_tag}|" "$compose_yml"
-  echo "  ps-server -> ${manifest_server_tag}"
+  if [[ -n "$manifest_server_digest" ]]; then
+    sed -i -E "s|mihailsgordijenko/ps-server:[0-9.]*(@sha256:[0-9a-f]+)?|mihailsgordijenko/ps-server:${manifest_server_tag}@${manifest_server_digest}|" "$compose_yml"
+    echo "  ps-server -> ${manifest_server_tag}@${manifest_server_digest}"
+  else
+    sed -i -E "s|mihailsgordijenko/ps-server:[0-9.]*(@sha256:[0-9a-f]+)?|mihailsgordijenko/ps-server:${manifest_server_tag}|" "$compose_yml"
+    echo "  ps-server -> ${manifest_server_tag} (no digest in this snapshot - re-pin manually, see documentation/39-release-procedure.md)"
+  fi
 fi
 if [[ -n "$manifest_client_tag" ]]; then
-  sed -i "s|mihailsgordijenko/ps-client:[0-9.]*|mihailsgordijenko/ps-client:${manifest_client_tag}|" "$compose_yml"
-  echo "  ps-client -> ${manifest_client_tag}"
+  if [[ -n "$manifest_client_digest" ]]; then
+    sed -i -E "s|mihailsgordijenko/ps-client:[0-9.]*(@sha256:[0-9a-f]+)?|mihailsgordijenko/ps-client:${manifest_client_tag}@${manifest_client_digest}|" "$compose_yml"
+    echo "  ps-client -> ${manifest_client_tag}@${manifest_client_digest}"
+  else
+    sed -i -E "s|mihailsgordijenko/ps-client:[0-9.]*(@sha256:[0-9a-f]+)?|mihailsgordijenko/ps-client:${manifest_client_tag}|" "$compose_yml"
+    echo "  ps-client -> ${manifest_client_tag} (no digest in this snapshot - re-pin manually, see documentation/39-release-procedure.md)"
+  fi
 fi
 
 echo "Step 2/3: Restoring config/config.js from snapshot..."

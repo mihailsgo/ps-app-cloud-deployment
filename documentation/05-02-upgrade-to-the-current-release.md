@@ -103,28 +103,31 @@ deletes its buffered copy).
 
 ## Rollback
 
-**Prefer restoring the backup files** — `docker-compose.yml.bak` / `config.js.bak`,
-written in Step 1 of every `upgrade.sh` run — over re-running with old tags. The
-`.bak` is a byte-for-byte copy of what was running before, so it already carries
-the exact prior image **digests**, not just tags:
+**Use `installation-scripts/rollback.sh`** (see [40.4 Rollback](40-04-rollback.md)) —
+every `upgrade.sh` run writes a timestamped pre-upgrade snapshot first, and
+`rollback.sh` restores from it, pulls, restarts, and waits for the restored
+services to report healthy:
 
 ```bash
-cp docker-compose.yml.bak docker-compose.yml
-cp config/config.js.bak config/config.js
-docker compose up -d
+./installation-scripts/rollback.sh --yes
 ```
 
-If you instead reconstruct the rollback by re-running `upgrade.sh` with the old
-tags, note that a tag bump deliberately drops any digest pin (the old digest
-belongs to the old content, not the tag you're moving to) — the images below
-are unpinned again until you resolve and pin the digest, and
-`installation-scripts/validate-config.sh` will fail until you do:
+This restores the exact `tag@sha256:digest` that was running immediately
+before the upgrade — not just the tag — because the snapshot's manifest
+records the digest that was actually running, and `rollback.sh` writes it
+back rather than re-deriving it.
+
+If no snapshot exists (a deployment upgraded before `rollback.sh` existed, or
+`.rollback-snapshots/` was pruned/lost), reconstruct manually: look up the
+digest that was approved for the tag you're going back to — either
+`git log -p -- release/approved-digests.json` in this repo, or the matching
+`CHANGELOG.md` entry — and pin it explicitly:
 
 ```bash
 ./installation-scripts/upgrade.sh --server-tag 3.27 --client-tag 8.37
-# Then look up the digests that were approved for :3.27 / :8.37 - either
-# `git log -p -- release/approved-digests.json` in this repo, or the
-# matching CHANGELOG.md entry - and pin them:
+# upgrade.sh deliberately drops any digest pin on a tag bump (the old digest
+# belongs to the old content, not the tag you're moving to) - resolve and
+# pin the correct one for :3.27 / :8.37:
 #   docker buildx imagetools inspect mihailsgordijenko/ps-server:3.27
 # Edit docker-compose.yml + release/approved-digests.json together, then:
 ./installation-scripts/validate-config.sh
