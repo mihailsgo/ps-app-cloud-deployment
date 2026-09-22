@@ -20,7 +20,13 @@
 The recommended pattern needs no application changes and is enforced entirely at nginx:
 
 - Add `satisfy any; allow <docker-subnet>; deny all; auth_basic ...;` to both locations. Internal ps-server traffic reaches nginx through the Docker network alias and passes on source IP alone; every outside caller must send `Authorization: Basic ...`. Credentials live in an `htpasswd` file dropped into the already-mounted `nginx/certs` folder.
-- Firewall the published host ports (84, 86, 93, 3001, 8080) against outside access, otherwise nginx can be bypassed by calling the services directly.
+- Keycloak (8080) and the DMSS archive/container services (86, 84) are bound to
+  `127.0.0.1` only by default in `docker-compose.yml`; ps-server (3001) and the DMSS
+  fallback service (93) have no host port at all — nginx reaches all of them over the
+  internal Docker network. This means a permissive AWS security group alone can no
+  longer expose them; `installation-scripts/validate-config.sh` fails if any of
+  these bind to a non-loopback interface without an explicit allow-list entry. Treat
+  this as defense-in-depth alongside the security group, not a replacement for it.
 
 ### The document download route
 

@@ -19,8 +19,12 @@ Host requirements:
 - TLS certificate and key for your hostname (PEM). Self-signed is acceptable
   for local testing. Format requirements:
   [11.1 TLS Prerequisites](11-01-tls-prerequisites-for-installation-scripts.md).
-- Open host ports: 80, 443, 8080, 3001, 84, 86, 93 — plus 8443 if you use the
-  [Deployment Wizard](36-deployment-wizard.md).
+- Open host ports: 80, 443 — plus 8443 if you use the
+  [Deployment Wizard](36-deployment-wizard.md). Keycloak (8080), the DMSS archive
+  and container/signature services (86, 84) are bound to `127.0.0.1` only, for
+  local operator diagnostics — see [22. Security and Route Protection](22-security-and-route-protection.md).
+  ps-server (3001) and the DMSS archive fallback service (93) have no host
+  binding at all; nginx reaches every internal service over the Docker network.
 - Suggested resources: 4 vCPU, 6-8 GB RAM, and at least 10 GB free disk for
   images, volumes, and signed-document output.
 
