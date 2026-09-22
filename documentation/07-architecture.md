@@ -3,7 +3,7 @@
 Services defined in `docker-compose.yml`:
 
 - NGINX: Public entrypoint on ports 80/443; routes to backend services and Keycloak.
-- Keycloak: Identity provider; exposed on port 8080 and proxied at `/auth` through NGINX.
+- Keycloak: Identity provider; listens on 8080 (published to the host at `127.0.0.1` only, for local diagnostics) and proxied at `/auth` through NGINX for external access.
 - PS Client: SPA served by its own NGINX; proxied by the public NGINX at `/portal`.
 - PS Server: Backend API consumed by PS Client; proxied by the public NGINX at `/api`.
 - DMSS Container and Signature Services: PDF/container operations, signing flows, Smart-ID/Mobile-ID.

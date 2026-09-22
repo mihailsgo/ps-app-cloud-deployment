@@ -20,6 +20,12 @@ Credentials and secrets:
 Network and TLS:
 
 - Always use HTTPS in production (the stack terminates TLS in NGINX).
+- Internal services (Keycloak, DMSS archive/container-signature, ps-server, the DMSS
+  fallback archive) are loopback-bound or unpublished by default in
+  `docker-compose.yml` — the AWS security group is not the only control boundary.
+  `installation-scripts/validate-config.sh` fails the build if any of them bind to a
+  non-loopback interface without a documented exception. See
+  [22. Security and Route Protection](22-security-and-route-protection.md).
 - Use managed TLS (for example, certbot/ACME or cloud load balancer) and rotate certificates. Also verify the renewed certificate is actually being *served* — a renewal that copies a new file into place but fails to reload NGINX leaves the old certificate live until it expires, and every file-level check passes throughout. See [11.2 Monitoring the Served Certificate](11-02-monitoring-the-served-certificate.md).
 - Restrict admin endpoints and the Keycloak admin console to trusted networks.
 - Limit management/actuator exposure to internal networks.
