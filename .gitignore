@@ -36,6 +36,14 @@ temp/
 PSDOCS/
 PSDOCS/**
 
+# Rollback snapshots and deployment evidence — per-deployment runtime state.
+# Snapshots include a copy of config/config.js, which holds this
+# deployment's real secrets once configure-host.sh has customized it —
+# never commit these.
+.rollback-snapshots/
+deployment-evidence.json
+deployment-evidence.json.previous
+
 # Large or local-only data
 docs/**
 
