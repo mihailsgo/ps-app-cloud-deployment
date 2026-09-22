@@ -4,6 +4,12 @@ Settings deliberately does **not** offer a way to change the Keycloak
 admin password on a live deployment. This is a documented gap, not an
 oversight.
 
+> This page assumes you have **some** currently-working Keycloak credential
+> to log in with. If nothing authenticates at all — no admin password, no
+> test-user password, nothing — see
+> [14.7 Break-glass admin recovery](14-07-break-glass-admin-recovery.md)
+> instead.
+
 ## Why
 
 `docker-compose.yml`'s `keycloak` service takes `KEYCLOAK_ADMIN` /

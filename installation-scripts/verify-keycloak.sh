@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+scripts_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/kcadm.sh
+. "${scripts_dir}/lib/kcadm.sh"
+
 realm="padsign"
 host="${KC_HOSTNAME:-}"
 company_role=""
@@ -63,12 +67,8 @@ expected_redirects=("${portal_base}/*" "${portal_base}/" "${portal_base}")
 expected_web_origins=("${portal_base}/" "${portal_base}")
 expected_post_logout=("${portal_base}/*" "${portal_base}/" "${portal_base}")
 
-kc_exec() {
-  docker compose exec -T keycloak sh -lc "$*"
-}
-
 docker compose up -d keycloak >/dev/null
-kc_exec "/opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080/auth --realm master --user '${admin_user}' --password '${admin_pass}'" >/dev/null
+kc_login "${admin_user}" "${admin_pass}"
 
 fail=0
 exit_code=0
@@ -97,7 +97,7 @@ client_front="padsign-client"
 if front_json="$(get_client_json "$client_front" 2>/dev/null)"; then
   ok "client '${client_front}' exists"
 
-  python3 - "$host" "$realm" "$company_role" <<'PY' || exit_code=$?
+  python3 -c "$(cat <<'PY'
 import json, sys
 
 host, realm, company_role = sys.argv[1:]
@@ -143,7 +143,8 @@ else:
   print("OK   padsign-client post logout redirect URIs")
 
 sys.exit(0 if rc == 0 else 1)
-PY <<<"$front_json"
+PY
+)" "$host" "$realm" "$company_role" <<<"$front_json" || exit_code=$?
   if [[ ${exit_code:-0} -ne 0 ]]; then fail=1; fi
 else
   bad "client '${client_front}' missing"
@@ -154,7 +155,7 @@ unset exit_code
 if back_json="$(get_client_json "$client_back" 2>/dev/null)"; then
   ok "client '${client_back}' exists"
 
-  python3 - <<'PY' || exit_code=$?
+  python3 -c "$(cat <<'PY'
 import json, sys
 data = json.load(sys.stdin)
 checks = [
@@ -173,7 +174,8 @@ for label, got, exp in checks:
   else:
     print(f"OK   {label}")
 sys.exit(rc)
-PY <<<"$back_json"
+PY
+)" <<<"$back_json" || exit_code=$?
   if [[ ${exit_code:-0} -ne 0 ]]; then fail=1; fi
 else
   bad "client '${client_back}' missing"
@@ -187,7 +189,7 @@ if [[ -z "$test_uid" || "$test_uid" == "id" ]]; then
 else
   ok "user 'test' exists"
   roles_json="$(kc_exec "/opt/keycloak/bin/kcadm.sh get users/${test_uid}/role-mappings/realm -r ${realm}")"
-  python3 - "$company_role" <<'PY' || exit_code=$?
+  python3 -c "$(cat <<'PY'
 import json, sys
 company_role = sys.argv[1]
 data = json.load(sys.stdin)  # list of roles
@@ -196,7 +198,8 @@ if names != [company_role]:
   print(f"FAIL test user realm roles: got={names!r} expected={[company_role]!r}")
   sys.exit(1)
 print("OK   test user realm roles (only company role)")
-PY <<<"$roles_json"
+PY
+)" "$company_role" <<<"$roles_json" || exit_code=$?
   if [[ ${exit_code:-0} -ne 0 ]]; then fail=1; fi
 fi
 
