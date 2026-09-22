@@ -39,6 +39,7 @@ ps-app-cloud-deployment/
 │   ├── configure-host.sh             # Rewrite config files for a new hostname
 │   ├── keycloak-bootstrap.sh         # Idempotent Keycloak realm/client/role/user creation
 │   ├── keycloak-bootstrap.ps1        # Windows PowerShell equivalent
+│   ├── smoke-user.sh                 # Create/delete a disposable, single-purpose Keycloak login
 │   ├── upgrade.sh                    # Version bump + config migrations (--plan-only preview)
 │   ├── update-hostname.sh            # Post-go-live hostname + cert + Keycloak sync
 │   ├── renew-cert.sh                 # Post-go-live cert swap (hostname unchanged)
@@ -47,6 +48,7 @@ ps-app-cloud-deployment/
 │   ├── validate-config.sh            # Config consistency checks
 │   ├── verify-keycloak.sh            # Verify Keycloak setup
 │   ├── verify-served-cert.sh         # Wire check: cert nginx actually serves
+│   ├── lib/                          # Shared helpers sourced by the scripts above (capabilities.sh, kcadm.sh)
 │   └── certs/                        # Place PEM certs here for bootstrap
 ├── dmss-archive-services/            # Spring config for document archive
 ├── dmss-archive-services-fallback/   # Spring config for filesystem fallback archive

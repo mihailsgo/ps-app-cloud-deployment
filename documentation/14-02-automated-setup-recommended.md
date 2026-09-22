@@ -27,6 +27,13 @@ docker compose up -d
 
 The script prints the backend client secret; set it in `config/config.js` under `KEYCLOAK_CONFIG.credentials.secret`.
 
+The demo `test` account's password is generated fresh on every run but is
+**only shown when this script is run at an interactive terminal** — it is
+never written to stdout/stderr, so it never lands in a captured log (CI
+output, a redirected file, or the deployment wizard's live progress view). If
+you ran this non-interactively and need to log in as `test`, either re-run
+interactively, or provision a disposable credential instead (see below).
+
 Compatibility notes (important):
 - `installation-scripts/keycloak-bootstrap.sh` in this package was updated for Keycloak 26 compatibility:
   - readiness check uses `http://localhost:8080/`
@@ -38,7 +45,7 @@ If bootstrap still fails in your environment, perform these manual activities:
 1. Bootstrap Keycloak manually in admin UI:
    - Realm: `padsign`
    - Roles: `padsign-admin`, `psapp-integration`, `<CompanyRole>`
-   - User: `test` with role `<CompanyRole>` and a password of your choosing (the automated script generates a random password and prints it at the end of its run)
+   - User: `test` with role `<CompanyRole>` and a password of your choosing (the automated script generates a random password and shows it once, only when run at an interactive terminal)
    - Clients:
      - `padsign-client` (public), Name: `padsign-client`
      - `padsign-backend` (confidential + service accounts), Name: `padsign-backend`
@@ -52,4 +59,24 @@ If bootstrap still fails in your environment, perform these manual activities:
      - `https://<host>/portal`
 3. Copy backend client secret to:
    - `config/config.js` -> `KEYCLOAK_CONFIG.credentials.secret`
+
+## Disposable smoke-test users
+
+The `test` account above is fixed (always that username) and destructive to
+regenerate — every re-run of `keycloak-bootstrap.sh` deletes and recreates it,
+which is a live-stack side effect you might not want on demand. For a
+one-off login check without touching `test`, use `smoke-user.sh` to mint a
+uniquely-named, disposable user and delete it again when done:
+
+```bash
+./installation-scripts/smoke-user.sh create --host <host> --company-role "YourCompany"
+# ... log in as the printed username, using the password shown once on screen ...
+./installation-scripts/smoke-user.sh delete --host <host> --username <the printed username>
+```
+
+Requires the realm and the given `--company-role` to already exist (run
+`keycloak-bootstrap.sh` first) — it only ever creates/deletes the one user it
+names, assigns exactly the role you pass (never `padsign-admin`), and never
+restarts Keycloak. Like the `test` account's password, the generated
+password is shown once at an interactive terminal only.
 

@@ -10,5 +10,6 @@
 
 > `KEYCLOAK_ADMIN_PASSWORD` is only read on Keycloak's **first** boot against an
 > empty volume — see [37.5](37-05-known-gaps-keycloak-admin-password-rotation.md)
-> for changing it on a live deployment.
+> for changing it on a live deployment, or
+> [14.7](14-07-break-glass-admin-recovery.md) if no credential works at all.
 

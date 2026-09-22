@@ -22,6 +22,7 @@ Decide which workflow the user actually needs before doing anything:
 | Toggle features after go-live (routing / demo / local e-sealing) | `toggle-features.sh --enable-*/--disable-*` | Restarts only what each change needs; demo mode needs no restart |
 | Just rotate the backend client secret into config.js | `configure-host.sh --host <h> --backend-secret <s>` | Standalone; no other side effects |
 | Confirm nginx is actually serving the certificate that is on disk | `verify-served-cert.sh` | Read-only wire check; catches a renewal that landed on disk but never reached nginx. File-level checks cannot see this. |
+| Provision/remove a short-lived, single-purpose test login without touching the shared `test` account | `smoke-user.sh create --host <h> --company-role <role>` / `smoke-user.sh delete --host <h> --username <name>` | Never grants `padsign-admin`; requires the realm and role to already exist (run `keycloak-bootstrap.sh` first); the generated password is shown once at an interactive terminal only, never in a capturable log |
 
 If the user is vague ("deploy padsign"), ask which of these they want — the wrong choice is destructive (e.g. running `bootstrap.sh` against a live deployment re-runs the Keycloak bootstrap and may rewrite configs).
 
@@ -70,6 +71,7 @@ Bootstrap requires: `docker`, `docker compose` v2, `awk`, `perl`, `python3`, `cu
 5. **Encrypted private keys break nginx startup.** If `--cert-key` points at an encrypted PEM, `configure-host.sh` exits with an error unless `--allow-encrypted-key` is set. Decrypt with `openssl pkey -in encrypted.key -out plain.key` rather than bypassing.
 6. **Rollback is documented in each script's final output** — surface that command verbatim if a step fails. Do not invent rollback procedures.
 7. **Don't run destructive Docker commands without asking** — `docker compose down -v` wipes the Keycloak realm volume and forces a re-bootstrap.
+8. **Never echo a generated Keycloak password to a stream a caller could capture or retain** (CI output, a redirected file, the deployment wizard's live log). `keycloak-bootstrap.sh` and `smoke-user.sh` both write generated passwords only via `print_secret()` (`installation-scripts/lib/kcadm.sh`), which goes straight to `/dev/tty` and is invisible to stdout/stderr redirection. If you add a script that generates a credential, reuse that helper rather than a plain `echo`.
 
 ## Verification after any deploy/upgrade
 
