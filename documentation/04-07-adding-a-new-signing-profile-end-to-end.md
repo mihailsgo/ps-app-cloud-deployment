@@ -132,7 +132,9 @@ docker exec dmss-container-and-signature-services curl -fsS \
     | python3 -c "import sys,json; sys.stdout.buffer.write(bytes.fromhex(json.load(sys.stdin)['cert']))" \
     | openssl x509 -inform DER -noout -subject
 
-# End-to-end sign a sample PDF (replace /path/to/sample.pdf):
+# End-to-end sign a sample PDF (replace /path/to/sample.pdf). Port 84 is bound
+# to 127.0.0.1 only, so run this on the deployment host itself, or over an SSH
+# tunnel (ssh -L 84:localhost:84 <host>):
 curl -sS -u user:<your-spring-security-password> \
     -X POST -F "file=@/path/to/sample.pdf;type=application/pdf" \
     -o sealed.pdf \

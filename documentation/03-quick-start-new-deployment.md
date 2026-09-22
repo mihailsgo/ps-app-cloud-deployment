@@ -7,7 +7,7 @@ about 15 minutes once they are):
 2. **DNS** for your chosen hostname pointing at the host
 3. A **TLS certificate** (full chain) and **unencrypted private key**, staged as
    `installation-scripts/certs/<host>.crt` and `.key` — format details in [11.1 TLS Prerequisites](11-01-tls-prerequisites-for-installation-scripts.md)
-4. **Port 443 free** (the stack also binds 80, 8080, 3001, 84, 86, 93 — see [9. Prerequisites](09-prerequisites.md))
+4. **Port 443 free** (nginx also uses 80; Keycloak/DMSS are loopback-only or unpublished — see [9. Prerequisites](09-prerequisites.md))
 
 Then deploy PadSign with one command:
 

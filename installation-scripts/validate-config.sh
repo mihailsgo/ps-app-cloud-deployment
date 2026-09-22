@@ -88,7 +88,7 @@ if [[ -d "${repo_root}/docs" ]]; then
   if [[ -w "${repo_root}/docs" ]]; then
     ok "docs directory exists and is writable"
   else
-    bad "docs directory exists but is NOT writable (dmss-archive-services-fallback writes here as its 'spring' user). Fix: chgrp <spring's gid> docs && chmod 770 docs — see installation-scripts/lib/dir-permissions.sh"
+    bad "docs directory exists but is NOT writable (dmss-archive-services-fallback writes here as its 'spring' user). Fix: chgrp <spring's gid> docs && chmod 770 docs — see installation-scripts/lib/dir-permissions.sh. If that also fails, Docker likely auto-created it as root on an earlier 'docker compose up'; use sudo."
   fi
   if world_writable "${repo_root}/docs"; then
     bad "docs directory is world-writable ($(stat -c '%a' "${repo_root}/docs" 2>/dev/null || stat -f '%Lp' "${repo_root}/docs" 2>/dev/null)). Fix: chgrp <spring's gid> docs && chmod 770 docs — see installation-scripts/lib/dir-permissions.sh"
@@ -104,6 +104,51 @@ if grep -q 'return 301.*portal' "${repo_root}/nginx/nginx.conf"; then
   ok "nginx root→/portal/ redirect configured"
 else
   bad "nginx root→/portal/ redirect missing"
+fi
+
+# --- Port bindings (psapp-saas#13) ---
+# Internal services must never bind to a non-loopback host interface — nginx is
+# the only intended public ingress. A service is allowed to publish on all
+# interfaces only if it's on this allow-list (documented exception); everything
+# else, including any future service someone adds here, must be loopback-only
+# or have no host port mapping at all.
+echo ""
+echo "Port bindings:"
+declare -A PORT_ALLOWLIST_NONLOOPBACK=(
+  [nginx]="public HTTPS/HTTP ingress — the only intended entrypoint"
+  [wizard]="opt-in, profile-gated deployment UI; own HTTPS+token controls, see documentation/36-05"
+)
+
+port_config_json="$(docker compose -f "${repo_root}/docker-compose.yml" config --format json 2>/dev/null || echo "")"
+if [[ -z "$port_config_json" ]]; then
+  bad "could not render docker-compose.yml via 'docker compose config --format json' to check port bindings"
+else
+  port_report="$(python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+for name, svc in sorted((data.get('services') or {}).items()):
+    for p in (svc.get('ports') or []):
+        host_ip = p.get('host_ip') or ''
+        published = p.get('published') or ''
+        target = p.get('target', '')
+        loopback = host_ip in ('127.0.0.1', '::1')
+        print(f'{name}\t{host_ip}\t{published}\t{target}\t{1 if loopback else 0}')
+" <<< "$port_config_json" 2>/dev/null | tr -d '\r')"
+
+  if [[ -z "$port_report" ]]; then
+    ok "no services publish a host port"
+  else
+    while IFS=$'\t' read -r svc host_ip published target loopback; do
+      [[ -z "$svc" ]] && continue
+      if [[ "$loopback" == "1" ]]; then
+        ok "${svc}: host port ${published} bound to ${host_ip} (loopback-only)"
+      elif [[ -n "${PORT_ALLOWLIST_NONLOOPBACK[$svc]:-}" ]]; then
+        ok "${svc}: host port ${published} bound to all interfaces (allow-listed: ${PORT_ALLOWLIST_NONLOOPBACK[$svc]})"
+      else
+        bad "${svc}: host port ${published} (-> ${target}) bound to ${host_ip:-all interfaces (0.0.0.0/::)} — internal services must be loopback-only or unpublished unless added to the allow-list in this script with a documented reason"
+      fi
+    done <<< "$port_report"
+  fi
 fi
 
 # --- Hostname consistency (if --host provided) ---

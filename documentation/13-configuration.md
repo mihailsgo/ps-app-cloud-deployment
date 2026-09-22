@@ -4,12 +4,18 @@ Review and adjust these files before running:
 
 - `docker-compose.yml`
   - `KC_HOSTNAME` should match your hostname.
-  - Host ports 80/443, 8080, 3001, 84, 86, 93 must be free.
+  - Host ports 80/443 must be free. Keycloak (8080) and the DMSS archive/container
+    services (86, 84) publish to `127.0.0.1` only, for local operator diagnostics;
+    ps-server (3001) and the DMSS fallback service (93) have no host port at all.
+    See [22. Security and Route Protection](22-security-and-route-protection.md).
   - Image versions should match the release snapshot (`ps-server:3.27`, `ps-client:8.38`).
 
 - `nginx/nginx.conf`
   - Update `server_name` and TLS files.
-  - Proxy targets are pre-wired to internal services; `/archive/api` and `/container/api` routes target host ports `86` and `84` via `host.docker.internal` (intentional for Windows/macOS). Keep the published host ports in `docker-compose.yml` aligned with these.
+  - Proxy targets reach every internal service by Docker service name and container
+    port (`/archive/api` → `dmss-archive-services:8090`, `/container/api` →
+    `dmss-container-and-signature-services:8092`, `/api` → `ps-server:3001`, `/auth`
+    → `keycloak:8080`) — nginx never leaves the Docker network to reach them.
 
 - `config/config.js` (PS Server)
   - Update all hardcoded URLs from `https://padsign.trustlynx.com/...` to your hostname.
@@ -39,7 +45,7 @@ Review and adjust these files before running:
   - Default uses in-memory HSQL database. For persistence, configure Postgres (uncomment and set `spring.datasource.*`) and provide the DB instance.
 
 - `dmss-archive-services-fallback/application.yml`
-  - File paths point to `/docs` inside the container. The `./docs` folder on the host is bind-mounted; `bootstrap.sh` and `upgrade.sh` create it automatically (`mkdir -p docs && chmod 777 docs`) so the container can write signed PDFs into it. If you create it manually, ensure it is writable by the container's UID.
+  - File paths point to `/docs` inside the container. The `./docs` folder on the host is bind-mounted; `bootstrap.sh` and `upgrade.sh` create it automatically (`mkdir -p docs && chmod 777 docs`) so the container can write signed PDFs into it. If you create it manually, ensure it is writable by the container's UID. If `bootstrap.sh`/`upgrade.sh` already ran but signing still fails with a permissions error, Docker likely auto-created the directory as root before the script ran — see [20.1 Common Issues, issue 8](20-01-common-issues.md) for the fix.
 
 - Keycloak database persistence
   - A named Docker volume `keycloak_data` is created by compose and used for Keycloak; back it up for production.

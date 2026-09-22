@@ -346,6 +346,14 @@ mig_signed_output_apply() {
   # Permission model: see lib/dir-permissions.sh.
   fix_signed_output_permissions
   fix_docs_permissions
+  if [[ ! -w "${repo_root}/docs" ]]; then
+    target_gid="$(resolve_dmss_fallback_gid 2>/dev/null)"
+    echo "  WARNING: ${repo_root}/docs is still not writable by this user after fix_docs_permissions —" >&2
+    echo "           likely root-owned because Docker auto-created it on an earlier 'docker compose up'," >&2
+    echo "           or this mount predates upgrading past the chmod-777 removal (chgrp needs" >&2
+    echo "           ownership or root). Fix:" >&2
+    echo "           sudo chgrp ${target_gid:-<dmss-archive-services-fallback spring gid>} ${repo_root}/docs && sudo chmod 770 ${repo_root}/docs" >&2
+  fi
 }
 
 # ---- local-eseal ----

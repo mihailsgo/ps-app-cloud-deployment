@@ -5,6 +5,10 @@ set -euo pipefail
 # Keycloak Bootstrap — idempotent realm/client/role/user creation
 # ============================================================================
 
+scripts_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/kcadm.sh
+. "${scripts_dir}/lib/kcadm.sh"
+
 realm="padsign"
 host="${KC_HOSTNAME:-}"
 company_role=""
@@ -60,6 +64,10 @@ if [[ -z "$company_role" ]]; then
   exit 2
 fi
 
+if [[ "$admin_pass" == "admin" ]]; then
+  echo "WARNING: Using default admin password 'admin' is insecure. Consider --admin-pass with a strong password (or set KEYCLOAK_ADMIN_PASSWORD)." >&2
+fi
+
 portal_base="https://${host}/portal"
 post_logout_uris="${portal_base}/*##${portal_base}/##${portal_base}"
 
@@ -67,40 +75,9 @@ echo "Bootstrapping Keycloak realm '${realm}' for host '${host}'..."
 
 docker compose up -d keycloak >/dev/null
 
-kc_exec() {
-  docker compose exec -T keycloak sh -lc "$*"
-}
+kc_wait_ready || exit 1
 
-# Wait for Keycloak readiness via a TCP check run INSIDE the keycloak
-# container itself (docker compose exec), not a curl from wherever this
-# script happens to execute. This script runs both directly on a bare host
-# (traditional CLI use) and inside the deployment-wizard container (which
-# talks to keycloak only as a sibling container via the mounted Docker
-# socket) — "localhost:8080" only resolves to the right place in the first
-# case. `docker compose exec` always reaches the correct container via the
-# Docker API regardless of the caller's own network namespace, matching how
-# kc_exec() below already works. The keycloak image ships bash (no curl/wget),
-# so /dev/tcp is the check, not an HTTP request — found via a real E2E test
-# where the wizard ran as an actual container for the first time.
-echo "  Waiting for Keycloak to become ready..."
-for i in $(seq 1 120); do
-  if kc_exec "bash -c 'echo > /dev/tcp/localhost/8080'" >/dev/null 2>&1; then
-    echo "  Keycloak ready (${i}s)"
-    break
-  fi
-  sleep 1
-  if [[ "$i" == "120" ]]; then
-    echo "ERROR: Keycloak did not become ready within 120s" >&2
-    exit 1
-  fi
-done
-
-kc_csv_last() {
-  local cmd="$1"
-  kc_exec "$cmd" | tail -n 1 | tr -d '\r"'
-}
-
-kc_exec "/opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080/auth --realm master --user '${admin_user}' --password '${admin_pass}'" >/dev/null
+kc_login "${admin_user}" "${admin_pass}"
 
 kc_exec "/opt/keycloak/bin/kcadm.sh get realms/${realm} >/dev/null 2>&1 || /opt/keycloak/bin/kcadm.sh create realms -s realm=${realm} -s enabled=true" >/dev/null
 
@@ -242,7 +219,13 @@ echo "  Backend client:   ${client_backend}"
 if [[ "$skip_test_user" == "true" ]]; then
   echo "  Test user:        (--skip-test-user: left untouched)"
 else
-  echo "  Test user:        ${test_user} / ${test_pass} (email: ${test_email})"
+  echo "  Test user:        ${test_user} (email: ${test_email})"
+  if print_secret "  Test user password (shown once, not logged): ${test_pass}"; then
+    :
+  else
+    echo "  Test user password: not shown (no interactive terminal attached to this run)."
+    echo "  Re-run this script from an interactive shell to see it, or use smoke-user.sh for a retrievable disposable credential."
+  fi
   echo
   echo "  WARNING: Delete 'test' user before production use!"
 fi
