@@ -22,6 +22,7 @@ Decide which workflow the user actually needs before doing anything:
 | Toggle features after go-live (routing / demo / local e-sealing) | `toggle-features.sh --enable-*/--disable-*` | Restarts only what each change needs; demo mode needs no restart |
 | Just rotate the backend client secret into config.js | `configure-host.sh --host <h> --backend-secret <s>` | Standalone; no other side effects |
 | Confirm nginx is actually serving the certificate that is on disk | `verify-served-cert.sh` | Read-only wire check; catches a renewal that landed on disk but never reached nginx. File-level checks cannot see this. |
+| Check a live host for drift from a clean baseline | `diff-baseline-overlay.sh --baseline <git-ref-or-path>` | Read-only; diffs the four per-host-mutated files and classifies each difference as expected overlay or unexpected drift. See `documentation/40-baseline-overlay-reconciliation.md`. |
 
 If the user is vague ("deploy padsign"), ask which of these they want — the wrong choice is destructive (e.g. running `bootstrap.sh` against a live deployment re-runs the Keycloak bootstrap and may rewrite configs).
 
@@ -81,6 +82,8 @@ The scripts already do basic checks. Add these if the user wants a thorough hand
 - `curl -ksI https://<host>/` — expect `301` to `/portal/`
 - `curl -ksI https://<host>/auth/realms/padsign/.well-known/openid-configuration` — expect `200` (Keycloak realm reachable)
 - `bash installation-scripts/verify-served-cert.sh --host <host>` — exit 0 means nginx is serving the certificate that is on disk (see documentation/11-02)
+- `bash installation-scripts/diff-baseline-overlay.sh --baseline <ref>` — exit 0 means no unexpected drift from the baseline (see documentation/40)
+- `cat deployment-evidence.json` — confirms the recorded revision/checksums match what was just deployed
 
 If any of these fail, surface the exact failing command and its output to the user; don't paraphrase.
 
@@ -93,6 +96,8 @@ If any of these fail, surface the exact failing command and its output to the us
 | `config/config.js` | `configure-host.sh` + `upgrade.sh` | server-side service URLs, backend secret, ALLOWED_ORIGINS, DEMO_COMPANY_ROLE, DOCUMENT_ROUTING, CUSTOMER_DATA_* |
 | `docker-compose.yml` | `upgrade.sh` (image tags) + `configure-host.sh` (volume mount) | image tags, volumes, network |
 | `nginx/certs/<host>.{crt,key}` | `configure-host.sh` copies from `installation-scripts/certs/` | TLS material — git-ignored |
+| `signed-output/`, `docs/` | `bootstrap.sh`/`upgrade.sh` via `lib/dir-permissions.sh` | mode 750/770, never 777 — see that file's header for why |
+| `deployment-evidence.json` | `bootstrap.sh`/`upgrade.sh` via `lib/deployment-evidence.sh` | git revision, image tags/revisions, config checksums — git-ignored |
 
 When the user asks to change something in these files manually, prefer running the appropriate script (with the right flag) over hand-editing — the scripts encode constraints (JSON validation, hostname escaping, redirect placement) that are easy to break.
 

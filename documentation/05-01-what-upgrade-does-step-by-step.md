@@ -26,7 +26,11 @@ for. Details in
 2. **Updates image tags** in `docker-compose.yml` - replaces `ps-server:X.XX` and/or `ps-client:X.XX` with the new versions
 3. **Ensures `DOCUMENT_ROUTING`** config block exists in `config.js` (appends if missing, disabled by default - does not overwrite existing settings)
 4. **Ensures `signed-output` volume mount** exists in `docker-compose.yml` for ps-server
-5. **Creates `signed-output/` directory** if it doesn't exist
+5. **Creates `signed-output/` (mode 750) and `docs/` (mode 770, group-owned for
+   dmss-archive-services-fallback's `spring` user) directories** if they don't
+   exist - see
+   [installation-scripts/lib/dir-permissions.sh](../installation-scripts/lib/dir-permissions.sh)
+   for why those modes and not 777
 6. **(`--enable-local-eseal` only)** Stages `dmss-digital-stamping-service/` from
    `installation-scripts/assets/`, appends the gated compose service block,
    patches `dmss-container-and-signature-services/application.yml` to use the
@@ -39,5 +43,9 @@ for. Details in
    the new stamping service if applicable; Keycloak, DMSS, nginx stay running
 9. **Restarts nginx** to pick up any config changes
 10. **Verifies** ps-server startup and prints running container versions
-11. **Prints rollback command** in case anything goes wrong
+11. **Records deployment evidence** - writes `deployment-evidence.json`
+    (git-ignored) with this repo's git revision/dirty flag, the pinned image
+    tags and their OCI revision labels, sha256 checksums of the four
+    per-host-mutated config files, and which optional features are enabled
+12. **Prints rollback command** in case anything goes wrong
 

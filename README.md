@@ -121,4 +121,5 @@ Either way, read [9. Prerequisites](documentation/09-prerequisites.md) and [11.1
     - [37.5 Known gap: Keycloak admin password rotation](documentation/37-05-known-gaps-keycloak-admin-password-rotation.md)
 38. [AI Agent Deployment Skill](documentation/38-ai-agent-deployment-skill.md)
 39. [Release Procedure](documentation/39-release-procedure.md)
+40. [Baseline/Overlay Reconciliation](documentation/40-baseline-overlay-reconciliation.md)
 

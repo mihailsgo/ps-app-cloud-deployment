@@ -110,6 +110,11 @@ fi
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 scripts_dir="${repo_root}/installation-scripts"
 
+# shellcheck source=lib/dir-permissions.sh
+. "${scripts_dir}/lib/dir-permissions.sh"
+# shellcheck source=lib/deployment-evidence.sh
+. "${scripts_dir}/lib/deployment-evidence.sh"
+
 # --- Dependency checks ---
 need_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -175,12 +180,10 @@ configure_args=(--host "${host}" --company-role "${company_role}" --admin-user "
 
 # ── Step 4: Create signed-output and docs directories ──
 echo "Step 4/8: Setting up signed-output and docs directories..."
-mkdir -p "${repo_root}/signed-output"
-chmod 777 "${repo_root}/signed-output" 2>/dev/null || true
-echo "  Created ${repo_root}/signed-output"
-mkdir -p "${repo_root}/docs"
-chmod 777 "${repo_root}/docs" 2>/dev/null || true
-echo "  Created ${repo_root}/docs (mounted by dmss-archive-services-fallback)"
+fix_signed_output_permissions
+echo "  Created ${repo_root}/signed-output (mode 750 - ps-server writes as root, see lib/dir-permissions.sh)"
+fix_docs_permissions
+echo "  Created ${repo_root}/docs (mode 770, group-owned for dmss-archive-services-fallback's spring user)"
 
 # ── Step 5: Bootstrap Keycloak ──
 echo "Step 5/8: Bootstrapping Keycloak (realm/clients/roles/users)..."
@@ -259,6 +262,10 @@ fi
 echo ""
 echo "  Running containers:"
 docker ps --format '  {{.Names}}: {{.Image}} ({{.Status}})' | sort
+
+echo ""
+echo "Recording deployment evidence..."
+write_deployment_evidence "bootstrap.sh"
 
 echo ""
 echo "========================================"

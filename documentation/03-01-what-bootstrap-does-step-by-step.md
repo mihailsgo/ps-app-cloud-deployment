@@ -10,7 +10,10 @@
    - Copies TLS certificates to `nginx/certs/` (if provided)
    - Injects `DOCUMENT_ROUTING` config block if missing (disabled by default)
    - Validates JSON syntax of `constants.json` after editing
-4. **Creates `signed-output/` directory** - writable directory for filesystem document routing
+4. **Creates `signed-output/` (mode 750) and `docs/` (mode 770, group-owned for
+   dmss-archive-services-fallback's `spring` user) directories** - see
+   [installation-scripts/lib/dir-permissions.sh](../installation-scripts/lib/dir-permissions.sh)
+   for why those modes and not 777
 5. **Bootstraps Keycloak** (`keycloak-bootstrap.sh`):
    - Starts Keycloak container and waits for health endpoint
    - Creates realm (`padsign`) if not exists
@@ -26,5 +29,9 @@
    - Checks ps-server logs for successful startup
    - Tests root redirect (expects 301 → `/portal/`)
    - Lists all running containers with image versions
-10. **Prints summary** - portal URL, Keycloak admin URL, API URL, test user credentials
+10. **Records deployment evidence** - writes `deployment-evidence.json`
+    (git-ignored) with this repo's git revision/dirty flag, the pinned image
+    tags and their OCI revision labels, sha256 checksums of the four
+    per-host-mutated config files, and which optional features are enabled
+11. **Prints summary** - portal URL, Keycloak admin URL, API URL, test user credentials
 

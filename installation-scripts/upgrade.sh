@@ -136,6 +136,10 @@ current_tag() {
 # reintroduce a hardcoded tag here; add an entry to the registry instead.
 # shellcheck source=lib/capabilities.sh
 . "${scripts_dir}/lib/capabilities.sh"
+# shellcheck source=lib/dir-permissions.sh
+. "${scripts_dir}/lib/dir-permissions.sh"
+# shellcheck source=lib/deployment-evidence.sh
+. "${scripts_dir}/lib/deployment-evidence.sh"
 
 # Refuses the run when the effective image tags are older than <capability>
 # needs. Same strict-less-than comparison as before, now driven by the registry
@@ -327,7 +331,7 @@ mig_signed_output_files() { echo 'docker-compose.yml,signed-output/,docs/'; }
 mig_signed_output_needed() { need_signed_output_vol || need_signed_output_dir; }
 mig_signed_output_body() {
   need_signed_output_vol && printf 'docker-compose.yml, under the ps-server volumes:\n%s\n' "$SIGNED_OUTPUT_VOLUME_LINE"
-  need_signed_output_dir && printf 'mkdir -p signed-output/ docs/   (mode 777)\n'
+  need_signed_output_dir && printf 'mkdir -p signed-output/ (mode 750) docs/ (mode 770, group dmss-archive-services-fallback spring)\n'
   return 0
 }
 mig_signed_output_apply() {
@@ -339,10 +343,9 @@ mig_signed_output_apply() {
   fi
   # Always ensured: the mount without the directory silently writes into the
   # container's ephemeral layer, so these two belong to the same migration.
-  mkdir -p "${repo_root}/signed-output"
-  chmod 777 "${repo_root}/signed-output" 2>/dev/null || true
-  mkdir -p "${repo_root}/docs"
-  chmod 777 "${repo_root}/docs" 2>/dev/null || true
+  # Permission model: see lib/dir-permissions.sh.
+  fix_signed_output_permissions
+  fix_docs_permissions
 }
 
 # ---- local-eseal ----
@@ -665,6 +668,10 @@ else
   echo ""
   echo "  WARNING: ps-server may not have started. Check: docker compose logs ps-server" >&2
 fi
+
+echo ""
+echo "Recording deployment evidence..."
+write_deployment_evidence "upgrade.sh"
 
 echo ""
 echo "========================================"

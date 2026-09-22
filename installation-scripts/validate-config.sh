@@ -68,20 +68,35 @@ else
   bad "signed-output volume mount missing from docker-compose.yml"
 fi
 
+world_writable() {
+  # Matches if "other" has the write bit set, portable across GNU/BSD find.
+  find "$1" -maxdepth 0 -perm -002 2>/dev/null | grep -q .
+}
+
 if [[ -d "${repo_root}/signed-output" ]]; then
   ok "signed-output directory exists"
+  if world_writable "${repo_root}/signed-output"; then
+    bad "signed-output directory is world-writable ($(stat -c '%a' "${repo_root}/signed-output" 2>/dev/null || stat -f '%Lp' "${repo_root}/signed-output" 2>/dev/null)). ps-server writes here as root and does not need this; fix: chmod 750 signed-output"
+  else
+    ok "signed-output directory is not world-writable"
+  fi
 else
-  bad "signed-output directory missing (create with: mkdir -p signed-output)"
+  bad "signed-output directory missing (create with: mkdir -p signed-output && chmod 750 signed-output)"
 fi
 
 if [[ -d "${repo_root}/docs" ]]; then
   if [[ -w "${repo_root}/docs" ]]; then
     ok "docs directory exists and is writable"
   else
-    bad "docs directory exists but is NOT writable (dmss-archive-services-fallback writes here). Fix: chmod 777 docs"
+    bad "docs directory exists but is NOT writable (dmss-archive-services-fallback writes here as its 'spring' user). Fix: chgrp <spring's gid> docs && chmod 770 docs — see installation-scripts/lib/dir-permissions.sh"
+  fi
+  if world_writable "${repo_root}/docs"; then
+    bad "docs directory is world-writable ($(stat -c '%a' "${repo_root}/docs" 2>/dev/null || stat -f '%Lp' "${repo_root}/docs" 2>/dev/null)). Fix: chgrp <spring's gid> docs && chmod 770 docs — see installation-scripts/lib/dir-permissions.sh"
+  else
+    ok "docs directory is not world-writable"
   fi
 else
-  bad "docs directory missing (create with: mkdir -p docs && chmod 777 docs)"
+  bad "docs directory missing (create with: mkdir -p docs — then see installation-scripts/lib/dir-permissions.sh for the correct group/mode)"
 fi
 
 # --- Nginx redirect ---

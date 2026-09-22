@@ -36,8 +36,15 @@ temp/
 PSDOCS/
 PSDOCS/**
 
-# Large or local-only data
+# Per-run backups and evidence written by bootstrap.sh / configure-host.sh /
+# upgrade.sh - host-side state, not release content.
+*.bak
+deployment-evidence.json
+
+# Large or local-only data - both hold real signed customer documents, never
+# release content
 docs/**
+signed-output/**
 
 # Claude Code
 CLAUDE.md

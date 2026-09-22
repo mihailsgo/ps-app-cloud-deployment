@@ -47,6 +47,11 @@ ps-app-cloud-deployment/
 │   ├── validate-config.sh            # Config consistency checks
 │   ├── verify-keycloak.sh            # Verify Keycloak setup
 │   ├── verify-served-cert.sh         # Wire check: cert nginx actually serves
+│   ├── diff-baseline-overlay.sh      # Drift check: live host vs. a clean baseline ref (see documentation/40)
+│   ├── lib/
+│   │   ├── capabilities.sh           # Shared reader for release/capabilities.json
+│   │   ├── dir-permissions.sh        # signed-output/ and docs/ permission model (no chmod 777)
+│   │   └── deployment-evidence.sh    # Writes deployment-evidence.json (git-ignored)
 │   └── certs/                        # Place PEM certs here for bootstrap
 ├── dmss-archive-services/            # Spring config for document archive
 ├── dmss-archive-services-fallback/   # Spring config for filesystem fallback archive
@@ -63,7 +68,9 @@ ps-app-cloud-deployment/
 │   ├── routes/ , views/ , public/     # Express routes, EJS templates, static assets
 │   └── Dockerfile                    # node:18-bookworm-slim (NOT alpine — scripts need grep -oP)
 ├── .env                              # contains COMPOSE_PROFILES=local-eseal when local mode is active
-└── docs/                             # Signed documents output (fallback archive; created by bootstrap)
+├── deployment-evidence.json          # git-ignored; written by bootstrap.sh/upgrade.sh (see documentation/40)
+├── signed-output/                    # Signed PDFs written by ps-server (git-ignored; mode 750, ps-server runs as root)
+└── docs/                             # Signed documents output (fallback archive; git-ignored; mode 770, group spring)
 ```
 
 ## How to deploy
