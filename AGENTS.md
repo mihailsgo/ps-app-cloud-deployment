@@ -55,9 +55,12 @@ ps-app-cloud-deployment/
 │   ├── verify-keycloak.sh            # Verify Keycloak setup
 │   ├── verify-served-cert.sh         # Wire check: cert nginx actually serves
 │   ├── diff-baseline-overlay.sh      # Drift check: live host vs. a clean baseline ref (see documentation/41)
+│   ├── overlay.sh                    # capture/apply/verify/rebase an environment overlay kept OUTSIDE the checkout (documentation/42)
 │   ├── lib/
 │   │   ├── capabilities.sh           # Shared reader for release/capabilities.json
-│   │   ├── kcadm.sh                  # Shared Keycloak admin CLI helpers (incl. print_secret(), see smoke-user.sh)
+│   │   ├── kcadm.sh                  # Shared Keycloak admin CLI helpers (print_secret(), kc_exec_with_secret(), kc_logout)
+│   │   ├── overlay.py                # overlay.sh's implementation (3-way merge via git merge-file, compose-model diffing)
+│   │   ├── redact.py                 # the ONE definition of "secret-bearing key"; everything that prints config lines uses it
 │   │   ├── dir-permissions.sh        # signed-output/ and docs/ permission model (no chmod 777)
 │   │   └── deployment-evidence.sh    # Writes deployment-evidence.json (git-ignored)
 │   └── certs/                        # Place PEM certs here for bootstrap
@@ -255,6 +258,18 @@ Lets an operator change hostname, TLS certificate, or feature flags **after** on
 - New `installation-scripts/`: `update-hostname.sh` (combined hostname + cert + Keycloak-client-sync change, restarts nginx + ps-server — chains `configure-host.sh` + `keycloak-bootstrap.sh` the same way `bootstrap.sh` already does internally), `renew-cert.sh` (cert swap only, hostname unchanged, restarts nginx), `toggle-features.sh` (any combination of the 3 feature flags in one pass, restarts only what actually needs it — demo mode needs none). `configure-host.sh` gained symmetric `--disable-routing`/`--disable-demo`/`--disable-local-eseal` flags (previously enable-only). `keycloak-bootstrap.sh` gained `--skip-test-user` (used only by `update-hostname.sh`, so a live hostname change never resets the demo `test` account's password).
 - Wizard code: `deployment-wizard/routes/settingsRoutes.js` (all `/settings` + `/api/settings/*` routes — reuses `lib/scriptRunner.js`'s `startRun`/`subscribe` and `routes/deploy.js`'s SSE stream endpoint unchanged), `views/settings.ejs` + `settings-progress.ejs`, `lib/dockerFacts.js`'s `readConfiguredFeatures()`/`readConfiguredCompanyRole()`, `lib/certValidator.js`'s `checkLiveCert()` (read-only status of the *deployed* cert at `nginx/certs/`, distinct from `validateCert()`'s upload-staging path at `installation-scripts/certs/`).
 - Operator playbook: `documentation/37-settings-post-go-live-changes.md` (37.1 Concepts -> 37.2 Changing hostname -> 37.3 Renewing the TLS certificate -> 37.4 Toggling features -> 37.5 Known gap: Keycloak admin password rotation, which this feature deliberately does not attempt — the `docker-compose.yml` admin-password env var only takes effect on Keycloak's first boot against an empty volume).
+
+## Baseline + overlay hosts (psapp-saas#7)
+
+A host can run as a clean checkout of a release tag plus an overlay directory outside it (`installation-scripts/overlay.sh`, operator runbook `documentation/42-*`). Such a checkout has `.overlay-applied.json` at its root. On it:
+
+- never edit tracked files in place, and never run `upgrade.sh` / `rollback.sh` or the wizard's Upgrade there; changes go through a new overlay version (`documentation/42-06`);
+- `overlay.sh verify` fails on any git-visible change the overlay does not declare, on a compose project name that would give Keycloak a new, empty volume, and on storage mounts that are not the existing signed documents;
+- the overlay directory contains real secrets and must never be copied into the repo or into evidence.
+
+When changing what `configure-host.sh` / `upgrade.sh` rewrite, keep `lib/overlay.py`'s notion of release content vs. environment content (`RELEASE_CONTENT_PREFIXES`) in step.
+
+Secrets never go on a command line: use `kc_exec_with_secret` for kcadm, and `lib/redact.py` for anything that prints config.
 
 ## Environment management
 

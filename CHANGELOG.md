@@ -1,5 +1,47 @@
 # Changelog
 
+## v1.0.22
+
+Operator runbook and supporting tooling for the host-side work in [psapp-saas#6](https://github.com/mihailsgo/psapp-saas/issues/6) and [psapp-saas#7](https://github.com/mihailsgo/psapp-saas/issues/7). Nothing here was run against a live host. Every flow was rehearsed on real Linux against throwaway, uniquely named compose projects that were torn down afterwards.
+
+- **Fixed: `smoke-user.sh` users (and the bootstrap `test` user) could not complete a browser login on Keycloak 26.** Keycloak 26's user profile requires first and last names, and a user without them is sent to an "Update your account information" form instead of back to the portal. v1.0.17 had only verified the smoke user through `kcadm`, never through a real login. Found by driving the real authorization-code + PKCE flow, the one the SPA uses. Both users are now created with names. The create → login → delete cycle passed twice in a row on the pinned Keycloak 26.7.4, with no Keycloak restart and neither the generated nor the admin password on stdout or stderr.
+- **Fixed: Keycloak passwords were visible in the host process list.** `kc_login` and every `set-password` call interpolated the password into the `docker compose exec` command line, where any local user can read it (`ps`, `/proc/*/cmdline`) and audit tooling records it. The new `kc_exec_with_secret` (`lib/kcadm.sh`) hands it over through the container environment. Measured: the admin password appeared in 565 of 1532 process-list snapshots on the old code, and in 0 of 1578 now. A password containing `'` also no longer breaks the command.
+- **Fixed: `verify-keycloak.sh` failed its role check on every fresh realm.** It compared the test user's realm roles to exactly `[company role]`, but Keycloak assigns `default-roles-<realm>` to every user automatically. That composite role is now ignored. A **missing** shared `test` user is now OK rather than FAIL, because deleting it is the recommended production state (#6 "no shared long-lived smoke password"). Verified old vs. new against the same fresh realm.
+- Every script that logs in with `kcadm` now removes kcadm's session file (which holds an admin refresh token) from the Keycloak container on exit (`kc_logout`).
+- **Fixed: `diff-baseline-overlay.sh` printed changed secrets verbatim.** `DRIFT:` lines are exactly the ones no allow-list recognises, which includes changed `STAMP_API_KEY`, `STAMP_COMPANY_SECRET`, `SESSION_SECRET`, `Authorization` headers and compose `*_PASSWORD` values. All output now goes through the new shared `installation-scripts/lib/redact.py` (name-based, so weak secrets like `changeit` are caught too; `python3 installation-scripts/lib/redact.py` runs its self-test). Verified on Linux: drift is still reported, with 0 secret values in the output.
+- **`validate-config.sh`:**
+  - Reads the **effective** compose model, honouring `.env`'s `COMPOSE_FILE` / `COMPOSE_PROJECT_NAME` / `COMPOSE_PROFILES`. `-f docker-compose.yml` had silently skipped any overlay file, including ports it publishes.
+  - Checks the storage directories compose actually mounts.
+  - New *Secret hygiene* checks:
+    - FAIL if `API_PROTECT_LOGS_ENABLED` is on (ps-server then logs raw bearer tokens and payloads);
+    - WARN for each `config.js` credential still equal to the value shipped in this public repository (compared against the checkout's own committed `config.js`, value never printed; `bootstrap.sh` does not rotate `REGISTER_PDF_API_KEY`, `SESSION_SECRET` or the stamping credentials);
+    - WARN for `KEYCLOAK_ADMIN_PASSWORD=admin`;
+    - WARN for world-readable `config.js` / `.env`;
+    - FAIL for a world-readable TLS key.
+  - New lines only: no existing output wording changed. The wizard's parser handles `WARN` generically, and its parser tests pass.
+- **New `installation-scripts/overlay.sh` (`capture` / `apply` / `verify` / `rebase` / `rehash`; logic in `lib/overlay.py`).** A host becomes a clean checkout of a release tag plus an overlay directory outside it.
+  - `capture` is read-only on the host, whose tree was byte-identical before and after. It never reads `signed-output/` or `docs/`.
+  - When the host is a git checkout, it 3-way merges only the host's own edits onto the new release (`git merge-file`), so a stale host's old scripts and config lines are not carried forward. Release content (scripts, docs) is never captured.
+  - It records the compose project name that owns the Keycloak volume (a new directory would otherwise start Keycloak on an empty volume) and the existing signed-document mounts.
+  - It writes a starter `compose.overlay.yml` and a redacted `DEVIATIONS.md`.
+  - `apply` refuses when the release changed a file the overlay replaces, or while merge conflicts remain. It never starts or stops anything.
+  - `verify` fails when:
+    - a git-visible change is not declared in the overlay;
+    - Keycloak would get a new volume;
+    - storage mounts are wrong or world-writable.
+
+    With `--live` it diffs the effective compose model against the running host.
+  - `rebase` carries an overlay onto the next release into a new, immutable overlay directory.
+  - Rehearsed: stale customised host → capture → apply → verify → Keycloak cut-over → rollback → cut forward (realm intact, ps-server saw the existing signed documents byte-identical); next-release rebase, both clean and with a real conflict; and a full disaster-recovery rebuild from release + overlay + backups with zero hand-edited files.
+- `deployment-evidence.json` adds `modified_tracked_files`, the compose files in effect, the applied overlay (directory, MANIFEST checksum, baseline commit), and checksums of each DMSS `application.yml`, `documentsigningprofiles.json` and the compose overlay.
+- `.gitignore`: `.overlay-applied.json`, `__pycache__/`. `.gitattributes`: `*.py` stays LF.
+- **Found, not fixed here:** on the now-pinned Keycloak 26.7.4, introspecting a portal (`padsign-client`) token as `padsign-backend` returns `active: false`, with `Client 'padsign-backend' is not in the token audience`. 26.3.2 returns `active: true` for the identical flow. ps-server validates every API call this way, so a host moved to 26.7.4 would probably reject every authenticated API call. The runbook keeps hosts on their current Keycloak (42.1 gate G1) until the pin or the realm setup is fixed.
+- Docs:
+  - new [42. Host reconciliation runbook](documentation/42-host-reconciliation-runbook.md) (42.1-42.7);
+  - [14.7](documentation/14-07-break-glass-admin-recovery.md) re-verified on 26.7.4, with the measured outage (~1 min), session persistence, and that a concurrent `bootstrap-admin` is refused on H2;
+  - [14.2](documentation/14-02-automated-setup-recommended.md) and [37.5](documentation/37-05-known-gaps-keycloak-admin-password-rotation.md) no longer put passwords on command lines, and 37.5 no longer advises writing the admin password into the tracked compose file;
+  - [41](documentation/41-baseline-overlay-reconciliation.md) points at the overlay tooling.
+
 ## v1.0.21
 
 - Fixed `signed-output/` and `docs/` being created with `chmod 777` ([psapp-saas#7](https://github.com/mihailsgo/psapp-saas/issues/7)), duplicated in three places (`bootstrap.sh`, `upgrade.sh`'s `mig_signed_output_apply`, and referenced in `validate-config.sh`'s remediation text). Checked what each mounting container actually needs before picking a mode, not a guess: `signed-output/` is mounted only into `ps-server`, confirmed live (`docker run --rm --entrypoint id mihailsgordijenko/ps-server:3.28` → `uid=0`) to always run as root because `psapp/server/Dockerfile` has no `USER` directive — root bypasses host permission checks on a normal Docker install, so 777 never actually helped the container write, it only widened host-side exposure of what can be real signed customer documents; now `chmod 750`. `docs/` is mounted only into `dmss-archive-services-fallback`, confirmed live (`docker run --rm --entrypoint id trustlynx/dmss-archive-services-fallback:24.0.5 spring` → `uid=999 gid=1000`) to run as a real non-root user; now `chmod 770`, group-owned to that gid, resolved dynamically at run time (reads the pinned tag, falls back to today's known gid with a loud warning if resolution fails) rather than hardcoded. Both now live in one shared `installation-scripts/lib/dir-permissions.sh` instead of three independent copies; kept v1.0.16's "chmod silently no-ops on a Docker-auto-created root-owned directory" insight as a post-check warning, adapted to the new modes/group (`sudo chgrp`/`chmod`, not `sudo chmod 777`). `validate-config.sh` now actively fails if either directory is world-writable, not just non-writable. There is no clean narrower fix for `signed-output/` without adding a non-root `USER` to the `ps-server` image in the separate `psapp` repo — flagged explicitly rather than papered over.

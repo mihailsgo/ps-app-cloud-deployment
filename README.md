@@ -128,4 +128,12 @@ Either way, read [9. Prerequisites](documentation/09-prerequisites.md) and [11.1
     - [40.3 Monitoring and Alerting Proposal](documentation/40-03-monitoring-and-alerting-proposal.md)
     - [40.4 Rollback](documentation/40-04-rollback.md)
 41. [Baseline/Overlay Reconciliation](documentation/41-baseline-overlay-reconciliation.md)
+42. [Host Reconciliation Runbook: Keycloak Admin Recovery and Baseline + Overlay Migration](documentation/42-host-reconciliation-runbook.md)
+    - [42.1 Before you start](documentation/42-01-before-you-start.md)
+    - [42.2 Keycloak admin access and the disposable smoke identity](documentation/42-02-keycloak-admin-access-and-smoke-identity.md)
+    - [42.3 Capturing the environment overlay](documentation/42-03-capturing-the-environment-overlay.md)
+    - [42.4 Cut-over and post-checks](documentation/42-04-cut-over-and-post-checks.md)
+    - [42.5 Rollback](documentation/42-05-rollback.md)
+    - [42.6 Living with an overlay: upgrades, value changes, certificates, rebuilds](documentation/42-06-living-with-an-overlay.md)
+    - [42.7 Evidence and sign-off](documentation/42-07-evidence-and-sign-off.md)
 

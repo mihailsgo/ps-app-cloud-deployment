@@ -99,24 +99,44 @@ group id is resolved at run time). `validate-config.sh` now actively fails if
 either directory is world-writable, so drift back to 777 on a live host is
 caught by the tool operators already run.
 
-## What this does *not* do — still needs a human on the real host
+## Secrets in the drift report
 
-This tooling gives an operator a way to *see* baseline-vs-overlay drift and
-*record* what was deployed. It does not, and cannot, by itself:
+Every `DRIFT:` line goes through `installation-scripts/lib/redact.py`. A
+changed `STAMP_API_KEY`, `SESSION_SECRET`, keystore password, `Authorization`
+header or compose `*_PASSWORD` / `*_TOKEN` variable is shown as `<redacted>`,
+so the output can be pasted into a ticket. Before that change, those lines
+were printed verbatim.
 
-- Reconcile any specific already-deployed host's actual current state —
-  that needs someone with SSH/console access to run
-  `diff-baseline-overlay.sh` there and decide what to do with what it finds.
-- Move secrets, certificates, or operational backups out of a live host's
-  working tree, or decide where they should live instead (secrets manager,
-  protected path, retention policy) — an infrastructure decision, not a
-  script.
-- Rehearse an upgrade or rollback against a real deployment while preserving
-  certificates, routing, external stamping, and document storage — needs a
-  real stack and a maintenance window.
-- Guarantee "a fresh host can be deployed with no manual file edits" or that
-  "git status is clean after deployment" — those are claims about a specific
-  host's outcome, not something a repo-side script can attest to on its own.
+## From "seeing drift" to an explicit overlay: `overlay.sh`
+
+`diff-baseline-overlay.sh` answers "what differs". `overlay.sh` turns the
+answer into a deployment model:
+
+- **`capture`** writes everything environment-specific into a protected
+  directory outside the checkout: the host's edits 3-way merged onto the
+  release, certificates, `.env`, the compose project that owns the Keycloak
+  volume, where the signed documents live, a `compose.overlay.yml`, and a
+  redacted `DEVIATIONS.md`.
+- **`apply`** puts it onto a clean checkout of a release tag.
+- **`verify`** proves every git-visible change is declared in the overlay,
+  and that Keycloak data and document storage will be reused.
+- **`rebase`** carries the overlay onto the next release.
+
+The operator procedure, which was rehearsed end-to-end on throwaway stacks,
+is [42. Host reconciliation runbook](42-host-reconciliation-runbook.md).
+
+## What still needs a human on the real host
+
+Running that procedure. It needs:
+
+- SSH access, a maintenance window and the real credentials;
+- decisions only the service owner can make: the release tag, the credential
+  owner and secret manager, backup retention, and which captured deviations
+  are intentional;
+- a rehearsal of the rebuild on a spare host.
+
+[42.7](42-07-evidence-and-sign-off.md) maps each acceptance criterion of
+psapp-saas#7 to the evidence that closes it.
 
 See [psapp-saas#7](https://github.com/mihailsgo/psapp-saas/issues/7) for the
 full acceptance criteria and current status.
