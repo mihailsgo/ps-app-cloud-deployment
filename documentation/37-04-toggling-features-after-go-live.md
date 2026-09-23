@@ -48,8 +48,9 @@ one per switch.
 3. **Verify** — reads each touched flag back from disk and reports
    OK/WARNING against what was requested.
 
-Enabling local e-sealing for the first time still requires
-`mihailsgordijenko/ps-server:3.26` or newer (the same version gate
+Enabling local e-sealing for the first time still requires a
+`ps-server` tag at or above the `local-eseal` minimum in
+`release/capabilities.json` (the same version gate
 `upgrade.sh --enable-local-eseal` already enforces) — `toggle-features.sh`
 checks this before making any change and refuses with a clear message
 (pointing at Dashboard → Upgrade) if the running tag predates it.
