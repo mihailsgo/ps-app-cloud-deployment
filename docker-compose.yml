@@ -176,7 +176,7 @@ services:
       retries: 10
       start_period: 30s
   nginx:
-    image: nginx:1.31.6@sha256:908dc23e643a1447dbfb2e189ed268bfde6a51a5bf9a34d3dd3440a24f58ccf7
+    image: nginx:1.30.5@sha256:0aa2d81d65bc0cac0407e738b8f07d312c8685a84225fcb4db7bcbdd8c9bdf11
     container_name: nginx
     ports:
       - "80:80"
