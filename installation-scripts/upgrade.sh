@@ -16,6 +16,8 @@ enable_local_eseal=false
 plan_only=false
 plan_format="text"
 require_capabilities=()
+health_timeout=300
+rollback_on_failure=false
 
 usage() {
   cat <<'EOF'
@@ -23,6 +25,16 @@ Usage:
   ./installation-scripts/upgrade.sh [--server-tag X.XX] [--client-tag X.XX] [--enable-local-eseal]
   ./installation-scripts/upgrade.sh [same args] --require-capability NAME
   ./installation-scripts/upgrade.sh [same args] --plan-only [--plan-format text|machine]
+  ./installation-scripts/upgrade.sh [same args] [--health-timeout 300] [--rollback-on-failure]
+
+Failing and rolling back:
+  After restarting, the upgrade waits for every restarted service to report
+  healthy and exits 1 if one turns unhealthy, exits, crash-loops, or is not
+  healthy within --health-timeout seconds (default 300). A failed upgrade
+  prints the one-line rollback.sh command for the snapshot it just took.
+  --rollback-on-failure   Run `rollback.sh --yes` automatically on that
+                          failure (and on a failed image pull). The upgrade
+                          still exits 1 so a pipeline sees it failed.
 
 Asserting a capability:
   --require-capability  Refuse the upgrade unless the resulting image tags are new
@@ -65,7 +77,7 @@ What it does:
       and sets COMPOSE_PROFILES=local-eseal in .env so subsequent
       `docker compose up -d` calls automatically include the new service.
   5) Pulls new images and recreates changed containers
-  6) Verifies services are running
+  6) Waits for the restarted services to be healthy; fails (exit 1) if not
 
 The --enable-local-eseal flag is idempotent: re-running is safe and only
 touches files that haven't already been migrated. To revert, edit
@@ -85,6 +97,8 @@ while [[ $# -gt 0 ]]; do
     --plan-only) plan_only=true; shift;;
     --plan-format) plan_format="${2:-}"; shift 2;;
     --plan-format=*) plan_format="${1#*=}"; shift;;
+    --health-timeout) health_timeout="${2:-}"; shift 2;;
+    --rollback-on-failure) rollback_on_failure=true; shift;;
     -h|--help) usage; exit 0;;
     *) echo "ERROR: Unknown arg: $1" >&2; usage; exit 2;;
   esac
@@ -109,6 +123,8 @@ config_js="${repo_root}/config/config.js"
 . "${scripts_dir}/lib/rollback-snapshot.sh"
 # shellcheck source=lib/deployment-evidence.sh
 . "${scripts_dir}/lib/deployment-evidence.sh"
+# shellcheck source=lib/health-wait.sh
+. "${scripts_dir}/lib/health-wait.sh"
 # Hoisted out of the local-eseal block so the migration predicates below can
 # read them without executing anything.
 assets_src="${scripts_dir}/assets/dmss-digital-stamping-service"
@@ -671,37 +687,56 @@ if [[ "$enable_local_eseal" == true ]]; then
   # Pull / start the stamping service alongside any tagged images.
   services="$services dmss-digital-stamping-service"
 fi
+# A failed upgrade is recorded as evidence, reported with the exact rollback
+# command for the snapshot taken in step 1, and - with --rollback-on-failure -
+# rolled back immediately. Either way the upgrade exits 1.
+upgrade_failed() {  # <reason>
+  echo "" >&2
+  echo "UPGRADE FAILED: $1" >&2
+  docker compose ps >&2 2>/dev/null || true
+  write_deployment_evidence "upgrade.sh (failed)" || true
+  if [[ "$rollback_on_failure" == true ]]; then
+    echo "" >&2
+    echo "--rollback-on-failure: restoring snapshot $(basename "$snapshot_dir")..." >&2
+    if "${scripts_dir}/rollback.sh" --to "$(basename "$snapshot_dir")" --yes; then
+      echo "Rolled back to the pre-upgrade state. The upgrade itself still FAILED." >&2
+    else
+      echo "ROLLBACK ALSO FAILED - intervene manually (see documentation/40-04-rollback.md)." >&2
+    fi
+  else
+    echo "" >&2
+    echo "Roll back with:" >&2
+    echo "  ./installation-scripts/rollback.sh --to $(basename "$snapshot_dir") --yes" >&2
+  fi
+  exit 1
+}
+
 # .env now carries COMPOSE_PROFILES if applicable, so plain `docker compose`
 # picks the profile up automatically.
-docker compose pull $services
-docker compose up -d $services
+docker compose pull $services || upgrade_failed "could not pull images for:${services}"
+docker compose up -d $services || upgrade_failed "docker compose up failed for:${services}"
 if [[ "$enable_local_eseal" == true ]]; then
   # container-signature needs to be restarted to pick up the new
   # SPRING_SECURITY_USER_* env vars and the patched baseUrl, and ps-server to
   # re-read config.js. These restarts are cheap and intentional.
-  docker compose up -d dmss-container-and-signature-services ps-server
+  docker compose up -d dmss-container-and-signature-services ps-server || upgrade_failed "could not restart container-signature/ps-server"
 fi
 
 # Also restart nginx to pick up any config changes
 docker compose restart nginx 2>/dev/null || true
-sleep 3
 
 # ── Step 6: Verify ──
-echo "Step 6/6: Verifying..."
+echo "Step 6/6: Waiting for restarted services to be healthy (up to ${health_timeout}s)..."
+health_services="$services nginx"
+[[ "$enable_local_eseal" == true ]] && health_services="$health_services dmss-container-and-signature-services ps-server"
+# shellcheck disable=SC2086 # word-splitting the service list is intended
+if ! wait_for_healthy "$health_timeout" $(printf '%s\n' $health_services | sort -u); then
+  upgrade_failed "services did not become healthy"
+fi
 echo ""
 echo "  Running containers:"
 docker ps --format '  {{.Names}}: {{.Image}} ({{.Status}})' | grep -E 'ps-server|ps-client|nginx' | sort
-
-# Health check
-if docker compose logs ps-server 2>/dev/null | grep -q "PadSign Server listening"; then
-  echo ""
-  echo "  ps-server: OK"
-else
-  echo ""
-  echo "  WARNING: ps-server may not have started. Check: docker compose logs ps-server" >&2
-fi
-
-write_deployment_evidence "upgrade.sh"
+echo "  All restarted services healthy."
 
 echo ""
 echo "Recording deployment evidence..."
