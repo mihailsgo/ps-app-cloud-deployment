@@ -112,6 +112,11 @@ scripts_dir="${repo_root}/installation-scripts"
 # shellcheck source=lib/deployment-evidence.sh
 . "${scripts_dir}/lib/deployment-evidence.sh"
 
+# shellcheck source=lib/dir-permissions.sh
+. "${scripts_dir}/lib/dir-permissions.sh"
+# shellcheck source=lib/deployment-evidence.sh
+. "${scripts_dir}/lib/deployment-evidence.sh"
+
 # --- Dependency checks ---
 need_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -177,20 +182,18 @@ configure_args=(--host "${host}" --company-role "${company_role}" --admin-user "
 
 # ── Step 4: Create signed-output and docs directories ──
 echo "Step 4/8: Setting up signed-output and docs directories..."
-mkdir -p "${repo_root}/signed-output"
-chmod 777 "${repo_root}/signed-output" 2>/dev/null || true
-echo "  Created ${repo_root}/signed-output"
-mkdir -p "${repo_root}/docs"
-chmod 777 "${repo_root}/docs" 2>/dev/null || true
-echo "  Created ${repo_root}/docs (mounted by dmss-archive-services-fallback)"
-for dir in "${repo_root}/signed-output" "${repo_root}/docs"; do
-  if [[ ! -w "$dir" ]]; then
-    echo "  WARNING: ${dir} is not writable even after 'chmod 777' — likely root-owned" >&2
-    echo "           because Docker auto-created it on an earlier 'docker compose up' before" >&2
-    echo "           this script ran. Fix:" >&2
-    echo "           sudo chown $(id -u):$(id -g) ${dir}   (or: sudo chmod 777 ${dir})" >&2
-  fi
-done
+fix_signed_output_permissions
+echo "  Created ${repo_root}/signed-output (mode 750 - ps-server writes as root, so this directory's"
+echo "  host-side mode/ownership is a hygiene measure, not something the container depends on)"
+fix_docs_permissions
+echo "  Created ${repo_root}/docs (mode 770, group-owned for dmss-archive-services-fallback's spring user)"
+if [[ ! -w "${repo_root}/docs" ]]; then
+  target_gid="$(resolve_dmss_fallback_gid 2>/dev/null)"
+  echo "  WARNING: ${repo_root}/docs is still not writable by this user after fix_docs_permissions —" >&2
+  echo "           likely root-owned because Docker auto-created it on an earlier 'docker compose up'" >&2
+  echo "           before this script ran (chgrp needs ownership or root). Fix:" >&2
+  echo "           sudo chgrp ${target_gid:-<dmss-archive-services-fallback spring gid>} ${repo_root}/docs && sudo chmod 770 ${repo_root}/docs" >&2
+fi
 
 # ── Step 5: Bootstrap Keycloak ──
 echo "Step 5/8: Bootstrapping Keycloak (realm/clients/roles/users)..."
@@ -270,6 +273,10 @@ echo ""
 echo "  Running containers:"
 docker ps --format '  {{.Names}}: {{.Image}} ({{.Status}})' | sort
 
+write_deployment_evidence "bootstrap.sh"
+
+echo ""
+echo "Recording deployment evidence..."
 write_deployment_evidence "bootstrap.sh"
 
 echo ""

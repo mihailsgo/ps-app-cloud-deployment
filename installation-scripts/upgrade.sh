@@ -140,6 +140,10 @@ current_tag() {
 # reintroduce a hardcoded tag here; add an entry to the registry instead.
 # shellcheck source=lib/capabilities.sh
 . "${scripts_dir}/lib/capabilities.sh"
+# shellcheck source=lib/dir-permissions.sh
+. "${scripts_dir}/lib/dir-permissions.sh"
+# shellcheck source=lib/deployment-evidence.sh
+. "${scripts_dir}/lib/deployment-evidence.sh"
 
 # Refuses the run when the effective image tags are older than <capability>
 # needs. Same strict-less-than comparison as before, now driven by the registry
@@ -331,7 +335,7 @@ mig_signed_output_files() { echo 'docker-compose.yml,signed-output/,docs/'; }
 mig_signed_output_needed() { need_signed_output_vol || need_signed_output_dir; }
 mig_signed_output_body() {
   need_signed_output_vol && printf 'docker-compose.yml, under the ps-server volumes:\n%s\n' "$SIGNED_OUTPUT_VOLUME_LINE"
-  need_signed_output_dir && printf 'mkdir -p signed-output/ docs/   (mode 777)\n'
+  need_signed_output_dir && printf 'mkdir -p signed-output/ (mode 750) docs/ (mode 770, group dmss-archive-services-fallback spring)\n'
   return 0
 }
 mig_signed_output_apply() {
@@ -343,18 +347,17 @@ mig_signed_output_apply() {
   fi
   # Always ensured: the mount without the directory silently writes into the
   # container's ephemeral layer, so these two belong to the same migration.
-  mkdir -p "${repo_root}/signed-output"
-  chmod 777 "${repo_root}/signed-output" 2>/dev/null || true
-  mkdir -p "${repo_root}/docs"
-  chmod 777 "${repo_root}/docs" 2>/dev/null || true
-  for dir in "${repo_root}/signed-output" "${repo_root}/docs"; do
-    if [[ ! -w "$dir" ]]; then
-      echo "  WARNING: ${dir} is not writable even after 'chmod 777' — likely root-owned" >&2
-      echo "           because Docker auto-created it on an earlier 'docker compose up', or" >&2
-      echo "           this mount predates upgrading to v1.0.10+. Fix:" >&2
-      echo "           sudo chown $(id -u):$(id -g) ${dir}   (or: sudo chmod 777 ${dir})" >&2
-    fi
-  done
+  # Permission model: see lib/dir-permissions.sh.
+  fix_signed_output_permissions
+  fix_docs_permissions
+  if [[ ! -w "${repo_root}/docs" ]]; then
+    target_gid="$(resolve_dmss_fallback_gid 2>/dev/null)"
+    echo "  WARNING: ${repo_root}/docs is still not writable by this user after fix_docs_permissions —" >&2
+    echo "           likely root-owned because Docker auto-created it on an earlier 'docker compose up'," >&2
+    echo "           or this mount predates upgrading past the chmod-777 removal (chgrp needs" >&2
+    echo "           ownership or root). Fix:" >&2
+    echo "           sudo chgrp ${target_gid:-<dmss-archive-services-fallback spring gid>} ${repo_root}/docs && sudo chmod 770 ${repo_root}/docs" >&2
+  fi
 }
 
 # ---- local-eseal ----
@@ -698,6 +701,10 @@ else
   echo "  WARNING: ps-server may not have started. Check: docker compose logs ps-server" >&2
 fi
 
+write_deployment_evidence "upgrade.sh"
+
+echo ""
+echo "Recording deployment evidence..."
 write_deployment_evidence "upgrade.sh"
 
 echo ""

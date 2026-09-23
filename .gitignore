@@ -36,16 +36,19 @@ temp/
 PSDOCS/
 PSDOCS/**
 
-# Rollback snapshots and deployment evidence — per-deployment runtime state.
-# Snapshots include a copy of config/config.js, which holds this
-# deployment's real secrets once configure-host.sh has customized it —
-# never commit these.
+# Per-run backups and evidence written by bootstrap.sh / configure-host.sh /
+# upgrade.sh - host-side state, not release content. Snapshots include a copy
+# of config/config.js, which holds this deployment's real secrets once
+# configure-host.sh has customized it — never commit these.
+*.bak
 .rollback-snapshots/
 deployment-evidence.json
 deployment-evidence.json.previous
 
-# Large or local-only data
+# Large or local-only data - both hold real signed customer documents, never
+# release content
 docs/**
+signed-output/**
 
 # Claude Code
 CLAUDE.md

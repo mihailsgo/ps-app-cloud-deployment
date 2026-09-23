@@ -22,6 +22,7 @@ Decide which workflow the user actually needs before doing anything:
 | Toggle features after go-live (routing / demo / local e-sealing) | `toggle-features.sh --enable-*/--disable-*` | Restarts only what each change needs; demo mode needs no restart |
 | Just rotate the backend client secret into config.js | `configure-host.sh --host <h> --backend-secret <s>` | Standalone; no other side effects |
 | Confirm nginx is actually serving the certificate that is on disk | `verify-served-cert.sh` | Read-only wire check; catches a renewal that landed on disk but never reached nginx. File-level checks cannot see this. |
+| Check a live host for drift from a clean baseline | `diff-baseline-overlay.sh --baseline <git-ref-or-path>` | Read-only; diffs the four per-host-mutated files and classifies each difference as expected overlay or unexpected drift. See `documentation/40-baseline-overlay-reconciliation.md`. |
 | Provision/remove a short-lived, single-purpose test login without touching the shared `test` account | `smoke-user.sh create --host <h> --company-role <role>` / `smoke-user.sh delete --host <h> --username <name>` | Never grants `padsign-admin`; requires the realm and role to already exist (run `keycloak-bootstrap.sh` first); the generated password is shown once at an interactive terminal only, never in a capturable log |
 | Run every post-deploy check in one pass (redirects, portal config, Keycloak discovery, protected API behavior, TLS, signing smoke test if available) | `postdeploy-check.sh --host <h> [--company-role <role>]` | Orchestrates `validate-config.sh` + `verify-keycloak.sh` + `verify-served-cert.sh` plus new checks it owns directly; writes `deployment-evidence.json` at the end |
 | Read-only observability snapshot (health, restarts, cert expiry, stamping/archive/routing failure counts, disk usage) | `monitor-status.sh [--host <h>]` | Reporting only — not an alerting system; see documentation/40-03 |
@@ -80,6 +81,8 @@ Bootstrap requires: `docker`, `docker compose` v2, `awk`, `perl`, `python3`, `cu
 
 Run `bash installation-scripts/postdeploy-check.sh --host <host> [--company-role <role>]` — it chains `validate-config.sh`, `verify-keycloak.sh`, `verify-served-cert.sh`, and its own redirect/portal-config/Keycloak-discovery/protected-API checks into one pass and writes `deployment-evidence.json`. `docker compose ps` should show every service `healthy`, not just `running` — a service still `starting` or `unhealthy` means don't consider the deploy done yet.
 
+- `bash installation-scripts/diff-baseline-overlay.sh --baseline <ref>` — exit 0 means no unexpected drift from the baseline (see documentation/41)
+
 For a point-in-time health/observability snapshot (not part of deploy verification, useful for a handoff or a support ticket): `bash installation-scripts/monitor-status.sh --host <host>`.
 
 If any check fails, surface the exact failing command and its output to the user; don't paraphrase.
@@ -93,6 +96,8 @@ If any check fails, surface the exact failing command and its output to the user
 | `config/config.js` | `configure-host.sh` + `upgrade.sh` | server-side service URLs, backend secret, ALLOWED_ORIGINS, DEMO_COMPANY_ROLE, DOCUMENT_ROUTING, CUSTOMER_DATA_* |
 | `docker-compose.yml` | `upgrade.sh` (image tags) + `configure-host.sh` (volume mount) | image tags, volumes, network, per-service `healthcheck:`/`depends_on: condition: service_healthy` (see documentation/40-01) |
 | `nginx/certs/<host>.{crt,key}` | `configure-host.sh` copies from `installation-scripts/certs/` | TLS material — git-ignored |
+| `signed-output/`, `docs/` | `bootstrap.sh`/`upgrade.sh` via `lib/dir-permissions.sh` | mode 750/770, never 777 — see that file's header for why |
+| `deployment-evidence.json` | `bootstrap.sh`/`upgrade.sh`/`postdeploy-check.sh` via `lib/deployment-evidence.sh` | git revision, image tags/revisions/digests, config checksums, restart counts — git-ignored |
 
 When the user asks to change something in these files manually, prefer running the appropriate script (with the right flag) over hand-editing — the scripts encode constraints (JSON validation, hostname escaping, redirect placement) that are easy to break.
 
