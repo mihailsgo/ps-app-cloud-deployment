@@ -9,4 +9,5 @@
 - [14.5 Create Client for Frontend (Manual)](14-05-create-client-for-frontend-manual.md)
 - [14.6 Create Client for Backend (Manual)](14-06-create-client-for-backend-manual.md)
 - [14.7 Break-glass: recovering when no Keycloak credential works at all](14-07-break-glass-admin-recovery.md)
+- [14.8 Token audience for introspection (Keycloak 26.4.12+ / 26.6.2+)](14-08-token-audience-for-introspection.md)
 

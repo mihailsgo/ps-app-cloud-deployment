@@ -56,6 +56,8 @@ If the user gives partial input, ask for the missing required fields in one pass
 
 At least one of `--server-tag` or `--client-tag` is required (exception: `--enable-local-eseal` alone is valid — it opts an existing deployment into local e-sealing without a tag bump). Confirm the target tags exist on Docker Hub before running (current registry: `mihailsgordijenko/ps-server` and `mihailsgordijenko/ps-client`). If the user just says "upgrade", check `git log --oneline -- docker-compose.yml` for the recent bump pattern before guessing. Run `upgrade.sh [same args] --plan-only` first and show the user the pending config migrations — the deployment wizard enforces this preview as a mandatory gate, and CLI runs should match that discipline.
 
+Every `upgrade.sh` run also applies the `keycloak-backend-audience` migration: it adds an audience mapper to `padsign-client` in the live Keycloak realm, because Keycloak 26.4.12/26.6.2/26.7.0+ otherwise reject ps-server's token introspection and every portal API call 401s. It needs the Keycloak admin credentials, which default to the keycloak container's own `KEYCLOAK_ADMIN_PASSWORD`. If the operator changed that password in the admin console, pass `KEYCLOAK_ADMIN_PASSWORD=...` in the environment. If the run prints `WARNING: could not add padsign-backend...`, surface it to the user, because the upgrade continues regardless (see documentation/14-08-token-audience-for-introspection.md).
+
 ### `validate-config.sh`
 
 `--host` is optional but should be passed whenever known — it's the only check that catches hostname drift between `nginx.conf`, `constants.json`, and `config.js`.

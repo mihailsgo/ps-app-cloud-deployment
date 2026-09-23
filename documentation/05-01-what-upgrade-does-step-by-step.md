@@ -12,7 +12,7 @@ no container, so it is safe against a live deployment. Add
 `--plan-format machine` for the delimiter-framed form the deployment wizard
 consumes.
 
-**Steps 3-6 are additive.** Each is guarded by a presence check and only fires
+**Steps 3-7 are additive.** Each is guarded by a presence check and only fires
 when its target is absent, so a value you have customised — a document-routing
 path, a real `seal.p12`, a non-default stamping `baseUrl` — is detected and
 left alone. `--plan-only` reports those as *already applied*. Step 2 (image
@@ -38,14 +38,24 @@ for. Details in
    container-signature, flips `STAMP_MODE` to `"local"` in `config/config.js`,
    and activates the `local-eseal` compose profile in `.env`. See
    [Enabling local e-sealing](04-enabling-local-e-sealing.md#4-enabling-local-e-sealing) above.
-7. **Pulls new Docker images** - only the services being upgraded
-8. **Restarts changed containers** - only ps-server and/or ps-client and
+7. **Ensures `padsign-backend` is in the `padsign-client` access-token audience**
+   (always, not flag-gated) - adds an `oidc-audience-mapper` to `padsign-client`
+   in the live Keycloak realm unless a mapper already grants that audience.
+   Keycloak 26.4.12 / 26.6.2 / 26.7.0 and newer refuse ps-server's token
+   introspection without it, so every authenticated portal API call returns 401.
+   Admin credentials come from `KEYCLOAK_ADMIN` / `KEYCLOAK_ADMIN_PASSWORD` if
+   set, otherwise from the running keycloak container's own environment. If
+   Keycloak cannot be reached, the step prints a warning with the fix and the
+   upgrade continues. See
+   [14.8 Token audience for introspection](14-08-token-audience-for-introspection.md).
+8. **Pulls new Docker images** - only the services being upgraded
+9. **Restarts changed containers** - only ps-server and/or ps-client and
    the new stamping service if applicable; Keycloak, DMSS, nginx stay running
-9. **Restarts nginx** to pick up any config changes
-10. **Verifies** ps-server startup and prints running container versions
-11. **Records deployment evidence** - writes `deployment-evidence.json`
+10. **Restarts nginx** to pick up any config changes
+11. **Verifies** ps-server startup and prints running container versions
+12. **Records deployment evidence** - writes `deployment-evidence.json`
     (git-ignored) with this repo's git revision/dirty flag, the pinned image
     tags and their OCI revision labels, sha256 checksums of the four
     per-host-mutated config files, and which optional features are enabled
-12. **Prints rollback command** in case anything goes wrong
+13. **Prints rollback command** in case anything goes wrong
 

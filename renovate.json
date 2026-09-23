@@ -20,6 +20,12 @@
       "matchPackageNames": ["nginx"],
       "allowedVersions": "/^1\\.30\\./",
       "description": "Confirmed live 2026-09-23: Renovate proposed 1.31.6 as an update to the pinned 1.30.5, but 1.31.x is nginx's mainline release line, not a newer stable one (nginx:stable still resolved to 1.30.5 at the same time). Renovate has no notion of this split - it only sees version numbers - so this pins it to the 1.30.x line until a human deliberately updates this regex, which should happen only after confirming nginx:stable has actually moved (see release/approved-digests.json's nginx entry for how to check)."
+    },
+    {
+      "matchManagers": ["docker-compose"],
+      "matchPackageNames": ["quay.io/keycloak/keycloak"],
+      "allowedVersions": "/^26\\.7\\./",
+      "description": "Confirmed live 2026-09-23: the 26.3.2 -> 26.7.4 bump passed review but broke every authenticated portal API call (401). Keycloak 26.4.12/26.6.2/26.7.0+ refuse token introspection by a client that is not in the token's aud (CVE-2026-37979 fix), and ps-server introspects portal tokens as padsign-backend. This is fixed by the padsign-backend-audience mapper (keycloak-bootstrap.sh for new realms, upgrade.sh's keycloak-backend-audience migration for existing ones). This rule holds Keycloak on the 26.7.x line that fix was verified against. Before widening the regex to a new minor, run a real portal login plus an introspection as padsign-backend (or verify-keycloak.sh plus an authenticated ps-server call) against that version - see documentation/14-08-token-audience-for-introspection.md."
     }
   ]
 }
