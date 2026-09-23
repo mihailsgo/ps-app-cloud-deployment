@@ -109,6 +109,8 @@ fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 scripts_dir="${repo_root}/installation-scripts"
+# shellcheck source=lib/deployment-evidence.sh
+. "${scripts_dir}/lib/deployment-evidence.sh"
 
 # shellcheck source=lib/dir-permissions.sh
 . "${scripts_dir}/lib/dir-permissions.sh"
@@ -270,6 +272,8 @@ fi
 echo ""
 echo "  Running containers:"
 docker ps --format '  {{.Names}}: {{.Image}} ({{.Status}})' | sort
+
+write_deployment_evidence "bootstrap.sh"
 
 echo ""
 echo "Recording deployment evidence..."

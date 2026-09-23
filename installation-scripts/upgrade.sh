@@ -105,6 +105,10 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 scripts_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 compose_yml="${repo_root}/docker-compose.yml"
 config_js="${repo_root}/config/config.js"
+# shellcheck source=lib/rollback-snapshot.sh
+. "${scripts_dir}/lib/rollback-snapshot.sh"
+# shellcheck source=lib/deployment-evidence.sh
+. "${scripts_dir}/lib/deployment-evidence.sh"
 # Hoisted out of the local-eseal block so the migration predicates below can
 # read them without executing anything.
 assets_src="${scripts_dir}/assets/dmss-digital-stamping-service"
@@ -606,21 +610,41 @@ echo ""
 
 # ── Step 1: Backup ──
 echo "Step 1/6: Backing up..."
+# Timestamped, non-overwriting snapshot FIRST (before anything below mutates
+# either file) - this is what rollback.sh restores from. The single-generation
+# .bak copy is kept alongside it for the manual "cp ...bak" recipe printed at
+# the end, unchanged from before.
+snapshot_dir="$(write_rollback_snapshot)"
+echo "  Rollback snapshot: ${snapshot_dir}"
 cp -f "$compose_yml" "${compose_yml}.bak"
 cp -f "$config_js" "${config_js}.bak"
 echo "  Backups created"
 
 # ── Step 2: Update image tags ──
+# The replacement deliberately also strips any existing "@sha256:..." — that
+# digest was resolved for the OLD tag, and carrying it forward onto the new
+# tag would silently re-pin the new image to the wrong (old) content instead
+# of leaving it correctly unpinned. Pinning the new tag's real digest is a
+# separate, deliberate step (documentation/39-release-procedure.md); this
+# script only ever bumps the tag.
 echo "Step 2/6: Updating image tags..."
 if [[ -n "$server_tag" ]]; then
   old_server="$(current_tag ps-server)"; old_server="${old_server:-unknown}"
-  sed -i "s|mihailsgordijenko/ps-server:[0-9.]*|mihailsgordijenko/ps-server:${server_tag}|" "$compose_yml"
+  sed -i -E "s|mihailsgordijenko/ps-server:[0-9.]*(@sha256:[0-9a-f]+)?|mihailsgordijenko/ps-server:${server_tag}|" "$compose_yml"
   echo "  ps-server: ${old_server} → ${server_tag}"
 fi
 if [[ -n "$client_tag" ]]; then
   old_client="$(current_tag ps-client)"; old_client="${old_client:-unknown}"
-  sed -i "s|mihailsgordijenko/ps-client:[0-9.]*|mihailsgordijenko/ps-client:${client_tag}|" "$compose_yml"
+  sed -i -E "s|mihailsgordijenko/ps-client:[0-9.]*(@sha256:[0-9a-f]+)?|mihailsgordijenko/ps-client:${client_tag}|" "$compose_yml"
   echo "  ps-client: ${old_client} → ${client_tag}"
+fi
+if [[ -n "$server_tag" || -n "$client_tag" ]]; then
+  echo "  NOTE: the new tag(s) above are not yet digest-pinned. Resolve and pin"
+  echo "        the digest before this deployment is considered complete:"
+  echo "        see documentation/39-release-procedure.md and"
+  echo "        installation-scripts/check-digest-drift.sh. validate-config.sh"
+  echo "        will fail until release/approved-digests.json and"
+  echo "        docker-compose.yml agree again."
 fi
 
 # ── Step 3: Ensure DOCUMENT_ROUTING ──
@@ -677,6 +701,8 @@ else
   echo "  WARNING: ps-server may not have started. Check: docker compose logs ps-server" >&2
 fi
 
+write_deployment_evidence "upgrade.sh"
+
 echo ""
 echo "Recording deployment evidence..."
 write_deployment_evidence "upgrade.sh"
@@ -684,5 +710,5 @@ write_deployment_evidence "upgrade.sh"
 echo ""
 echo "========================================"
 echo "Upgrade complete!"
-echo "  Rollback: cp docker-compose.yml.bak docker-compose.yml && cp config/config.js.bak config/config.js && docker compose up -d"
+echo "  Rollback: ./installation-scripts/rollback.sh --yes   (restores snapshot ${snapshot_dir})"
 echo "========================================"

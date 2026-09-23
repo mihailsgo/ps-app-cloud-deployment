@@ -54,7 +54,7 @@ ps-app-cloud-deployment/
 │   ├── validate-config.sh            # Config consistency checks
 │   ├── verify-keycloak.sh            # Verify Keycloak setup
 │   ├── verify-served-cert.sh         # Wire check: cert nginx actually serves
-│   ├── diff-baseline-overlay.sh      # Drift check: live host vs. a clean baseline ref (see documentation/40)
+│   ├── diff-baseline-overlay.sh      # Drift check: live host vs. a clean baseline ref (see documentation/41)
 │   ├── lib/
 │   │   ├── capabilities.sh           # Shared reader for release/capabilities.json
 │   │   ├── kcadm.sh                  # Shared Keycloak admin CLI helpers (incl. print_secret(), see smoke-user.sh)
@@ -76,7 +76,7 @@ ps-app-cloud-deployment/
 │   ├── routes/ , views/ , public/     # Express routes, EJS templates, static assets
 │   └── Dockerfile                    # node:18-bookworm-slim (NOT alpine — scripts need grep -oP)
 ├── .env                              # contains COMPOSE_PROFILES=local-eseal when local mode is active
-├── deployment-evidence.json          # git-ignored; written by bootstrap.sh/upgrade.sh (see documentation/40)
+├── deployment-evidence.json          # git-ignored; written by bootstrap.sh/upgrade.sh/postdeploy-check.sh (see documentation/41)
 ├── signed-output/                    # Signed PDFs written by ps-server (git-ignored; mode 750, ps-server runs as root)
 └── docs/                             # Signed documents output (fallback archive; git-ignored; mode 770, group spring)
 ```

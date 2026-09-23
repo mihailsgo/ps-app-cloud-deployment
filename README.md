@@ -122,5 +122,10 @@ Either way, read [9. Prerequisites](documentation/09-prerequisites.md) and [11.1
     - [37.5 Known gap: Keycloak admin password rotation](documentation/37-05-known-gaps-keycloak-admin-password-rotation.md)
 38. [AI Agent Deployment Skill](documentation/38-ai-agent-deployment-skill.md)
 39. [Release Procedure](documentation/39-release-procedure.md)
-40. [Baseline/Overlay Reconciliation](documentation/40-baseline-overlay-reconciliation.md)
+40. [Reliability: Health Checks, Post-Deploy Validation, Monitoring, Rollback](documentation/40-reliability-and-rollback.md)
+    - [40.1 Health Checks and Startup Order](documentation/40-01-health-checks-and-startup-order.md)
+    - [40.2 Post-Deploy Validation](documentation/40-02-post-deploy-validation.md)
+    - [40.3 Monitoring and Alerting Proposal](documentation/40-03-monitoring-and-alerting-proposal.md)
+    - [40.4 Rollback](documentation/40-04-rollback.md)
+41. [Baseline/Overlay Reconciliation](documentation/41-baseline-overlay-reconciliation.md)
 

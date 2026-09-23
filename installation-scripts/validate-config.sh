@@ -197,6 +197,39 @@ if [[ -f "$snapshot_doc" ]]; then
   fi
 fi
 
+# --- Image digest pinning ---
+# Every image docker-compose.yml references must be pinned by immutable
+# sha256 digest, and that digest must match what release/approved-digests.json
+# records as reviewed — a tag-only pin or a digest that doesn't match the
+# registry both fail here. See documentation/39-release-procedure.md.
+echo ""
+echo "Image digest pinning:"
+# shellcheck source=lib/digests.sh
+. "${repo_root}/installation-scripts/lib/digests.sh"
+
+if [[ ! -f "$digests_json" ]]; then
+  bad "release/approved-digests.json missing — no image digests can be verified"
+else
+  while IFS=$'\t' read -r image_key repository _tag approved_digest; do
+    [[ -z "$image_key" ]] && continue
+    approved_digest="${approved_digest%$'\r'}"
+    pinned="$(digest_from_compose "$repository")"
+
+    if [[ -z "$pinned" ]]; then
+      bad "${image_key}: ${repository} not found in docker-compose.yml"
+    elif [[ "$pinned" != *"@sha256:"* ]]; then
+      bad "${image_key}: pinned by tag only (${repository}:${pinned}), no immutable digest"
+    else
+      pinned_digest="${pinned#*@}"
+      if [[ "$pinned_digest" == "$approved_digest" ]]; then
+        ok "${image_key}: digest-pinned and matches release/approved-digests.json"
+      else
+        bad "${image_key}: pinned digest (${pinned_digest}) does not match the approved digest in release/approved-digests.json (${approved_digest}) — unapproved digest"
+      fi
+    fi
+  done < <(digest_registry_table)
+fi
+
 # --- Running container checks (if Docker is available) ---
 if docker ps > /dev/null 2>&1; then
   echo ""

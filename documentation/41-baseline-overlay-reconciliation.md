@@ -1,4 +1,4 @@
-# 40. Baseline/overlay reconciliation
+# 41. Baseline/overlay reconciliation
 
 Tooling for telling a clean release baseline apart from the per-host overlay
 `configure-host.sh` / `upgrade.sh` apply on top of it, and for recording what
