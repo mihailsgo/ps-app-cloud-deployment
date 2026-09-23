@@ -15,6 +15,35 @@
 
 It restores **only** `docker-compose.yml`'s `ps-server`/`ps-client` image lines (a targeted `sed`, the same mechanism `upgrade.sh` uses to bump them, run in reverse — not a wholesale file overwrite, so an unrelated `docker-compose.yml` edit made after the snapshot survives) and `config/config.js` (restored verbatim from the snapshot), then pulls and restarts the affected services and waits for them to report healthy using the health checks from [40.1](40-01-health-checks-and-startup-order.md). It never touches `signed-output/`, `docs/`, `nginx/nginx.conf`, or `config/constants.json`. It writes deployment evidence at the end, same as `upgrade.sh`. Since [psapp-saas#11](https://github.com/mihailsgo/psapp-saas/issues/11) (image digest pinning), it restores the exact `tag@sha256:digest` the snapshot's manifest recorded, not just the tag — see *Known limitation* below.
 
+## Failed deployments now fail
+
+`upgrade.sh` used to finish with `Upgrade complete!` and exit `0` for any image that pulled: `docker compose up -d` returns once the container is created, and step 6 only printed a warning if a log line was missing. A broken image that pulls fine was reported as a successful upgrade.
+
+`upgrade.sh`, `rollback.sh` and `bootstrap.sh` now call `wait_for_healthy` (`installation-scripts/lib/health-wait.sh`) on the services they (re)started (plus `nginx`, which they restart). It returns as soon as every one is healthy, and fails fast when one reports `unhealthy`, has exited, or restarts twice while waiting (crash loop); otherwise it times out (`--health-timeout`, default 300s; 600s for `bootstrap.sh`, whose first Keycloak boot is slow). On failure it prints the service, its last health-probe output and its last 15 log lines.
+
+A failed `upgrade.sh` then writes deployment evidence, prints `docker compose ps`, and prints the exact rollback command for the snapshot it took in step 1:
+
+```
+UPGRADE FAILED: services did not become healthy
+Roll back with:
+  ./installation-scripts/rollback.sh --to 20260923T105025Z --yes
+```
+
+With `--rollback-on-failure`, it runs that command itself. The upgrade still exits `1` either way, so a pipeline sees that the upgrade failed even when the rollback succeeded. A failed image pull or `docker compose up` goes through the same path.
+
+`rollback.sh` now exits `1` (`ROLLBACK APPLIED BUT NOT HEALTHY`) when the restored services do not become healthy, instead of warning after 60 seconds and exiting `0`.
+
+### Rehearsed against a live, isolated copy of this stack (psapp-saas#12)
+
+Run on 2026-09-23 against this repo's `docker-compose.yml` under a separate compose project with renamed containers and remapped ports. The "broken release" was a local-only image tagged `ps-server:3.97` / `ps-client:8.97` built `FROM` the real 3.28 / 8.39 image with a command that exits `1`, so it pulls (with `pull_policy: never` in the test override) and starts, then crash-loops - the case the old script reported as success.
+
+| Rehearsal | Result |
+|---|---|
+| `upgrade.sh --server-tag 3.97 --rollback-on-failure` | Detected after ~24s (`FAILED: ps-server is unhealthy` + the container's own `simulated broken release` log lines). Auto-rollback restored `ps-server:3.28@sha256:98bb0577…` - the exact digest from the snapshot manifest, the first live run of the digest-exact restore - and all 7 services were healthy. Upgrade exit `1`, 83s total. |
+| `upgrade.sh --client-tag 8.97` (no auto-rollback) | Detected after ~20s, exit `1`, printed `rollback.sh --to 20260923T105025Z --yes`. Running it restored `ps-client:8.39@sha256:8722d407…`, services healthy, exit `0`. Running it again was a no-op, exit `0`. |
+| `rollback.sh` with a fault that survives the rollback (test override making ps-client's healthcheck always fail) | `ROLLBACK APPLIED BUT NOT HEALTHY`, exit `1`. |
+| Document storage | A marker file in `signed-output/` had the same SHA-256 before and after all of the above. `config/config.js` came back byte-identical. |
+
 ## Tested, for real, against the local stack
 
 Both required failure scenarios were actually run, not just described — see the PR description for the full command transcripts. In outline:
@@ -28,6 +57,6 @@ Both required failure scenarios were actually run, not just described — see th
 
 **Resolved as of psapp-saas#11.** This section originally said rollback restored by image tag only, because `docker-compose.yml` didn't pin by digest yet, and that the snapshot manifest recorded the running digest without `rollback.sh` acting on it. `docker-compose.yml` now pins every image by digest, and `rollback.sh`'s image-restoration step reads the digest each snapshot's `manifest.json` already recorded and writes back the exact `tag@sha256:digest` that was running immediately before the upgrade being undone — not just the tag. A snapshot taken before this field existed (or, in principle, a `docker inspect` that failed at snapshot time) has no recorded digest; `rollback.sh` falls back to restoring the bare tag in that case and prints a reminder that the result needs to be re-pinned by hand (`documentation/39-release-procedure.md`).
 
-This fix was verified in isolation — the exact `sed` substitution was run against a copy of the real digest-pinned `docker-compose.yml`, for both the digest-available and no-digest-recorded cases, and produced the expected `tag@digest` and bare-tag output respectively. It was **not** re-run through the full live failure-scenario rehearsal (sections above) that originally validated `rollback.sh` — that needs a live stack and is a good next verification step, not one this change performed.
+This fix was verified in isolation — the exact `sed` substitution was run against a copy of the real digest-pinned `docker-compose.yml`, for both the digest-available and no-digest-recorded cases, and produced the expected `tag@digest` and bare-tag output respectively. It was later exercised live by the psapp-saas#12 rehearsal above (restore of `ps-server:3.28@sha256:98bb0577…` and `ps-client:8.39@sha256:8722d407…`).
 
 A second, narrower limitation remains: `rollback.sh` only knows about the one snapshot it's restoring. If `configure-host.sh` or `toggle-features.sh` changed `config/config.js` *after* that snapshot was taken, restoring it will revert those changes too — there's no drift detection between "what this snapshot captured" and "what's changed since." This is stated in the script's own `--help` output, not just here.
