@@ -162,6 +162,10 @@ trap cleanup EXIT
 cp -R "$csig_src" "${work}/dmss-container-and-signature-services"
 cp -R "$stamp_src" "${work}/dmss-digital-stamping-service"
 mkdir -p "${work}/smoke"
+# container-signature writes the sealed PDFs here as its own non-root user
+# (uid 999 in the 24.x images), not as whoever runs this script. Throwaway
+# directory, removed on exit.
+chmod 1777 "${work}/smoke"
 # Same in-network stamping URL upgrade.sh/configure-host.sh write for
 # --enable-local-eseal. Only this copy is edited.
 sed -i.orig 's#^\(  baseUrl: \)http://host.docker.internal:8084/api#\1http://dmss-digital-stamping-service:8084/api#' \
@@ -287,6 +291,8 @@ for profile in "${profiles[@]}"; do
     if [[ "$code" == "200" ]] && head -c 5 "$host_out" 2>/dev/null | grep -q '%PDF' \
        && grep -aq '/ByteRange' "$host_out"; then
       ok "${profile} seal ${n}/${seals}: HTTP 200, signed PDF ($(wc -c <"$host_out" | tr -d ' ') bytes)"
+    elif [[ ! -f "$host_out" ]]; then
+      bad "${profile} seal ${n}/${seals}: HTTP ${code:-none}, but no response body was written to ${out}"
     else
       detail="$(head -c 300 "$host_out" 2>/dev/null | tr -d '\0\r' | tr '\n' ' ' || true)"
       bad "${profile} seal ${n}/${seals}: HTTP ${code:-none} ${detail}"
