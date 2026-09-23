@@ -210,9 +210,9 @@ echo "Image digest pinning:"
 if [[ ! -f "$digests_json" ]]; then
   bad "release/approved-digests.json missing — no image digests can be verified"
 else
-  while IFS=$'\t' read -r image_key repository _tag approved_digest; do
+  approved_table="$(digest_registry_table | tr -d '\r')"
+  while IFS=$'\t' read -r image_key repository approved_tag approved_digest; do
     [[ -z "$image_key" ]] && continue
-    approved_digest="${approved_digest%$'\r'}"
     pinned="$(digest_from_compose "$repository")"
 
     if [[ -z "$pinned" ]]; then
@@ -220,14 +220,34 @@ else
     elif [[ "$pinned" != *"@sha256:"* ]]; then
       bad "${image_key}: pinned by tag only (${repository}:${pinned}), no immutable digest"
     else
+      pinned_tag="${pinned%@*}"
       pinned_digest="${pinned#*@}"
-      if [[ "$pinned_digest" == "$approved_digest" ]]; then
-        ok "${image_key}: digest-pinned and matches release/approved-digests.json"
-      else
+      if [[ "$pinned_digest" != "$approved_digest" ]]; then
         bad "${image_key}: pinned digest (${pinned_digest}) does not match the approved digest in release/approved-digests.json (${approved_digest}) — unapproved digest"
+      elif [[ "$pinned_tag" != "$approved_tag" ]]; then
+        # Same content, but the tag a human reads says something else - the
+        # compose file and the registry file disagree about which release
+        # this is.
+        bad "${image_key}: pinned tag (${pinned_tag}) does not match the approved tag in release/approved-digests.json (${approved_tag})"
+      else
+        ok "${image_key}: digest-pinned and matches release/approved-digests.json"
       fi
     fi
-  done < <(digest_registry_table)
+  done <<< "$approved_table"
+
+  # The loop above walks the approved list, so on its own it never sees an
+  # image that was added to docker-compose.yml without being approved at
+  # all - a new service with a tag-only (or digest-pinned but unreviewed)
+  # image would pass silently. Walk the compose side too.
+  approved_repos="$(cut -f2 <<< "$approved_table")"
+  while read -r image_ref; do
+    [[ -z "$image_ref" ]] && continue
+    image_repo="${image_ref%@*}"   # drop @sha256:...
+    image_repo="${image_repo%:*}"  # drop :tag
+    if ! grep -qxF "$image_repo" <<< "$approved_repos"; then
+      bad "docker-compose.yml references ${image_ref}, which has no entry in release/approved-digests.json — unapproved image"
+    fi
+  done < <(compose_image_refs)
 fi
 
 # --- Running container checks (if Docker is available) ---

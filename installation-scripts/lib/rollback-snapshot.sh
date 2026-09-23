@@ -12,6 +12,9 @@
 #
 # Expects "$repo_root" to be set by the sourcing script.
 
+# shellcheck source=digests.sh
+. "${repo_root}/installation-scripts/lib/digests.sh"
+
 ROLLBACK_SNAPSHOTS_DIR_NAME=".rollback-snapshots"
 ROLLBACK_SNAPSHOTS_KEEP=5
 
@@ -41,8 +44,10 @@ write_rollback_snapshot() {
   if command -v docker >/dev/null 2>&1; then
     server_cid="$(docker compose ps -q ps-server 2>/dev/null || echo "")"
     client_cid="$(docker compose ps -q ps-client 2>/dev/null || echo "")"
-    [[ -n "$server_cid" ]] && server_digest="$(docker inspect --format '{{.Image}}' "$server_cid" 2>/dev/null || echo "")"
-    [[ -n "$client_cid" ]] && client_digest="$(docker inspect --format '{{.Image}}' "$client_cid" 2>/dev/null || echo "")"
+    # Registry digest, not `docker inspect {{.Image}}` (the local image ID,
+    # which is not pullable on a classic image store) - see digest_running.
+    [[ -n "$server_cid" ]] && server_digest="$(digest_running "$server_cid")"
+    [[ -n "$client_cid" ]] && client_digest="$(digest_running "$client_cid")"
   fi
 
   local git_rev

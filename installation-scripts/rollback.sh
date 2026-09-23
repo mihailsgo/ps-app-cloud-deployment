@@ -12,9 +12,10 @@ set -euo pipefail
 #   - docker-compose.yml's ps-server/ps-client image lines only (a targeted
 #     sed, not a wholesale file overwrite - so any unrelated docker-compose.yml
 #     edit made after the snapshot, e.g. a configure-host.sh
-#     --enable-local-eseal block, survives). Restores tag@digest when the
-#     snapshot's manifest.json recorded a digest (every snapshot since
-#     psapp-saas#11 does); falls back to a bare tag, with a re-pin reminder,
+#     --enable-local-eseal block, survives). Restores tag@digest: the digest
+#     the snapshot's own docker-compose.yml copy pinned for that tag, else
+#     the one its manifest.json recorded (every snapshot since psapp-saas#11
+#     has one or both); falls back to a bare tag, with a re-pin reminder,
 #     for older snapshots that predate digest recording.
 #   - config/config.js, restored verbatim from the snapshot
 #
@@ -96,12 +97,31 @@ with open(os.environ['MANIFEST_PATH'], encoding='utf-8') as fh:
 manifest_server_tag="$(MANIFEST_JSON="$manifest_json" python3 -c "import json,os;print(json.loads(os.environ['MANIFEST_JSON']).get('image_tags',{}).get('ps-server') or '')" 2>/dev/null || echo "")"
 manifest_client_tag="$(MANIFEST_JSON="$manifest_json" python3 -c "import json,os;print(json.loads(os.environ['MANIFEST_JSON']).get('image_tags',{}).get('ps-client') or '')" 2>/dev/null || echo "")"
 # Recorded by write_rollback_snapshot() (lib/rollback-snapshot.sh) via
-# `docker inspect --format '{{.Image}}'` on the pre-upgrade container - this
-# is the exact content digest that was running, independent of whether
-# docker-compose.yml pinned by digest at snapshot time. Empty for snapshots
-# taken before this field existed.
+# digest_running (lib/digests.sh) on the pre-upgrade container - the registry
+# digest of what was running, independent of whether docker-compose.yml
+# pinned by digest at snapshot time. Empty for snapshots taken before this
+# field existed.
 manifest_server_digest="$(MANIFEST_JSON="$manifest_json" python3 -c "import json,os;print(json.loads(os.environ['MANIFEST_JSON']).get('image_digests',{}).get('ps-server') or '')" 2>/dev/null || echo "")"
 manifest_client_digest="$(MANIFEST_JSON="$manifest_json" python3 -c "import json,os;print(json.loads(os.environ['MANIFEST_JSON']).get('image_digests',{}).get('ps-client') or '')" 2>/dev/null || echo "")"
+
+# Prefer the digest the snapshot's own copy of docker-compose.yml pinned for
+# the same tag: that is the reviewed, approved pin that was deployed. The
+# manifest digest is only the fallback, because snapshots written before
+# digest_running existed recorded `docker inspect --format '{{.Image}}'`,
+# which on a classic (non-containerd) image store is the image config digest
+# and cannot be pulled - restoring it would leave the stack unpullable.
+#
+#   snapshot_pinned_digest <component> <tag>
+snapshot_pinned_digest() {
+  local component="$1" tag="$2"
+  [[ -z "$tag" ]] && return 0
+  sed -nE "s|.*mihailsgordijenko/${component}:${tag//./\\.}@(sha256:[0-9a-f]{64}).*|\1|p" \
+    "${snap_dir}/docker-compose.yml" 2>/dev/null | head -1
+}
+snap_server_digest="$(snapshot_pinned_digest ps-server "$manifest_server_tag")"
+snap_client_digest="$(snapshot_pinned_digest ps-client "$manifest_client_tag")"
+[[ -n "$snap_server_digest" ]] && manifest_server_digest="$snap_server_digest"
+[[ -n "$snap_client_digest" ]] && manifest_client_digest="$snap_client_digest"
 taken_at="$(MANIFEST_JSON="$manifest_json" python3 -c "import json,os;print(json.loads(os.environ['MANIFEST_JSON']).get('taken_at') or '')" 2>/dev/null || echo "")"
 
 current_server_tag="$(sed -nE 's|.*mihailsgordijenko/ps-server:([0-9]+\.[0-9]+(\.[0-9]+)?).*|\1|p' "$compose_yml" 2>/dev/null | head -1)"
