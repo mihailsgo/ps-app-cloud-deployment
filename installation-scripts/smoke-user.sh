@@ -90,6 +90,7 @@ fi
 docker compose up -d keycloak >/dev/null
 kc_wait_ready || exit 1
 kc_login "${admin_user}" "${admin_pass}"
+trap kc_logout EXIT
 
 if ! kc_exec "/opt/keycloak/bin/kcadm.sh get realms/${realm} >/dev/null 2>&1"; then
   echo "ERROR: realm '${realm}' does not exist. Run keycloak-bootstrap.sh first." >&2
@@ -130,12 +131,19 @@ case "$subcommand" in
     smoke_pass="$(head -c 32 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 16)"
     smoke_email="${smoke_user}@$(printf '%s' "${company_role}" | tr '[:upper:]' '[:lower:]' | tr ' ' '-').padsign"
 
-    kc_exec "/opt/keycloak/bin/kcadm.sh create users -r ${realm} -s username=${smoke_user} -s enabled=true -s email='${smoke_email}'" >/dev/null
+    # firstName/lastName are not cosmetic: Keycloak 26's declarative user
+    # profile marks email, firstName and lastName as required, so a user
+    # missing any of them is sent to the VERIFY_PROFILE ("Update your
+    # account information") form on its first browser login instead of
+    # being redirected back to the portal - which silently breaks any
+    # scripted/automated browser smoke test. Found by driving the real
+    # authorization-code login against the pinned image, not via kcadm.
+    kc_exec "/opt/keycloak/bin/kcadm.sh create users -r ${realm} -s username=${smoke_user} -s enabled=true -s email='${smoke_email}' -s firstName=Smoke -s lastName='${smoke_user#"${smoke_user_prefix}"}'" >/dev/null
     smoke_uid="$(find_user_id "${smoke_user}")" || {
       echo "ERROR: created user '${smoke_user}' but could not look it back up." >&2
       exit 1
     }
-    kc_exec "/opt/keycloak/bin/kcadm.sh set-password -r ${realm} --userid ${smoke_uid} --new-password '${smoke_pass}' --temporary=false" >/dev/null
+    kc_exec_with_secret "${smoke_pass}" "/opt/keycloak/bin/kcadm.sh set-password -r ${realm} --userid ${smoke_uid} --new-password \"\$KC_SECRET\" --temporary=false" >/dev/null
     kc_exec "/opt/keycloak/bin/kcadm.sh add-roles -r ${realm} --uusername ${smoke_user} --rolename '${company_role}'" >/dev/null
 
     echo "Smoke-test user created."
