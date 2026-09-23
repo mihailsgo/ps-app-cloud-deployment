@@ -14,6 +14,12 @@
       "prCreation": "not-pending",
       "labels": ["dependencies", "docker-digest"],
       "commitMessagePrefix": "chore(digests):"
+    },
+    {
+      "matchManagers": ["docker-compose"],
+      "matchPackageNames": ["nginx"],
+      "allowedVersions": "/^1\\.30\\./",
+      "description": "Confirmed live 2026-09-23: Renovate proposed 1.31.6 as an update to the pinned 1.30.5, but 1.31.x is nginx's mainline release line, not a newer stable one (nginx:stable still resolved to 1.30.5 at the same time). Renovate has no notion of this split - it only sees version numbers - so this pins it to the 1.30.x line until a human deliberately updates this regex, which should happen only after confirming nginx:stable has actually moved (see release/approved-digests.json's nginx entry for how to check)."
     }
   ]
 }
