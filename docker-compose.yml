@@ -1,6 +1,6 @@
 services:
   keycloak:
-    image: quay.io/keycloak/keycloak:26.3.2@sha256:98fab020a3a490aba0978f237e2a06cd0ea42bf149c6cf10f11c0aaf27728ff2
+    image: quay.io/keycloak/keycloak:26.7.4@sha256:82a77884f3af238beab1e7afd63b5f530e1b5c0590bd7aa60b40a40463e29b2c
     environment:
       - KEYCLOAK_ADMIN=admin
       - KEYCLOAK_ADMIN_PASSWORD=admin
@@ -45,7 +45,7 @@ services:
       - './dmss-archive-services:/confs'
     environment:
       - SPRING_CONFIG_LOCATION=/confs/
-    image: 'trustlynx/dmss-archive-services:24.2.0.8@sha256:58568453fd37cb4a7daf40873592478e0fbc7faa7abb4cf41fd03cb9b71bd1cb'
+    image: 'trustlynx/dmss-archive-services:24.3.0.3@sha256:1acdd68c7616676ab1fb679ee41eac89878786a51991d5eca15dad50b8e98b32'
     healthcheck:
       # This service's own request-auth filter returns 403 for
       # /actuator/health (confirmed: consistent 403, not a transient
@@ -73,7 +73,7 @@ services:
       - './dmss-container-and-signature-services:/confs'
     environment:
       - SPRING_CONFIG_LOCATION=/confs/
-    image: 'trustlynx/container-signature-service:24.3.0.49@sha256:14d93ee3cf549840495c00b242e723cfb8055dca7bf0710c84e849da74d7e60f'
+    image: 'trustlynx/container-signature-service:24.3.3.9@sha256:ffc0675fdc253397ece91445c83750c5c002b6ad5e80b250eca8b2a067ae6e8a'
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
@@ -103,7 +103,7 @@ services:
     container_name: dmss-digital-stamping-service
     profiles: ["local-eseal"]
     restart: always
-    image: 'trustlynx/digital-stamping-service:24.0.3.0@sha256:1713fcf3ec1131b07a2d961963c41398129502eed237b0d3947669889ac6e167'
+    image: 'trustlynx/digital-stamping-service:24.0.3.1@sha256:aed47670e42b75f1b1354c9bc5a0397a862db522f1af12c80f404de872ba4eb1'
     environment:
       # ADDITIONAL_LOCATION (not LOCATION) so the in-jar baked YAML still loads;
       # ours layers on top and overrides only what we need to change.
@@ -132,7 +132,7 @@ services:
       - './docs:/docs'
     environment:
       - SPRING_CONFIG_LOCATION=/dmss-archive-services-fallback/application.yml
-    image: 'trustlynx/dmss-archive-services-fallback:24.0.5@sha256:7dc1ad2f17cf3311a10b08e305b2e150a79c2cf9388be29ac12eae3a87e36f35'
+    image: 'trustlynx/dmss-archive-services-fallback:24.1.7@sha256:46215e56227c1f85eb226c2183033a22ce4e57b0bf09ed5b88da1a70c8d34177'
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8095/actuator/health | grep -q '\"status\":\"UP\"'"]
       interval: 10s
