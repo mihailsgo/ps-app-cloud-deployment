@@ -8,7 +8,10 @@
 # four files configure-host.sh/upgrade.sh mutate per host, per-service
 # container restart counts and their delta since the previous evidence
 # snapshot (surfaces restart-looping between two runs), and a best-effort
-# read of which optional features are currently enabled.
+# read of which optional features are currently enabled. On a checkout run
+# as "release baseline + environment overlay" (installation-scripts/
+# overlay.sh), also which overlay was applied, the compose files actually in
+# effect, and checksums of the DMSS config files and the compose overlay.
 #
 # Deliberately records only derived, already-non-secret state - never the raw
 # CLI arguments a script was invoked with. --admin-pass / --backend-secret /
@@ -103,6 +106,8 @@ write_deployment_evidence() {
   NGINX_CONF="${repo_root}/nginx/nginx.conf" \
   COMPOSE_YML="${repo_root}/docker-compose.yml" \
   ENV_FILE="${repo_root}/.env" \
+  REPO_ROOT="$repo_root" \
+  OVERLAY_STAMP="${repo_root}/.overlay-applied.json" \
   EVIDENCE_FILE="$evidence_file" \
   PREVIOUS_EVIDENCE_FILE="$previous_evidence_file" \
   python3 <<'PY'
@@ -151,6 +156,51 @@ except (json.JSONDecodeError, AttributeError):
 
 local_eseal_enabled = bool(re.search(r"COMPOSE_PROFILES=.*local-eseal", env_text))
 
+# Compose files in effect (COMPOSE_FILE in .env), and the overlay stamp
+# overlay.sh apply leaves behind. Both are paths and hashes only - the .env
+# itself can hold secrets and is never copied into evidence.
+repo_root = os.environ["REPO_ROOT"]
+compose_files = ["docker-compose.yml"]
+m_cf = re.search(r"^COMPOSE_FILE=(.*)$", env_text, re.MULTILINE)
+if m_cf:
+    compose_files = [p for p in m_cf.group(1).strip().strip("\"'").split(os.pathsep) if p]
+overlay = None
+try:
+    with open(os.environ["OVERLAY_STAMP"], "r", encoding="utf-8") as fh:
+        stamp = json.load(fh)
+    overlay = {k: stamp.get(k) for k in ("overlay_dir", "manifest_sha256", "baseline_ref", "baseline_commit", "applied_at")}
+except (OSError, json.JSONDecodeError):
+    pass
+
+# Which tracked files make the checkout "dirty" (paths only). On an
+# overlay-managed host these must be exactly the overlay's declared files -
+# `overlay.sh verify` checks that; recording the list here lets an auditor
+# see it from the evidence alone.
+import subprocess
+modified_tracked = []
+try:
+    out = subprocess.run(["git", "-C", repo_root, "status", "--porcelain", "--untracked-files=no"],
+                         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout.decode("utf-8", "replace")
+    modified_tracked = sorted(l[3:] for l in out.splitlines() if l.strip())
+except OSError:
+    pass
+
+extra_checksums = {}
+for rel in (
+    "dmss-archive-services/application.yml",
+    "dmss-archive-services-fallback/application.yml",
+    "dmss-container-and-signature-services/application.yml",
+    "dmss-container-and-signature-services/documentsigningprofiles.json",
+    "dmss-digital-stamping-service/application.yml",
+):
+    digest = sha256_of(os.path.join(repo_root, rel))
+    if digest:
+        extra_checksums[rel] = digest
+for cf in compose_files:
+    path = cf if os.path.isabs(cf) else os.path.join(repo_root, cf)
+    if cf != "docker-compose.yml":
+        extra_checksums[cf] = sha256_of(path)
+
 try:
     image_digests = json.loads(os.environ.get("IMAGE_DIGESTS_JSON") or "{}")
 except json.JSONDecodeError:
@@ -188,6 +238,7 @@ evidence = {
         "revision": os.environ.get("GIT_REV") or None,
         "branch": os.environ.get("GIT_BRANCH") or None,
         "dirty": bool_env("GIT_DIRTY"),
+        "modified_tracked_files": modified_tracked,
     },
     "image_tags": {
         "ps-server": os.environ.get("SERVER_TAG") or None,
@@ -198,12 +249,14 @@ evidence = {
         "ps-client": os.environ.get("CLIENT_REV") or None,
     },
     "image_digests": image_digests,
-    "config_checksums": {
+    "config_checksums": dict({
         "config/config.js": sha256_of(os.environ["CONFIG_JS"]),
         "config/constants.json": sha256_of(os.environ["CONSTANTS_JSON"]),
         "nginx/nginx.conf": sha256_of(os.environ["NGINX_CONF"]),
         "docker-compose.yml": sha256_of(os.environ["COMPOSE_YML"]),
-    },
+    }, **extra_checksums),
+    "compose_files": compose_files,
+    "overlay": overlay,
     "restart_counts": restart_counts,
     "restart_deltas": restart_deltas,
     "enabled_features": {

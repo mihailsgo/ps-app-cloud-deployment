@@ -53,3 +53,9 @@ signed-output/**
 # Claude Code
 CLAUDE.md
 .superpowers/
+
+# Written by overlay.sh apply: which overlay was applied to this checkout
+.overlay-applied.json
+
+# Python bytecode from installation-scripts/lib/*.py
+__pycache__/
