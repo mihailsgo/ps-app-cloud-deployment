@@ -1,0 +1,51 @@
+{
+  "//": "The approved sha256 digest for every image this deployment pins. This is the single source of truth for what is APPROVED, separate from docker-compose.yml (what is actually RUNNING) - installation-scripts/validate-config.sh fails if the two disagree, and installation-scripts/check-digest-drift.sh fails if this disagrees with what the registry currently serves for the same tag. Update this file only when cutting a release (documentation/39-release-procedure.md) or after deliberately auditing drift reported by check-digest-drift.sh. Never hardcode a digest in a script - read this file instead.",
+  "images": {
+    "keycloak": {
+      "repository": "quay.io/keycloak/keycloak",
+      "tag": "26.3.2",
+      "digest": "sha256:98fab020a3a490aba0978f237e2a06cd0ea42bf149c6cf10f11c0aaf27728ff2"
+    },
+    "dmss-archive-services": {
+      "repository": "trustlynx/dmss-archive-services",
+      "tag": "24.2.0.8",
+      "digest": "sha256:58568453fd37cb4a7daf40873592478e0fbc7faa7abb4cf41fd03cb9b71bd1cb"
+    },
+    "dmss-container-and-signature-services": {
+      "repository": "trustlynx/container-signature-service",
+      "tag": "24.3.0.49",
+      "digest": "sha256:14d93ee3cf549840495c00b242e723cfb8055dca7bf0710c84e849da74d7e60f"
+    },
+    "dmss-digital-stamping-service": {
+      "repository": "trustlynx/digital-stamping-service",
+      "tag": "24.0.3.0",
+      "digest": "sha256:1713fcf3ec1131b07a2d961963c41398129502eed237b0d3947669889ac6e167"
+    },
+    "dmss-archive-services-fallback": {
+      "repository": "trustlynx/dmss-archive-services-fallback",
+      "tag": "24.0.5",
+      "digest": "sha256:7dc1ad2f17cf3311a10b08e305b2e150a79c2cf9388be29ac12eae3a87e36f35"
+    },
+    "ps-server": {
+      "repository": "mihailsgordijenko/ps-server",
+      "tag": "3.28",
+      "digest": "sha256:98bb0577865a576380796cffcb15c6e68b13c8e8c109192065d65bba26b2bac0"
+    },
+    "ps-client": {
+      "repository": "mihailsgordijenko/ps-client",
+      "tag": "8.39",
+      "digest": "sha256:8722d407215c680e40b0907e51f4e7a279014ea0d56088f9bc83605ddcf6511a"
+    },
+    "nginx": {
+      "repository": "nginx",
+      "tag": "1.30.5",
+      "digest": "sha256:0aa2d81d65bc0cac0407e738b8f07d312c8685a84225fcb4db7bcbdd8c9bdf11",
+      "why": "Pinned to nginx's 'stable' release line, not 'latest'/'mainline'. 'latest' resolved to 1.31.6 (mainline) at the time this was pinned - mainline gets new features and is not the line nginx recommends for production. Re-pin to a newer 1.30.x stable release, not to mainline, when updating."
+    },
+    "wizard": {
+      "repository": "mihailsgordijenko/padsign-wizard",
+      "tag": "0.1.1",
+      "digest": "sha256:a0301d7d721bf321652bc636db1738c3383732e37543fe1d84e89613f9dc91e8"
+    }
+  }
+}

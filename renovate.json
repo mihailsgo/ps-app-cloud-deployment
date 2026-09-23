@@ -1,0 +1,18 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "docker-compose": {
+    "fileMatch": ["^docker-compose\\.ya?ml$"]
+  },
+  "packageRules": [
+    {
+      "matchManagers": ["docker-compose"],
+      "pinDigests": true,
+      "groupName": "PadSign deployment image digests",
+      "schedule": ["before 6am on monday"],
+      "prCreation": "not-pending",
+      "labels": ["dependencies", "docker-digest"],
+      "commitMessagePrefix": "chore(digests):"
+    }
+  ]
+}

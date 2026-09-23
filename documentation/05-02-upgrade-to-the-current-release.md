@@ -103,11 +103,34 @@ deletes its buffered copy).
 
 ## Rollback
 
-The upgrade script prints the exact revert command. To go back to the previous
-images, re-run with the old tags, e.g.:
+**Use `installation-scripts/rollback.sh`** (see [40.4 Rollback](40-04-rollback.md)) —
+every `upgrade.sh` run writes a timestamped pre-upgrade snapshot first, and
+`rollback.sh` restores from it, pulls, restarts, and waits for the restored
+services to report healthy:
+
+```bash
+./installation-scripts/rollback.sh --yes
+```
+
+This restores the exact `tag@sha256:digest` that was running immediately
+before the upgrade — not just the tag — because the snapshot's manifest
+records the digest that was actually running, and `rollback.sh` writes it
+back rather than re-deriving it.
+
+If no snapshot exists (a deployment upgraded before `rollback.sh` existed, or
+`.rollback-snapshots/` was pruned/lost), reconstruct manually: look up the
+digest that was approved for the tag you're going back to — either
+`git log -p -- release/approved-digests.json` in this repo, or the matching
+`CHANGELOG.md` entry — and pin it explicitly:
 
 ```bash
 ./installation-scripts/upgrade.sh --server-tag 3.27 --client-tag 8.37
+# upgrade.sh deliberately drops any digest pin on a tag bump (the old digest
+# belongs to the old content, not the tag you're moving to) - resolve and
+# pin the correct one for :3.27 / :8.37:
+#   docker buildx imagetools inspect mihailsgordijenko/ps-server:3.27
+# Edit docker-compose.yml + release/approved-digests.json together, then:
+./installation-scripts/validate-config.sh
 ```
 
 > Note: if you protected the download route per
@@ -115,6 +138,5 @@ images, re-run with the old tags, e.g.:
 > rolling the client back below `8.38` requires re-opening that route first,
 > otherwise pads cannot render PDFs.
 
-Or restore the `docker-compose.yml.bak` / `config.js.bak` written in Step 1 and
-`docker compose up -d`. To keep `:3.27` but stop delivering documents back, set
+To keep `:3.27` but stop delivering documents back, set
 `DOCUMENT_ROUTING.enabled: false` and `docker compose restart ps-server`.
