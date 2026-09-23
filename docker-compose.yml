@@ -140,7 +140,7 @@ services:
       retries: 10
       start_period: 60s
   ps-server:
-    image: 'mihailsgordijenko/ps-server:3.29@sha256:641a63304b1380def17f25413db97673b8d01b4b0bbd729da0175c47d9db5fb0'
+    image: 'mihailsgordijenko/ps-server:3.28@sha256:98bb0577865a576380796cffcb15c6e68b13c8e8c109192065d65bba26b2bac0'
     container_name: ps-server
     # No host port mapping: nginx reaches this by service name on the Docker
     # network (see nginx/nginx.conf `/api/`). Nothing else in this repo needs
