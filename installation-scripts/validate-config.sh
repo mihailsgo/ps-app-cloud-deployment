@@ -21,8 +21,19 @@ done
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 fail=0
-ok()  { printf '  OK   %s\n' "$*"; }
-bad() { printf '  FAIL %s\n' "$*"; fail=1; }
+ok()   { printf '  OK   %s\n' "$*"; }
+bad()  { printf '  FAIL %s\n' "$*"; fail=1; }
+warn() { printf '  WARN %s\n' "$*"; }
+
+# The EFFECTIVE compose model: run from the project directory without -f, so
+# .env's COMPOSE_FILE (an environment overlay, see installation-scripts/
+# overlay.sh), COMPOSE_PROFILES and COMPOSE_PROJECT_NAME apply exactly as they
+# do for `docker compose up`. `-f docker-compose.yml` would silently skip an
+# overlay file - including any port it publishes, which is precisely what the
+# port-binding check below exists to catch.
+compose_config() {
+  (cd "$repo_root" && docker compose config "$@")
+}
 
 echo "PadSign Configuration Validator"
 echo "================================"
@@ -47,7 +58,7 @@ else
   bad "constants.json is invalid JSON"
 fi
 
-if docker compose -f "${repo_root}/docker-compose.yml" config > /dev/null 2>&1; then
+if compose_config > /dev/null 2>&1; then
   ok "docker-compose.yml is valid"
 else
   bad "docker-compose.yml has errors"
@@ -68,15 +79,45 @@ else
   bad "signed-output volume mount missing from docker-compose.yml"
 fi
 
+# Where the signed-document stores actually are. Normally the in-tree
+# ./signed-output and ./docs, but an environment overlay (overlay.sh) points
+# them at the documents' existing location instead of moving the data.
+signed_output_dir="${repo_root}/signed-output"
+docs_dir="${repo_root}/docs"
+storage_sources="$(compose_config --format json 2>/dev/null | python3 -c '
+import json, sys
+try:
+    services = json.load(sys.stdin).get("services") or {}
+except Exception:
+    sys.exit(0)
+want = {("ps-server", "/signed-output"), ("dmss-archive-services-fallback", "/docs")}
+for name, svc in services.items():
+    for v in svc.get("volumes") or []:
+        if (name, v.get("target")) in want and v.get("type") == "bind" and v.get("source"):
+            print(v["target"] + "\t" + v["source"])
+' 2>/dev/null | tr -d '\r' || true)"
+while IFS=$'\t' read -r tgt src; do
+  case "$tgt" in
+    /signed-output) signed_output_dir="$src";;
+    /docs) docs_dir="$src";;
+  esac
+done <<< "$storage_sources"
+if [[ "$signed_output_dir" != "${repo_root}/signed-output" ]]; then
+  ok "signed-output is mounted from ${signed_output_dir} (environment overlay)"
+fi
+if [[ "$docs_dir" != "${repo_root}/docs" ]]; then
+  ok "docs is mounted from ${docs_dir} (environment overlay)"
+fi
+
 world_writable() {
   # Matches if "other" has the write bit set, portable across GNU/BSD find.
   find "$1" -maxdepth 0 -perm -002 2>/dev/null | grep -q .
 }
 
-if [[ -d "${repo_root}/signed-output" ]]; then
+if [[ -d "${signed_output_dir}" ]]; then
   ok "signed-output directory exists"
-  if world_writable "${repo_root}/signed-output"; then
-    bad "signed-output directory is world-writable ($(stat -c '%a' "${repo_root}/signed-output" 2>/dev/null || stat -f '%Lp' "${repo_root}/signed-output" 2>/dev/null)). ps-server writes here as root and does not need this; fix: chmod 750 signed-output"
+  if world_writable "${signed_output_dir}"; then
+    bad "signed-output directory is world-writable ($(stat -c '%a' "${signed_output_dir}" 2>/dev/null || stat -f '%Lp' "${signed_output_dir}" 2>/dev/null)). ps-server writes here as root and does not need this; fix: chmod 750 signed-output"
   else
     ok "signed-output directory is not world-writable"
   fi
@@ -84,20 +125,92 @@ else
   bad "signed-output directory missing (create with: mkdir -p signed-output && chmod 750 signed-output)"
 fi
 
-if [[ -d "${repo_root}/docs" ]]; then
-  if [[ -w "${repo_root}/docs" ]]; then
+if [[ -d "${docs_dir}" ]]; then
+  if [[ -w "${docs_dir}" ]]; then
     ok "docs directory exists and is writable"
   else
     bad "docs directory exists but is NOT writable (dmss-archive-services-fallback writes here as its 'spring' user). Fix: chgrp <spring's gid> docs && chmod 770 docs — see installation-scripts/lib/dir-permissions.sh. If that also fails, Docker likely auto-created it as root on an earlier 'docker compose up'; use sudo."
   fi
-  if world_writable "${repo_root}/docs"; then
-    bad "docs directory is world-writable ($(stat -c '%a' "${repo_root}/docs" 2>/dev/null || stat -f '%Lp' "${repo_root}/docs" 2>/dev/null)). Fix: chgrp <spring's gid> docs && chmod 770 docs — see installation-scripts/lib/dir-permissions.sh"
+  if world_writable "${docs_dir}"; then
+    bad "docs directory is world-writable ($(stat -c '%a' "${docs_dir}" 2>/dev/null || stat -f '%Lp' "${docs_dir}" 2>/dev/null)). Fix: chgrp <spring's gid> docs && chmod 770 docs — see installation-scripts/lib/dir-permissions.sh"
   else
     ok "docs directory is not world-writable"
   fi
 else
   bad "docs directory missing (create with: mkdir -p docs — then see installation-scripts/lib/dir-permissions.sh for the correct group/mode)"
 fi
+
+# --- Secret hygiene (psapp-saas#6, #7) ---
+# Nothing here prints a secret value - only field names and file modes.
+echo ""
+echo "Secret hygiene:"
+config_js="${repo_root}/config/config.js"
+
+# ps-server's apiProtect logs the raw Authorization header, the bearer token
+# and its decoded payload when this flag is on (psapp server/app.js). A token
+# in `docker logs` is a replayable credential until it expires.
+if grep -Eq '^[[:space:]]*API_PROTECT_LOGS_ENABLED[[:space:]]*:[[:space:]]*true' "$config_js"; then
+  bad "API_PROTECT_LOGS_ENABLED is true in config/config.js - ps-server then writes raw bearer tokens and token payloads to its log. Set it to false and restart ps-server."
+else
+  ok "API_PROTECT_LOGS_ENABLED is off (no bearer tokens in ps-server logs)"
+fi
+
+# Values shipped in this PUBLIC repository are known to everyone. Compared
+# against the release's own committed config.js (what this checkout was cut
+# from), so this script never has to carry a copy of the values itself.
+known_default_fields() {
+  BASELINE_JS="$(git -C "$repo_root" show HEAD:config/config.js)" python3 -c '
+import os, re, sys
+FIELDS = [
+    ("backend client secret (KEYCLOAK_CONFIG.credentials.secret)", r"\"secret\"\s*:\s*\"([^\"]*)\""),
+    ("REGISTER_PDF_API_KEY", r"REGISTER_PDF_API_KEY\s*:\s*[\"\x27]([^\"\x27]*)[\"\x27]"),
+    ("SESSION_SECRET", r"SESSION_SECRET\s*:\s*[\"\x27]([^\"\x27]*)[\"\x27]"),
+    ("STAMP_API_KEY", r"STAMP_API_KEY\s*:\s*[\"\x27]([^\"\x27]*)[\"\x27]"),
+    ("STAMP_COMPANY_SECRET", r"STAMP_COMPANY_SECRET\s*:\s*[\"\x27]([^\"\x27]*)[\"\x27]"),
+]
+live = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+base = os.environ["BASELINE_JS"]
+for label, rx in FIELDS:
+    ml, mb = re.search(rx, live), re.search(rx, base)
+    if ml and mb and ml.group(1) and ml.group(1) == mb.group(1):
+        print(label)
+' "$config_js" 2>/dev/null | tr -d '\r'
+}
+if git -C "$repo_root" cat-file -e HEAD:config/config.js 2>/dev/null; then
+  known_default_report="$(known_default_fields || true)"
+  if [[ -z "$known_default_report" ]]; then
+    ok "no config.js credential still equals the value shipped in the repository"
+  else
+    while IFS= read -r field; do
+      [[ -z "$field" ]] && continue
+      warn "${field} is still the value shipped in the public repository - rotate it (value not shown)"
+    done <<< "$known_default_report"
+  fi
+else
+  warn "cannot compare config.js credentials to the shipped defaults (not a git checkout)"
+fi
+if grep -Eq '^[[:space:]]*-[[:space:]]*KEYCLOAK_ADMIN_PASSWORD=admin[[:space:]]*$' "${repo_root}/docker-compose.yml"; then
+  warn "docker-compose.yml still carries KEYCLOAK_ADMIN_PASSWORD=admin (used only on Keycloak's first boot against an empty volume - see documentation/14-07)"
+fi
+
+file_mode_of() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1" 2>/dev/null; }
+world_readable() { find "$1" -maxdepth 0 -perm -004 2>/dev/null | grep -q .; }
+for f in config/config.js .env; do
+  [[ -f "${repo_root}/${f}" ]] || continue
+  if world_readable "${repo_root}/${f}"; then
+    warn "${f} is world-readable (mode $(file_mode_of "${repo_root}/${f}")) and holds credentials - chmod o-rwx ${f} (ps-server runs as root and still reads it)"
+  else
+    ok "${f} is not world-readable"
+  fi
+done
+for f in "${repo_root}"/nginx/certs/*.key; do
+  [[ -f "$f" ]] || continue
+  if world_readable "$f"; then
+    bad "nginx/certs/$(basename "$f") is world-readable (mode $(file_mode_of "$f")) - chmod 600 it"
+  else
+    ok "nginx/certs/$(basename "$f") is not world-readable"
+  fi
+done
 
 # --- Nginx redirect ---
 if grep -q 'return 301.*portal' "${repo_root}/nginx/nginx.conf"; then
@@ -119,7 +232,7 @@ declare -A PORT_ALLOWLIST_NONLOOPBACK=(
   [wizard]="opt-in, profile-gated deployment UI; own HTTPS+token controls, see documentation/36-05"
 )
 
-port_config_json="$(docker compose -f "${repo_root}/docker-compose.yml" config --format json 2>/dev/null || echo "")"
+port_config_json="$(compose_config --format json 2>/dev/null || echo "")"
 if [[ -z "$port_config_json" ]]; then
   bad "could not render docker-compose.yml via 'docker compose config --format json' to check port bindings"
 else
