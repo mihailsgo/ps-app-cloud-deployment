@@ -122,7 +122,7 @@ docker buildx imagetools inspect mihailsgordijenko/ps-server:3.28 --format '{{ j
 docker buildx imagetools inspect mihailsgordijenko/ps-server:3.28 --format '{{ json .Provenance }}'
 ```
 
-That workflow requires `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN` repository secrets to actually push; until those are configured and a real tag-triggered run has happened, treat any given tag's attestations as unverified rather than assuming they exist - `build-image.sh`'s manual path (steps 1-3 above) does not produce them.
+That workflow requires `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN` repository secrets to actually push - confirmed working end-to-end via a real `ps-server/3.29` tag push (CI-verification only, not a real release): tag-anchor check, Docker Hub login, build, SBOM/provenance attestation, and push all succeeded, and `docker buildx imagetools inspect` independently confirmed a real SPDX SBOM and SLSA provenance document on the pushed image. `build-image.sh`'s manual path (steps 1-3 above) still does not produce attestations - any tag built that way, rather than through CI, has none regardless of whether CI works for other tags.
 
 To confirm a digest itself is pinned and approved, rather than just present:
 
