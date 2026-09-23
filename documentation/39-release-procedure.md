@@ -135,6 +135,16 @@ python3 -m json.tool release/approved-digests.json   # what's approved
 
 Digests are pinned deliberately (step 5) and never auto-updated - `check-digest-drift.sh` only reports drift, for a human to review and re-pin. `renovate.json` at the repository root scaffolds an automated alternative (Renovate's `docker-compose` manager, `pinDigests: true`): once the Renovate GitHub App (or a self-hosted runner) is enabled on this repository, it opens a PR whenever a pinned tag's digest changes upstream, which goes through ordinary code review like any other change. It needs no additional secrets - every image here is public. Nothing in this repository activates it by itself.
 
+**DMSS images need a boot + seal check, not just a diff review.** A DMSS bump can pass `validate-config.sh` and `check-digest-drift.sh` and still not work with this repo's config. Renovate's first DMSS PR did exactly that: `container-signature-service` 24.3.3.9 does not start without `spring.mail.*`, and every tag from 24.3.0.43 to 24.3.3.9 seals the B_BES `LocalDemo` profile once, then treats it as `PAdES-BASELINE-LT` and fails every later seal on the TSA. So `renovate.json` puts `trustlynx/*` images in their own PR, labelled `needs-seal-smoke`, and it blocks the container-signature tags already known to fail. Before approving a DMSS PR, or moving a DMSS pin by hand, check out the branch and run:
+
+```bash
+./installation-scripts/dmss-seal-smoke.sh
+# or, to try a tag before pinning it:
+./installation-scripts/dmss-seal-smoke.sh --cs-image trustlynx/container-signature-service:<tag>
+```
+
+It boots the pinned container-signature and digital-stamping images against this repo's own DMSS config in a throwaway compose project (its own project name, no host ports), then does 3 consecutive local e-seals. One seal is not enough: the profile bug above only shows from the second. It exits non-zero on a failed boot, a failed seal, or a signature level that changes between seals, and removes everything it created. Paste its output into the review and approve only on `PASSED`. It covers container-signature and digital-stamping only. An archive or archive-fallback bump also needs a real document round trip (`registerPDF` through signing), because what breaks there is storage ownership, not sealing.
+
 ## Gating an upgrade on a capability
 
 When a change outside the upgrade script depends on the image version, assert it in the same invocation so the script refuses rather than leaving a half-configured deployment. The main case is closing `GET /archive/api/document/{docid}/download` behind authentication at nginx, which only works against a client that sends the Keycloak Bearer token:

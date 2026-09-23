@@ -24,5 +24,16 @@ docker compose logs ps-server | grep -E 'Stamp response status: 200'
 Download the latest archived version of the signed document and confirm the
 PDF contains a signature dictionary (`/Type /Sig` + `/Filter /Adobe.PPKLite`).
 
+Sign more than one document. A container-signature image that rewrites the
+signing profile after its first use (24.3.0.43 through 24.3.3.9 did this to
+`LocalDemo`) seals the first document after every restart and fails every
+later one. ps-server then logs `[stamp] upstream unavailable, continuing
+without stamp` and the document is stored unsealed. To check the pinned
+images themselves without touching the running stack:
+
+```bash
+./installation-scripts/dmss-seal-smoke.sh     # isolated project, 3 consecutive seals
+```
+
 ---
 

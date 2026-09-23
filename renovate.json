@@ -20,6 +20,22 @@
       "matchPackageNames": ["nginx"],
       "allowedVersions": "/^1\\.30\\./",
       "description": "Confirmed live 2026-09-23: Renovate proposed 1.31.6 as an update to the pinned 1.30.5, but 1.31.x is nginx's mainline release line, not a newer stable one (nginx:stable still resolved to 1.30.5 at the same time). Renovate has no notion of this split - it only sees version numbers - so this pins it to the 1.30.x line until a human deliberately updates this regex, which should happen only after confirming nginx:stable has actually moved (see release/approved-digests.json's nginx entry for how to check)."
+    },
+    {
+      "matchManagers": ["docker-compose"],
+      "matchPackageNames": ["/^trustlynx\\//"],
+      "groupName": "DMSS images",
+      "addLabels": ["dmss", "needs-seal-smoke"],
+      "prBodyNotes": [
+        "**DMSS image bump: do not approve on the diff alone.** Check out this branch and run `./installation-scripts/dmss-seal-smoke.sh` (boots the pinned container-signature + digital-stamping images against this repo's config in an isolated compose project, then does 3 consecutive local e-seals). Paste its output into the review and approve only on `PASSED`. See documentation/39-release-procedure.md."
+      ],
+      "description": "DMSS images get their own PR (not bundled with keycloak/nginx/ps-* digests) and a mandatory boot + seal check, because a bump can pass every file-level check and still not work with this repo's config: container-signature 24.3.3.9 (Renovate #12) doesn't start without spring.mail.*, and 24.3.0.43 through 24.3.3.9 rewrite the B_BES LocalDemo profile to PAdES-BASELINE-LT after its first seal. Both were found only by booting the image and sealing more than once."
+    },
+    {
+      "matchManagers": ["docker-compose"],
+      "matchPackageNames": ["trustlynx/container-signature-service"],
+      "allowedVersions": "!/^24\\.3\\.(0\\.(35|3[7-9]|[4-9][0-9])|[12]\\.[0-9]+|3\\.[0-9])(\\.[0-9]+)?$/",
+      "description": "Stops Renovate re-proposing the container-signature tags that don't work with this repo's config (pin reverted to 24.3.0.29 on 2026-09-23, psapp-saas#14): 24.3.0.35 and 24.3.0.37-24.3.0.40 (stamping answers \"Company 'null' not found\"), and 24.3.0.43 through 24.3.3.9 (the B_BES LocalDemo profile ratchets to PAdES-BASELINE-LT after its first seal; 24.3.3.9 also needs spring.mail.* to start). Tested with dmss-seal-smoke.sh: 0.35, 0.37, 0.38, 0.39, 0.40, 0.43, 0.46, 0.48, 0.49, 3.9 failed; 0.29, 0.30, 0.34, 0.36 passed. The untested tags inside the blocked range sit between failing ones. 24.3.0.36, 24.3.3.10+, 24.3.4+ and 26.x are still proposed, and still go through dmss-seal-smoke.sh."
     }
   ]
 }
