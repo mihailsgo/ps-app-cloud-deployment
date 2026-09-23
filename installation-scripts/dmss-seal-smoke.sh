@@ -273,7 +273,7 @@ else
     bad "container-signature did not report UP within ${boot_timeout}s (last health: ${health:-no response})"
   fi
   # Spring Boot's own failure summary, when there is one.
-  cs_logs | tr -d '\r' | grep -a -A6 -E 'APPLICATION FAILED TO START|required a bean' | head -20 | sed 's/^/       /'
+  cs_logs | tr -d '\r' | grep -a -A6 -E 'APPLICATION FAILED TO START|required a bean' | head -20 | sed 's/^/       /' || true
   echo ""
   echo "FAILED: ${failures} check(s)."
   exit 1
