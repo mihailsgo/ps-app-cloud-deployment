@@ -290,7 +290,10 @@ need_kc_backend_audience() { kc_probe_backend_audience; [[ "$kc_aud_state" != pr
 # and cached, so --plan-only's needed/body calls and a real run's apply all see
 # the same answer. Never writes: kcadm runs with --no-config (inline
 # credentials, no kcadm.config file), and a stopped keycloak container is
-# reported, never started.
+# reported, never started. The admin password is never on a command line:
+# kc_auth has no --password, and every call that uses kc_auth also passes
+# kc_admin_pass, which reaches kcadm as the container's KC_CLI_PASSWORD
+# (kc_exec_with_cli_password in lib/kcadm.sh).
 #
 #   kc_aud_state  = present | absent | unknown
 #   kc_aud_reason = why it is unknown (shown in the plan and in the warning)
@@ -305,6 +308,7 @@ kc_aud_state=""
 kc_aud_reason=""
 kc_frontend_cid=""
 kc_auth=""
+kc_admin_pass=""
 kc_probe_backend_audience() {
   [[ -n "$kc_aud_state" ]] && return 0
   kc_aud_state="unknown"
@@ -319,21 +323,22 @@ kc_probe_backend_audience() {
   [[ -z "$user" ]] && user="$(kc_exec 'printenv KEYCLOAK_ADMIN || printenv KC_BOOTSTRAP_ADMIN_USERNAME' 2>/dev/null | tr -d '\r' | head -1 || true)"
   [[ -z "$pass" ]] && pass="$(kc_exec 'printenv KEYCLOAK_ADMIN_PASSWORD || printenv KC_BOOTSTRAP_ADMIN_PASSWORD' 2>/dev/null | tr -d '\r' | head -1 || true)"
   user="${user:-admin}"
-  kc_auth="--no-config --server http://localhost:8080/auth --realm master --user '${user}' --password '${pass}'"
+  kc_auth="--no-config --server http://localhost:8080/auth --realm master --user '${user}'"
+  kc_admin_pass="$pass"
 
-  if ! kc_exec "/opt/keycloak/bin/kcadm.sh get realms/${kc_realm} --fields realm ${kc_auth}" >/dev/null 2>&1; then
+  if ! kc_exec_with_cli_password "$kc_admin_pass" "/opt/keycloak/bin/kcadm.sh get realms/${kc_realm} --fields realm ${kc_auth}" >/dev/null 2>&1; then
     kc_aud_reason="could not read realm '${kc_realm}' as Keycloak admin '${user}' (wrong admin password? set KEYCLOAK_ADMIN_PASSWORD)"
     return 0
   fi
 
-  kc_frontend_cid="$(kc_client_uuid "$kc_realm" padsign-client "$kc_auth" 2>/dev/null || true)"
+  kc_frontend_cid="$(kc_client_uuid "$kc_realm" padsign-client "$kc_auth" "$kc_admin_pass" 2>/dev/null || true)"
   if [[ -z "$kc_frontend_cid" ]]; then
     kc_aud_reason="client 'padsign-client' not found in realm '${kc_realm}'"
     return 0
   fi
 
   local rc=0
-  kc_backend_audience_present "$kc_realm" "$kc_frontend_cid" padsign-backend "$kc_auth" 2>/dev/null || rc=$?
+  kc_backend_audience_present "$kc_realm" "$kc_frontend_cid" padsign-backend "$kc_auth" "$kc_admin_pass" 2>/dev/null || rc=$?
   case "$rc" in
     0) kc_aud_state="present" ;;
     1) kc_aud_state="absent" ;;
@@ -683,8 +688,8 @@ mig_keycloak_backend_audience_apply() {
     return 0
   fi
   if [[ "$kc_aud_state" == absent ]] \
-      && kc_backend_audience_create "$kc_realm" "$kc_frontend_cid" padsign-backend "$kc_auth" 2>/dev/null \
-      && kc_backend_audience_present "$kc_realm" "$kc_frontend_cid" padsign-backend "$kc_auth" 2>/dev/null; then
+      && kc_backend_audience_create "$kc_realm" "$kc_frontend_cid" padsign-backend "$kc_auth" "$kc_admin_pass" 2>/dev/null \
+      && kc_backend_audience_present "$kc_realm" "$kc_frontend_cid" padsign-backend "$kc_auth" "$kc_admin_pass" 2>/dev/null; then
     echo "  Added '${KC_BACKEND_AUDIENCE_MAPPER}' mapper: padsign-backend is now in the padsign-client access-token audience"
     echo "  (users pick it up on their next token refresh - no logout needed)"
     return 0
