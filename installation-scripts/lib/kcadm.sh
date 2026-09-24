@@ -14,6 +14,31 @@ kc_exec() {
   docker compose exec -T keycloak sh -lc "$*"
 }
 
+# Like kc_exec, but hands one secret value (a password) to the command via the
+# environment instead of interpolating it into the command line. The command
+# must reference it as "$KC_SECRET" (escaped, so the CONTAINER's shell expands
+# it, not the caller's):
+#
+#   kc_exec_with_secret "$pw" "kcadm.sh ... --new-password \"\$KC_SECRET\""
+#
+# Why: `docker compose exec ... sh -lc "<cmd with the password inlined>"` puts
+# the password in the argv of the host-side `docker compose` process, where
+# any local user can read it with `ps -ef` / /proc/<pid>/cmdline for as long
+# as the call runs, and where host audit tooling (auditd execve rules, EDR
+# agents) records it permanently. `-e KC_SECRET` with no `=value` makes
+# compose read the value from its own environment, so only the variable NAME
+# appears on the host command line. Inside the container the value still
+# reaches kcadm.sh's argv (kcadm has no stdin/env password option) - that is
+# visible only to someone who can already `docker exec` into the container,
+# i.e. someone who already has root-equivalent access to the host.
+#
+# Side benefit: a password containing a single quote no longer breaks the
+# quoting of the inline command.
+kc_exec_with_secret() {
+  local secret="$1"; shift
+  KC_SECRET="$secret" docker compose exec -T -e KC_SECRET keycloak sh -lc "$*"
+}
+
 kc_csv_last() {
   local cmd="$1"
   kc_exec "$cmd" | tail -n 1 | tr -d '\r"'
@@ -49,9 +74,18 @@ kc_wait_ready() {
   done
 }
 
+# kcadm.sh keeps the admin session (including a refresh token) in
+# $HOME/.keycloak/kcadm.config INSIDE the keycloak container, where it stays
+# valid - and usable by anyone who can `docker compose exec` - until the
+# session expires. Every script that logs in removes it on exit
+# (trap kc_logout EXIT). Best-effort: never fails the caller.
+kc_logout() {
+  kc_exec 'rm -f "$HOME/.keycloak/kcadm.config"' >/dev/null 2>&1 || true
+}
+
 kc_login() {
   local admin_user="$1" admin_pass="$2"
-  kc_exec "/opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080/auth --realm master --user '${admin_user}' --password '${admin_pass}'" >/dev/null
+  kc_exec_with_secret "${admin_pass}" "/opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080/auth --realm master --user '${admin_user}' --password \"\$KC_SECRET\"" >/dev/null
 }
 
 # True (exit 0) when role <name> already exists in realm <realm>. Full-list-
