@@ -163,13 +163,31 @@ if [[ -z "$company_role" ]]; then
   echo "       Restore from backup and investigate: cp ${config_js}.bak ${config_js}" >&2
   exit 1
 fi
+# keycloak-bootstrap.sh always ends with a machine-readable
+# BACKEND_CLIENT_SECRET=<secret> line (bootstrap.sh captures it to write
+# config.js). This script doesn't need it — the secret isn't rotated here —
+# so drop that line before it reaches stdout, where it would otherwise land
+# in the operator's terminal scrollback and the wizard's retained run log.
+# Filtered line-by-line rather than captured-then-printed like bootstrap.sh,
+# so the wizard still shows Keycloak's progress live during this step.
+set +e
 "${scripts_dir}/keycloak-bootstrap.sh" \
   --host "${host}" \
   --company-role "${company_role}" \
   --realm "${realm}" \
   --admin-user "${admin_user}" \
   --admin-pass "${admin_pass}" \
-  --skip-test-user
+  --skip-test-user \
+  2>&1 | while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ "$line" == BACKEND_CLIENT_SECRET=* ]] || printf '%s\n' "$line"
+  done
+rc=${PIPESTATUS[0]}
+set -e
+if [[ $rc -ne 0 ]]; then
+  echo "ERROR: Keycloak client sync failed (exit ${rc})." >&2
+  echo "  Restore backups with: for f in config/config.js config/constants.json nginx/nginx.conf docker-compose.yml; do cp \"\${f}.bak\" \"\$f\"; done" >&2
+  exit $rc
+fi
 
 # ── Step 4: Restart and verify ──
 # nginx is recreated, not restarted: its network alias changed in

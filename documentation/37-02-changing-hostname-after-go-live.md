@@ -65,6 +65,12 @@ so that failure mode isn't reachable through the UI.
    `docker compose up -d keycloak` recreates the keycloak container, because
    step 2 changed `KC_HOSTNAME`; the client sync then runs against the
    recreated one.
+   `keycloak-bootstrap.sh` always ends by printing the backend client
+   secret (`BACKEND_CLIENT_SECRET=...`) for `bootstrap.sh` to capture;
+   `update-hostname.sh` doesn't rotate that secret, so it drops that line
+   and never shows it — neither in the terminal nor in the wizard's run
+   log. If you do need the current value, it's already in
+   `config/config.js`.
 4. **Recreate, restart & verify** — `docker compose up -d --no-deps
    --force-recreate nginx` (a plain restart would keep the old network alias)
    and `docker compose restart ps-server`, then confirms ps-server actually
