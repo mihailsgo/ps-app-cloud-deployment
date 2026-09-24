@@ -21,6 +21,7 @@ Usage:
 Verifies (fails non-zero on mismatch):
   - realm exists
   - padsign-client settings (Root/Home/Admin URL, redirect URIs, post-logout URIs, web origins)
+  - padsign-client access tokens carry padsign-backend in their audience
   - padsign-backend settings (confidential + service accounts enabled)
   - test user exists and has ONLY the company role
 EOF
@@ -146,6 +147,15 @@ sys.exit(0 if rc == 0 else 1)
 PY
 )" "$host" "$realm" "$company_role" <<<"$front_json" || exit_code=$?
   if [[ ${exit_code:-0} -ne 0 ]]; then fail=1; fi
+
+  # Keycloak 26.4.12/26.6.2/26.7.0+ reject ps-server's introspection of a token
+  # whose aud lacks padsign-backend - every portal API call would 401.
+  front_cid="$(kc_client_uuid "$realm" "$client_front")"
+  if kc_backend_audience_present "$realm" "$front_cid" padsign-backend; then
+    ok "padsign-client access tokens carry padsign-backend in aud (token introspection)"
+  else
+    bad "padsign-client has no audience mapper for padsign-backend - token introspection fails on Keycloak 26.4.12+/26.6.2+ (fix: upgrade.sh, or documentation/14-08-token-audience-for-introspection.md)"
+  fi
 else
   bad "client '${client_front}' missing"
 fi

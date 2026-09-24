@@ -64,6 +64,12 @@ What it does:
       container-signature baseUrl, flips STAMP_MODE in config.js to "local",
       and sets COMPOSE_PROFILES=local-eseal in .env so subsequent
       `docker compose up -d` calls automatically include the new service.
+  4c) Ensures the Keycloak realm's padsign-client access tokens carry
+      padsign-backend in their audience (needed by Keycloak 26.4.12/26.6.2/
+      26.7.0+ for ps-server's token introspection). Talks to the running
+      keycloak container; admin credentials come from KEYCLOAK_ADMIN /
+      KEYCLOAK_ADMIN_PASSWORD if set, else from the container's own env.
+      Warns and continues if Keycloak cannot be reached.
   5) Pulls new images and recreates changed containers
   6) Verifies services are running
 
@@ -142,6 +148,8 @@ current_tag() {
 . "${scripts_dir}/lib/capabilities.sh"
 # shellcheck source=lib/dir-permissions.sh
 . "${scripts_dir}/lib/dir-permissions.sh"
+# shellcheck source=lib/kcadm.sh
+. "${scripts_dir}/lib/kcadm.sh"
 # shellcheck source=lib/deployment-evidence.sh
 . "${scripts_dir}/lib/deployment-evidence.sh"
 
@@ -225,7 +233,7 @@ done
 # assets). Splitting them is how you get a stack that boots and then 401s on
 # every seal, so they are reported and applied as one.
 
-MIGRATION_IDS=(document-routing signed-output local-eseal)
+MIGRATION_IDS=(document-routing signed-output local-eseal keycloak-backend-audience)
 
 # ---- per-edit predicates (shared by _needed and _apply) ----
 need_document_routing()  { ! grep -q 'DOCUMENT_ROUTING' "$config_js"; }
@@ -237,6 +245,63 @@ need_eseal_baseurl()     { grep -q '^  baseUrl: http://host.docker.internal:8084
 need_eseal_springsec()   { ! grep -q 'SPRING_SECURITY_USER_NAME' "$compose_yml"; }
 need_eseal_stampmode()   { ! grep -q 'STAMP_MODE: *"local"' "$config_js"; }
 need_eseal_profile()     { ! grep -q '^COMPOSE_PROFILES=.*local-eseal' "$env_file" 2>/dev/null; }
+need_kc_backend_audience() { kc_probe_backend_audience; [[ "$kc_aud_state" != present ]]; }
+
+# The one migration whose target is live Keycloak state rather than a file, so
+# its predicate is a read-only probe instead of a grep. Evaluated once per run
+# and cached, so --plan-only's needed/body calls and a real run's apply all see
+# the same answer. Never writes: kcadm runs with --no-config (inline
+# credentials, no kcadm.config file), and a stopped keycloak container is
+# reported, never started.
+#
+#   kc_aud_state  = present | absent | unknown
+#   kc_aud_reason = why it is unknown (shown in the plan and in the warning)
+#
+# Admin credentials: KEYCLOAK_ADMIN / KEYCLOAK_ADMIN_PASSWORD from the
+# environment if set, otherwise the running keycloak container's own env -
+# which is what docker-compose.yml sets and configure-host.sh keeps in sync.
+# An operator who later changed the admin password in the admin console
+# (documentation/37-05) passes it via the environment.
+kc_realm="padsign"
+kc_aud_state=""
+kc_aud_reason=""
+kc_frontend_cid=""
+kc_auth=""
+kc_probe_backend_audience() {
+  [[ -n "$kc_aud_state" ]] && return 0
+  kc_aud_state="unknown"
+  cd "$repo_root"   # kc_exec is `docker compose exec`, resolved from the cwd
+
+  if ! docker compose ps --status running --services 2>/dev/null | tr -d '\r' | grep -qx keycloak; then
+    kc_aud_reason="the keycloak container is not running"
+    return 0
+  fi
+
+  local user="${KEYCLOAK_ADMIN:-}" pass="${KEYCLOAK_ADMIN_PASSWORD:-}"
+  [[ -z "$user" ]] && user="$(kc_exec 'printenv KEYCLOAK_ADMIN || printenv KC_BOOTSTRAP_ADMIN_USERNAME' 2>/dev/null | tr -d '\r' | head -1 || true)"
+  [[ -z "$pass" ]] && pass="$(kc_exec 'printenv KEYCLOAK_ADMIN_PASSWORD || printenv KC_BOOTSTRAP_ADMIN_PASSWORD' 2>/dev/null | tr -d '\r' | head -1 || true)"
+  user="${user:-admin}"
+  kc_auth="--no-config --server http://localhost:8080/auth --realm master --user '${user}' --password '${pass}'"
+
+  if ! kc_exec "/opt/keycloak/bin/kcadm.sh get realms/${kc_realm} --fields realm ${kc_auth}" >/dev/null 2>&1; then
+    kc_aud_reason="could not read realm '${kc_realm}' as Keycloak admin '${user}' (wrong admin password? set KEYCLOAK_ADMIN_PASSWORD)"
+    return 0
+  fi
+
+  kc_frontend_cid="$(kc_client_uuid "$kc_realm" padsign-client "$kc_auth" 2>/dev/null || true)"
+  if [[ -z "$kc_frontend_cid" ]]; then
+    kc_aud_reason="client 'padsign-client' not found in realm '${kc_realm}'"
+    return 0
+  fi
+
+  local rc=0
+  kc_backend_audience_present "$kc_realm" "$kc_frontend_cid" padsign-backend "$kc_auth" 2>/dev/null || rc=$?
+  case "$rc" in
+    0) kc_aud_state="present" ;;
+    1) kc_aud_state="absent" ;;
+    *) kc_aud_reason="could not list padsign-client's protocol mappers" ;;
+  esac
+}
 
 # ---- literal bodies ----
 # Defined as heredocs rather than inline in the perl/sed so that the plan can
@@ -335,7 +400,7 @@ mig_signed_output_files() { echo 'docker-compose.yml,signed-output/,docs/'; }
 mig_signed_output_needed() { need_signed_output_vol || need_signed_output_dir; }
 mig_signed_output_body() {
   need_signed_output_vol && printf 'docker-compose.yml, under the ps-server volumes:\n%s\n' "$SIGNED_OUTPUT_VOLUME_LINE"
-  need_signed_output_dir && printf 'mkdir -p signed-output/ (mode 750) docs/ (mode 770, group dmss-archive-services-fallback spring)\n'
+  need_signed_output_dir && printf 'mkdir -p signed-output/ (mode 750) docs/ (mode 770), each owned by the uid its container image runs as\n'
   return 0
 }
 mig_signed_output_apply() {
@@ -347,17 +412,13 @@ mig_signed_output_apply() {
   fi
   # Always ensured: the mount without the directory silently writes into the
   # container's ephemeral layer, so these two belong to the same migration.
+  # Runs after Step 2 has rewritten the tag, so it sizes both trees to the uid
+  # of the image being upgraded TO (root <= 3.29, uid 1000 from the Node 24
+  # image on). Returns non-zero - stopping the upgrade before any container
+  # is recreated - if a non-root image would not be able to write its tree.
   # Permission model: see lib/dir-permissions.sh.
   fix_signed_output_permissions
   fix_docs_permissions
-  if [[ ! -w "${repo_root}/docs" ]]; then
-    target_gid="$(resolve_dmss_fallback_gid 2>/dev/null)"
-    echo "  WARNING: ${repo_root}/docs is still not writable by this user after fix_docs_permissions —" >&2
-    echo "           likely root-owned because Docker auto-created it on an earlier 'docker compose up'," >&2
-    echo "           or this mount predates upgrading past the chmod-777 removal (chgrp needs" >&2
-    echo "           ownership or root). Fix:" >&2
-    echo "           sudo chgrp ${target_gid:-<dmss-archive-services-fallback spring gid>} ${repo_root}/docs && sudo chmod 770 ${repo_root}/docs" >&2
-  fi
 }
 
 # ---- local-eseal ----
@@ -508,6 +569,53 @@ mig_local_eseal_apply() {
   else
     echo "  .env already activates local-eseal profile"
   fi
+}
+
+# ---- keycloak-backend-audience ----
+# Keycloak 26.4.12 / 26.6.2 / 26.7.0+ refuse to introspect a token for a client
+# that is not in its `aud` (CVE-2026-37979). ps-server introspects every portal
+# token as padsign-backend, so without this every authenticated API call 401s.
+# See lib/kcadm.sh's KC_BACKEND_AUDIENCE_MAPPER block. Additive only: an
+# existing mapper that already grants the audience (ours or hand-made) is left
+# untouched. Never aborts the upgrade - if Keycloak cannot be reached the run
+# says so loudly, prints the fix, and carries on with the image upgrade.
+mig_keycloak_backend_audience_title() { echo 'Add padsign-backend to the padsign-client access-token audience (Keycloak 26.4.12+/26.6.2+ introspection check)'; }
+mig_keycloak_backend_audience_files() { echo "Keycloak realm ${kc_realm} (client padsign-client protocol mappers)"; }
+mig_keycloak_backend_audience_needed() { need_kc_backend_audience; }
+mig_keycloak_backend_audience_body() {
+  if [[ "$kc_aud_state" == unknown ]]; then
+    printf 'Could not check right now: %s.\n' "$kc_aud_reason"
+    printf 'The upgrade checks again when it runs. If Keycloak still cannot be reached it\n'
+    printf 'prints a WARNING with the manual fix and continues; nothing else depends on it.\n\n'
+  fi
+  printf 'Keycloak realm %s, client padsign-client - add protocol mapper (only if no\n' "$kc_realm"
+  printf 'mapper already adds padsign-backend to the audience):\n'
+  printf '  name: %s\n' "$KC_BACKEND_AUDIENCE_MAPPER"
+  printf '  protocolMapper: oidc-audience-mapper\n'
+  printf '  included.client.audience: padsign-backend\n'
+  printf '  access.token.claim: true   introspection.token.claim: true   id.token.claim: false\n'
+}
+mig_keycloak_backend_audience_apply() {
+  if ! need_kc_backend_audience; then
+    echo "  padsign-backend already in the padsign-client access-token audience"
+    return 0
+  fi
+  if [[ "$kc_aud_state" == absent ]] \
+      && kc_backend_audience_create "$kc_realm" "$kc_frontend_cid" padsign-backend "$kc_auth" 2>/dev/null \
+      && kc_backend_audience_present "$kc_realm" "$kc_frontend_cid" padsign-backend "$kc_auth" 2>/dev/null; then
+    echo "  Added '${KC_BACKEND_AUDIENCE_MAPPER}' mapper: padsign-backend is now in the padsign-client access-token audience"
+    echo "  (users pick it up on their next token refresh - no logout needed)"
+    return 0
+  fi
+  [[ "$kc_aud_state" == absent ]] && kc_aud_reason="creating the protocol mapper failed"
+  {
+    echo "  WARNING: could not add padsign-backend to the padsign-client token audience:"
+    echo "           ${kc_aud_reason}."
+    echo "           On Keycloak 26.4.12/26.6.2/26.7.0 or newer every authenticated portal"
+    echo "           API call returns 401 until this is fixed. Re-run this upgrade with"
+    echo "           KEYCLOAK_ADMIN_PASSWORD='<current admin password>' once Keycloak is up,"
+    echo "           or add the mapper by hand: documentation/14-08-token-audience-for-introspection.md"
+  } >&2
 }
 
 # Dispatch helper: mig_call <id> <suffix>. Migration IDs use hyphens (they are
@@ -685,6 +793,10 @@ if [[ "$enable_local_eseal" == true ]]; then
   mig_call local-eseal apply
 fi
 
+# ── Step 4c: padsign-backend in the access-token audience (Keycloak realm) ──
+echo "Step 4c/6: Ensuring padsign-backend is in the padsign-client token audience..."
+mig_call keycloak-backend-audience apply
+
 # ── Step 5: Pull and restart ──
 echo "Step 5/6: Pulling images and restarting..."
 cd "$repo_root"
@@ -716,17 +828,35 @@ echo ""
 echo "  Running containers:"
 docker ps --format '  {{.Names}}: {{.Image}} ({{.Status}})' | grep -E 'ps-server|ps-client|nginx' | sort
 
-# Health check
-if docker compose logs ps-server 2>/dev/null | grep -q "PadSign Server listening"; then
-  echo ""
-  echo "  ps-server: OK"
+# Health check. Waits on the compose health check (psapp-saas#12) instead of
+# grepping the log once: ps-server is often still being recreated 3s after
+# the nginx restart above (e.g. when --enable-local-eseal recreated
+# container-signature, which ps-server depends on), and the one-shot grep
+# then printed "may not have started" for a container that came up healthy.
+echo ""
+ps_health="unknown"
+for _ in $(seq 1 30); do
+  cid="$(docker compose ps -q ps-server 2>/dev/null || true)"
+  ps_health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}running{{end}}' "$cid" 2>/dev/null || echo unknown)"
+  [[ "$ps_health" == "healthy" || "$ps_health" == "running" ]] && break
+  sleep 2
+done
+if [[ "$ps_health" == "healthy" || "$ps_health" == "running" ]]; then
+  echo "  ps-server: OK (${ps_health})"
 else
-  echo ""
-  echo "  WARNING: ps-server may not have started. Check: docker compose logs ps-server" >&2
+  echo "  WARNING: ps-server is not healthy after 60s (${ps_health}). Check: docker compose logs ps-server" >&2
 fi
 
-write_deployment_evidence "upgrade.sh"
+# Re-assert storage ownership now that the new containers are running: the
+# previous (possibly root) ps-server kept writing between Step 4 and its
+# recreation in Step 5. A no-op when everything is already owned correctly.
+fix_signed_output_permissions >/dev/null
+fix_docs_permissions >/dev/null
 
+# Once, at the end. Each call rotates deployment-evidence.json into
+# deployment-evidence.json.previous, so a second call here used to overwrite
+# the PRE-upgrade evidence with this same run's, losing the prior record and
+# zeroing every restart delta.
 echo ""
 echo "Recording deployment evidence..."
 write_deployment_evidence "upgrade.sh"

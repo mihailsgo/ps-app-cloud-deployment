@@ -145,6 +145,16 @@ Renovate edits only `docker-compose.yml`. Before merging one of its PRs, in the 
 
 `ps-server` and `ps-client` tag bumps are excluded from Renovate: a new PadSign tag is a release and goes through the steps above (snapshot entry, capability registry), not a dependency bump. Renovate still reports a changed digest for the *same* PadSign tag - which should never happen, since tags are never moved, so treat such a PR as an incident.
 
+**DMSS images need a boot + seal check, not just a diff review.** A DMSS bump can pass `validate-config.sh` and `check-digest-drift.sh` and still not work with this repo's config. Renovate's first DMSS PR did exactly that: `container-signature-service` 24.3.3.9 did not start without `spring.mail.*` (`application.yml` now carries a placeholder), and every tag from 24.3.0.43 to 24.3.3.9 seals the B_BES `LocalDemo` profile once, then treats it as `PAdES-BASELINE-LT` and fails every later seal on the TSA. So `renovate.json` puts `trustlynx/*` images in their own PR, labelled `needs-seal-smoke`, and it blocks the container-signature tags already known to fail. Before approving a DMSS PR, or moving a DMSS pin by hand, check out the branch and run:
+
+```bash
+./installation-scripts/dmss-seal-smoke.sh
+# or, to try a tag before pinning it:
+./installation-scripts/dmss-seal-smoke.sh --cs-image trustlynx/container-signature-service:<tag>
+```
+
+It boots the pinned container-signature and digital-stamping images against this repo's own DMSS config in a throwaway compose project (its own project name, no host ports), then does 3 consecutive local e-seals. One seal is not enough: the profile bug above only shows from the second. It exits non-zero on a failed boot, a failed seal, or a signature level that changes between seals, and removes everything it created. Paste its output into the review and approve only on `PASSED`. It covers container-signature and digital-stamping only. An archive or archive-fallback bump also needs a real document round trip (`registerPDF` through signing), because what breaks there is storage ownership, not sealing.
+
 ## Gating an upgrade on a capability
 
 When a change outside the upgrade script depends on the image version, assert it in the same invocation so the script refuses rather than leaving a half-configured deployment. The main case is closing `GET /archive/api/document/{docid}/download` behind authentication at nginx, which only works against a client that sends the Keycloak Bearer token:
