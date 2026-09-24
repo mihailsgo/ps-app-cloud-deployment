@@ -161,6 +161,13 @@ kc_exec "
     -s \"attributes.\\\"post.logout.redirect.uris\\\"=${post_logout_uris}\" >/dev/null
 " >/dev/null
 
+# padsign-backend must be in padsign-client access tokens' audience, or
+# Keycloak 26.4.12/26.6.2/26.7.0+ refuse ps-server's token introspection and
+# every portal API call 401s. See lib/kcadm.sh (KC_BACKEND_AUDIENCE_MAPPER).
+if ! kc_backend_audience_present "${realm}" "${frontend_cid}" padsign-backend; then
+  kc_backend_audience_create "${realm}" "${frontend_cid}" padsign-backend
+fi
+
 # --- Backend client ---
 client_backend="padsign-backend"
 backend_cid="$(kc_csv_last "/opt/keycloak/bin/kcadm.sh get clients -r ${realm} -q clientId=${client_backend} --fields id --format csv")"
