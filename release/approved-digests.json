@@ -15,7 +15,7 @@
       "repository": "trustlynx/container-signature-service",
       "tag": "24.3.0.29",
       "digest": "sha256:8f365925449ae94ca7cd659035a5127d1ada7c6fc27622e1f74963f72bf8ce76",
-      "why": "Reverted from 24.3.3.9 (psapp-saas#14). Newer tags either don't start with this repo's application.yml (24.3.3.9 needs spring.mail.*), can't reach the stamping company (24.3.0.35, 24.3.0.37-24.3.0.40: \"Company 'null' not found\"), or rewrite the B_BES LocalDemo profile to PAdES-BASELINE-LT after the first seal so every later seal needs a TSA (24.3.0.43-24.3.3.9). 24.3.0.29 is the build psapp's dev stack runs with an otherwise-identical config. Before moving this pin, run installation-scripts/dmss-seal-smoke.sh against the candidate (documentation/39-release-procedure.md)."
+      "why": "Reverted from 24.3.3.9 (psapp-saas#14). Newer tags either needed spring.mail.* to start (24.3.3.9; application.yml now sets it, but that alone doesn't make it seal), can't reach the stamping company (24.3.0.35, 24.3.0.37-24.3.0.40: \"Company 'null' not found\"), or rewrite the B_BES LocalDemo profile to PAdES-BASELINE-LT after the first seal so every later seal needs a TSA (24.3.0.43-24.3.3.9). 24.3.0.29 is the build psapp's dev stack runs with an otherwise-identical config. Before moving this pin, run installation-scripts/dmss-seal-smoke.sh against the candidate (documentation/39-release-procedure.md). Moving to 24.3.3.x or later also needs an upgrade.sh migration that adds application.yml's spring.mail / management.health.mail block to existing deployments."
     },
     "dmss-digital-stamping-service": {
       "repository": "trustlynx/digital-stamping-service",

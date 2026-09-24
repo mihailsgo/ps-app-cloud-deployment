@@ -16,7 +16,7 @@ set -euo pipefail
 # this repo's config. Two real cases, both found only by booting and sealing:
 #   - container-signature 24.3.3.9 does not start at all without spring.mail.*
 #     (no JavaMailSender bean), which also blocks every service that
-#     depends on it being healthy.
+#     depends on it being healthy. application.yml now sets a placeholder.
 #   - from somewhere after 24.3.0.34 until at least 24.3.3.9, container-signature
 #     writes the resolved signature level back into the shared signing
 #     profile, so the B_BES `LocalDemo` profile seals once and then turns
