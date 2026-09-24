@@ -114,6 +114,8 @@ scripts_dir="${repo_root}/installation-scripts"
 
 # shellcheck source=lib/dir-permissions.sh
 . "${scripts_dir}/lib/dir-permissions.sh"
+# shellcheck source=lib/health-wait.sh
+. "${scripts_dir}/lib/health-wait.sh"
 # shellcheck source=lib/deployment-evidence.sh
 . "${scripts_dir}/lib/deployment-evidence.sh"
 
@@ -182,18 +184,10 @@ configure_args=(--host "${host}" --company-role "${company_role}" --admin-user "
 
 # ── Step 4: Create signed-output and docs directories ──
 echo "Step 4/8: Setting up signed-output and docs directories..."
+# Each directory is sized to the uid its container image actually runs as
+# (lib/dir-permissions.sh); both stop the bootstrap if that isn't possible.
 fix_signed_output_permissions
-echo "  Created ${repo_root}/signed-output (mode 750 - ps-server writes as root, so this directory's"
-echo "  host-side mode/ownership is a hygiene measure, not something the container depends on)"
 fix_docs_permissions
-echo "  Created ${repo_root}/docs (mode 770, group-owned for dmss-archive-services-fallback's spring user)"
-if [[ ! -w "${repo_root}/docs" ]]; then
-  target_gid="$(resolve_dmss_fallback_gid 2>/dev/null)"
-  echo "  WARNING: ${repo_root}/docs is still not writable by this user after fix_docs_permissions —" >&2
-  echo "           likely root-owned because Docker auto-created it on an earlier 'docker compose up'" >&2
-  echo "           before this script ran (chgrp needs ownership or root). Fix:" >&2
-  echo "           sudo chgrp ${target_gid:-<dmss-archive-services-fallback spring gid>} ${repo_root}/docs && sudo chmod 770 ${repo_root}/docs" >&2
-fi
 
 # ── Step 5: Bootstrap Keycloak ──
 echo "Step 5/8: Bootstrapping Keycloak (realm/clients/roles/users)..."
@@ -242,6 +236,15 @@ cd "${repo_root}"
 docker compose pull
 docker compose up -d
 echo "  All services started"
+echo "  Waiting for every service to report healthy (up to 600s - first Keycloak boot is slow)..."
+mapfile -t bootstrap_services < <(docker compose config --services | grep -vx wizard)
+if ! wait_for_healthy 600 "${bootstrap_services[@]}"; then
+  docker compose ps >&2 || true
+  write_deployment_evidence "bootstrap.sh (unhealthy)" || true
+  echo "ERROR: The stack did not become healthy. Fix the failing service above and re-run." >&2
+  exit 1
+fi
+echo "  All services healthy"
 
 # ── Step 8: Verify ──
 echo "Step 8/8: Verifying deployment..."

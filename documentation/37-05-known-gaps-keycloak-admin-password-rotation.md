@@ -37,17 +37,23 @@ Password.
 
 **Via `kcadm` directly on the host:**
 
-```bash
-docker compose exec keycloak /opt/keycloak/bin/kcadm.sh config credentials \
-  --server http://localhost:8080/auth --realm master \
-  --user <current-admin-user> --password <current-admin-password>
+Both passwords travel through the environment, never the command line
+(command lines are visible in `ps` and shell history):
 
-docker compose exec keycloak /opt/keycloak/bin/kcadm.sh set-password \
-  -r master --username <current-admin-user> --new-password '<new-password>'
+```bash
+ read -rs CUR_PW && read -rs NEW_PW                    # leading space: kept out of history (HISTCONTROL=ignorespace)
+KC_SECRET="$CUR_PW" docker compose exec -T -e KC_SECRET keycloak sh -lc \
+  '/opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080/auth --realm master --user <current-admin-user> --password "$KC_SECRET"'
+KC_SECRET="$NEW_PW" docker compose exec -T -e KC_SECRET keycloak sh -lc \
+  '/opt/keycloak/bin/kcadm.sh set-password -r master --username <current-admin-user> --new-password "$KC_SECRET"'
+docker compose exec -T keycloak sh -c 'rm -f "$HOME/.keycloak/kcadm.config"'   # end the admin session
+unset CUR_PW NEW_PW
 ```
 
-After rotating it, update `docker-compose.yml`'s `KEYCLOAK_ADMIN_PASSWORD`
-too — not because Keycloak reads it again, but so a future full
-re-provision from an empty volume (disaster recovery, a fresh
-environment) creates the account with the password you actually intend to
-use going forward.
+Store the new value in your secret manager. **Do not** write it into
+`docker-compose.yml`'s `KEYCLOAK_ADMIN_PASSWORD`. That file is tracked and
+usually world-readable, and Keycloak never reads the variable again on an
+existing volume. Disaster recovery restores the Keycloak data volume, which
+already carries the real credential
+([42.6](42-06-living-with-an-overlay.md)). The full managed-credential
+procedure is [42.2](42-02-keycloak-admin-access-and-smoke-identity.md).

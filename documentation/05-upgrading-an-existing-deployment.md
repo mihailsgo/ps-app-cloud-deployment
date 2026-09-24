@@ -1,16 +1,22 @@
 # 5. Upgrading an Existing Deployment
 
-To move an already-deployed instance to the **current release** (`ps-server:3.27`,
-`ps-client:8.38` — see [1. Release Snapshot](01-release-snapshot.md)):
+To move an already-deployed instance to the **current release** (the tags this
+checkout's `docker-compose.yml` pins, described in
+[1. Release Snapshot](01-release-snapshot.md) - `ps-server:3.28`,
+`ps-client:8.39` at the time of writing):
 
 ```bash
-./installation-scripts/upgrade.sh --server-tag 3.27 --client-tag 8.38
+./installation-scripts/upgrade.sh --server-tag 3.28 --client-tag 8.39
 # Add --enable-local-eseal to also provision the local stamping stack.
 # Any combination is valid; --enable-local-eseal alone is allowed too.
 ```
 
 The script only changes what you ask it to — it pulls the new image(s), restarts
 just those containers, and prints a rollback command. It is safe to re-run.
+When a requested tag is the one `release/approved-digests.json` approves, the
+script pins that approved digest too, so the deployment ends digest-pinned and
+`validate-config.sh` passes; any other tag is left unpinned for you to resolve
+and approve (see [39. Release Procedure](39-release-procedure.md) step 5).
 
 > Upgrading across several releases, or enabling local e-sealing at the same
 > time? [4.4 Existing deployment (upgrade an already-deployed instance)](04-04-existing-deployment-upgrade-an-already-deployed-instance.md)

@@ -4,6 +4,9 @@ services:
     environment:
       - KEYCLOAK_ADMIN=admin
       - KEYCLOAK_ADMIN_PASSWORD=admin
+      # Set to the deployment host by configure-host.sh (so bootstrap.sh and
+      # update-hostname.sh too). Not cosmetic: Keycloak uses it as its fixed
+      # frontend hostname - the token issuer and the login form's URLs.
       - KC_HOSTNAME=padsign.trustlynx.com
       - KC_HTTP_RELATIVE_PATH=/auth
       - KC_PROXY=edge
@@ -73,7 +76,7 @@ services:
       - './dmss-container-and-signature-services:/confs'
     environment:
       - SPRING_CONFIG_LOCATION=/confs/
-    image: 'trustlynx/container-signature-service:24.3.3.9@sha256:ffc0675fdc253397ece91445c83750c5c002b6ad5e80b250eca8b2a067ae6e8a'
+    image: 'trustlynx/container-signature-service:24.3.0.29@sha256:8f365925449ae94ca7cd659035a5127d1ada7c6fc27622e1f74963f72bf8ce76'
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
@@ -193,6 +196,8 @@ services:
     networks:
       default:
         aliases:
+          # First entry is set to the deployment host by configure-host.sh, so
+          # https://<host>/ resolves to nginx from inside this network.
           - padsign.trustlynx.com
     healthcheck:
       # -k: this probes nginx's own TLS listener from inside its own

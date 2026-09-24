@@ -132,11 +132,21 @@ if [[ "${#pairs[@]}" -eq 0 ]]; then
   exit 1
 fi
 
-python3 - "${pairs[@]}" <<'PY'
+PADSIGN_LIB_DIR="${repo_root}/installation-scripts/lib" python3 - "${pairs[@]}" <<'PY'
 import difflib
 import json
+import os
 import re
 import sys
+
+# Every line this tool prints about a config file goes through redact_line():
+# DRIFT lines are exactly the ones no allow-list recognises, which includes
+# changed secrets (STAMP_API_KEY, STAMP_COMPANY_SECRET, REGISTER_PDF_API_KEY,
+# SESSION_SECRET, keystore passwords...) - and this output is meant to be
+# pasted into tickets and deployment evidence. See lib/redact.py.
+sys.dont_write_bytecode = True  # never leave a __pycache__/ in the checkout
+sys.path.insert(0, os.environ["PADSIGN_LIB_DIR"])
+from redact import redact_line, redact_json_value  # noqa: E402
 
 # One allow-list per tracked file. Each entry is a regex tested against a
 # changed/added/removed line (its text, with the leading diff +/- stripped).
@@ -165,6 +175,10 @@ LINE_ALLOWLISTS = {
         r"signed-output:/signed-output",
         r"-\s*KEYCLOAK_ADMIN=",
         r"-\s*KEYCLOAK_ADMIN_PASSWORD=",
+        r"-\s*KC_HOSTNAME=",
+        # nginx's network alias (lib/compose-hostname.sh): a bare-hostname
+        # list item. Nothing else in the compose file is one.
+        r"^\s*-\s*[\"']?[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+[\"']?\s*$",
         r"-\s*SPRING_SECURITY_USER_NAME=",
         r"-\s*SPRING_SECURITY_USER_PASSWORD=",
     ],
@@ -205,7 +219,7 @@ def classify_json(label, baseline_text, live_text):
             continue
         if key in allowed:
             continue
-        drift.append(f"key '{key}': {base.get(key)!r} -> {live.get(key)!r}")
+        drift.append(f"key '{key}': {redact_json_value(key, base.get(key))!r} -> {redact_json_value(key, live.get(key))!r}")
     return None, drift
 
 
@@ -257,7 +271,7 @@ def main(argv):
             exit_code = 1
             print(f"  FAIL {len(drift)} unexpected drift line(s):")
             for line in drift:
-                print(f"    DRIFT: {line}")
+                print(f"    DRIFT: {redact_line(line)}")
 
     return exit_code
 

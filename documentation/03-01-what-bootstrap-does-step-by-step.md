@@ -6,14 +6,21 @@
    - `nginx/nginx.conf`: sets `server_name`, TLS cert paths, and root→`/portal/` redirect
    - `config/constants.json`: sets Keycloak URL, redirect URIs, download API URL
    - `config/config.js`: sets all service URLs, `ALLOWED_ORIGINS`, Keycloak `auth-server-url`, `DEMO_COMPANY_ROLE`
-   - `docker-compose.yml`: ensures `signed-output` volume mount exists on ps-server
+   - `docker-compose.yml`: ensures `signed-output` volume mount exists on ps-server;
+     sets the keycloak service's `KC_HOSTNAME` and the nginx service's first network
+     alias to the host; syncs `KEYCLOAK_ADMIN`/`KEYCLOAK_ADMIN_PASSWORD`. `KC_HOSTNAME`
+     is Keycloak's fixed frontend hostname: it decides the token issuer and the login
+     form's URLs, so a stale value sends browsers to another host at login
    - Copies TLS certificates to `nginx/certs/` (if provided)
    - Injects `DOCUMENT_ROUTING` config block if missing (disabled by default)
    - Validates JSON syntax of `constants.json` after editing
-4. **Creates `signed-output/` (mode 750) and `docs/` (mode 770, group-owned for
-   dmss-archive-services-fallback's `spring` user) directories** - see
+4. **Creates `signed-output/` (mode 750) and `docs/` (mode 770), each owned by
+   the uid its container image actually runs as** (read from the pinned image:
+   uid 1000 for the Node 24 ps-server image, root for older ones; 10001 for
+   dmss-archive-services-fallback 24.1.x). Stops with the exact `sudo chown`
+   fix if it can't. See
    [installation-scripts/lib/dir-permissions.sh](../installation-scripts/lib/dir-permissions.sh)
-   for why those modes and not 777
+   for why ownership and not 777
 5. **Bootstraps Keycloak** (`keycloak-bootstrap.sh`):
    - Starts Keycloak container and waits for health endpoint
    - Creates realm (`padsign`) if not exists

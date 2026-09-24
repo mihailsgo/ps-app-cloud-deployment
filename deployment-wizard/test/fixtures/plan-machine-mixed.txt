@@ -1,8 +1,8 @@
 ###PLAN-BEGIN
-server_tag_from=3.27
-server_tag_to=3.28
-client_tag_from=8.38
-client_tag_to=8.39
+server_tag_from=3.28
+server_tag_to=3.29
+client_tag_from=8.39
+client_tag_to=8.40
 ###PLAN-ITEM
 id=document-routing
 status=already-applied
@@ -13,11 +13,23 @@ title=Add DOCUMENT_ROUTING block (disabled by default)
 ###PLAN-ITEM-END
 ###PLAN-ITEM
 id=signed-output
-status=will-apply
+status=already-applied
 files=docker-compose.yml,signed-output/,docs/
 title=Add signed-output volume mount and create signed-output/ and docs/
 ###PLAN-BODY-BEGIN
-mkdir -p signed-output/ docs/   (mode 777)
+###PLAN-BODY-END
+###PLAN-ITEM-END
+###PLAN-ITEM
+id=compose-hostname
+status=will-apply
+files=docker-compose.yml
+title=Point Keycloak KC_HOSTNAME and the nginx network alias at the hostname nginx serves
+###PLAN-BODY-BEGIN
+docker-compose.yml, keycloak environment (was padsign.trustlynx.com):
+      - KC_HOSTNAME=padsign2.e2e.test
+
+Recreates the keycloak container. Tokens issued for the old hostname stop
+validating, so signed-in users sign in again.
 ###PLAN-BODY-END
 ###PLAN-ITEM-END
 ###PLAN-ITEM

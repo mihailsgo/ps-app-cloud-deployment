@@ -27,3 +27,7 @@
 
 5. Save the configuration
 
+6. Add the `padsign-backend` audience mapper - required on Keycloak 26.4.12 /
+   26.6.2 / 26.7.0 and newer, or every authenticated portal API call returns 401.
+   Steps in [14.8 Token audience for introspection](14-08-token-audience-for-introspection.md).
+

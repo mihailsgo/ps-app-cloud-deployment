@@ -55,9 +55,14 @@ ps-app-cloud-deployment/
 │   ├── verify-keycloak.sh            # Verify Keycloak setup
 │   ├── verify-served-cert.sh         # Wire check: cert nginx actually serves
 │   ├── diff-baseline-overlay.sh      # Drift check: live host vs. a clean baseline ref (see documentation/41)
+│   ├── overlay.sh                    # capture/apply/verify/rebase an environment overlay kept OUTSIDE the checkout (documentation/42)
+│   ├── dmss-seal-smoke.sh            # Boot + 3 consecutive local e-seals on the pinned DMSS images, isolated project (see documentation/39)
 │   ├── lib/
 │   │   ├── capabilities.sh           # Shared reader for release/capabilities.json
-│   │   ├── kcadm.sh                  # Shared Keycloak admin CLI helpers (incl. print_secret(), see smoke-user.sh)
+│   │   ├── compose-hostname.sh       # Read/rewrite compose KC_HOSTNAME + nginx alias (configure-host, upgrade, validate-config)
+│   │   ├── kcadm.sh                  # Shared Keycloak admin CLI helpers (print_secret(), kc_exec_with_secret(), kc_logout)
+│   │   ├── overlay.py                # overlay.sh's implementation (3-way merge via git merge-file, compose-model diffing)
+│   │   ├── redact.py                 # the ONE definition of "secret-bearing key"; everything that prints config lines uses it
 │   │   ├── dir-permissions.sh        # signed-output/ and docs/ permission model (no chmod 777)
 │   │   └── deployment-evidence.sh    # Writes deployment-evidence.json (git-ignored)
 │   └── certs/                        # Place PEM certs here for bootstrap
@@ -158,6 +163,7 @@ every other file-level check pass throughout that failure. See
 - Backend client: `padsign-backend` (bearer-only, used by Express server)
 - Roles: `padsign-admin`, `psapp-integration`
 - Default admin: `admin/admin` — must change in production
+- `padsign-client` carries an `oidc-audience-mapper` (`padsign-backend-audience`) that puts `padsign-backend` into the access-token `aud`. ps-server validates every API call by introspecting the portal token *as* `padsign-backend`, and Keycloak 26.4.12/26.6.2/26.7.0+ refuse that unless the introspecting client is in `aud` (CVE-2026-37979 fix). Without the mapper, login works but every API call returns 401. `keycloak-bootstrap.sh` creates it for new realms, and `upgrade.sh`'s `keycloak-backend-audience` migration adds it to existing ones. That migration is the one table entry whose predicate probes live Keycloak (read-only, `kcadm --no-config`) instead of grepping a file. Shared helpers are in `installation-scripts/lib/kcadm.sh`. See `documentation/14-08-token-audience-for-introspection.md`.
 
 ## Local e-sealing
 
@@ -242,7 +248,8 @@ The wizard mounts `/var/run/docker.sock` (the first and only service in this com
 - Browser-side shared modules: `deployment-wizard/public/wizard-ui.js` (modal open/close + focus trap + Escape, `escapeHtml`, clipboard fallback, `unlockTopbarNav` — loaded on every page from `views/partials/head.ejs`) and `deployment-wizard/public/run-progress.js` (`initRunProgress()` — the single SSE-consuming progress renderer shared by `steps/06-deploy.ejs`, `upgrade-progress.ejs` and `settings-progress.ejs`; owns the on-failure Retry/Back/Copy-log bar backed by `POST /api/deploy/retry`). Anything touching live-progress rendering or modals belongs in these two files, not copied into a view.
 - Wizard source: `deployment-wizard/` — `lib/scriptRunner.js` (the only module that spawns `bootstrap.sh`/`upgrade.sh`), `lib/outputParser.js` (parses their existing stdout — `Step N/M:` markers, ad hoc `<name>: OK` checks, and the cleaner `OK`/`FAIL`/`WARN` helper convention `validate-certs.sh`/`validate-config.sh` already use), `lib/stateDetector.js` (derives FRESH/DEPLOYED/DEPLOYED_STOPPED/UNKNOWN from `.bak` files + live `docker compose ps` — no wizard-side database anywhere).
 - Test fixtures: `deployment-wizard/test/fixtures/` — real captured script output. If wording changes in any `installation-scripts/*.sh` echo/printf, refresh these fixtures and re-run `deployment-wizard/test/*.test.js` (`npm test` inside `deployment-wizard/`) or the wizard's live-progress parsing can quietly degrade.
-- **Compose edits must anchor on structure, not on a neighbouring line.** The `SPRING_SECURITY_USER_*` insert in `upgrade.sh`/`configure-host.sh` appends to the container-signature service's `environment:` list, creating that key if absent. It previously inserted before the service's `image:` line, which only yields valid YAML when `image:` happens to follow `environment:` — true of this repo's compose, false on a real deployment where `image:` is the first key (there the entries landed outside any list and broke `docker compose` parsing). Do not "simplify" it back to a line anchor. Same lesson as the `dmss-digital-stamping-service` guard, which matched a comment.
+- **Compose edits must anchor on structure, not on a neighbouring line.** The `SPRING_SECURITY_USER_*` insert in `upgrade.sh`/`configure-host.sh` appends to the container-signature service's `environment:` list, creating that key if absent. It previously inserted before the service's `image:` line, which only yields valid YAML when `image:` happens to follow `environment:` — true of this repo's compose, false on a real deployment where `image:` is the first key (there the entries landed outside any list and broke `docker compose` parsing). Do not "simplify" it back to a line anchor. Same lesson as the `dmss-digital-stamping-service` guard, which matched a comment. Likewise the nginx network-alias rewrite (`lib/compose-hostname.sh`) tracks the `nginx` service block and its `aliases:` list rather than matching the old hostname string.
+- `KC_HOSTNAME` on the keycloak service is NOT inert: Keycloak 26 uses it as its fixed frontend hostname whatever `KC_HOSTNAME_STRICT`/proxy headers say, so it sets the token issuer and the login form's action URL. `configure-host.sh` rewrites it (and the nginx alias) on every run; `validate-config.sh --host` fails on a mismatch; `upgrade.sh`'s `compose-hostname` migration fixes existing deployments. Both only take effect on container recreate (`docker compose up -d`), never on `restart`.
 - Upgrade preview (mandatory gate before any upgrade): `installation-scripts/upgrade.sh` owns a **config-migration table** — each migration is a `mig_<id>_needed` predicate, a `mig_<id>_body` literal and a `mig_<id>_apply`, all built from shared `need_*` predicates so `--plan-only` cannot disagree with a real run. **Add a new config migration as a table entry, never as a fresh straight-line edit.** `--plan-only [--plan-format text|machine]` renders the plan and exits 0 without writing anything. Wizard side: `lib/upgradePlan.js` (execFile + parse, modelled on `configValidator.js`, never `scriptRunner`), `lib/planStore.js` (in-memory, session-scoped, TTL), `lib/upgradeArgs.js` (shared arg builder), `routes/upgradeRoutes.js`, `views/upgrade-preview.ejs`. `/api/deploy` deliberately rejects `mode:'upgrade'` so the gate is server-enforced, not browser-enforced.
 - Operator playbook: `documentation/36-deployment-wizard.md` (sections 36.1 Concepts and access model -> 36.2 Starting the wizard -> 36.3 Fresh-install walkthrough -> 36.4 Upgrade walkthrough -> 36.5 Security considerations -> 36.6 Troubleshooting -> 36.7 Relationship to the CLI scripts -> 36.8 Visual walkthrough -> 36.9 Previewing configuration changes). 36.8 embeds PNGs from `documentation/images/wizard-walkthrough/` — any change to the wizard's visual design leaves those stale, and they can only be refreshed by re-capturing against a running wizard.
 
@@ -252,9 +259,21 @@ Lets an operator change hostname, TLS certificate, or feature flags **after** on
 
 ### Code references (when assisting development)
 
-- New `installation-scripts/`: `update-hostname.sh` (combined hostname + cert + Keycloak-client-sync change, restarts nginx + ps-server — chains `configure-host.sh` + `keycloak-bootstrap.sh` the same way `bootstrap.sh` already does internally), `renew-cert.sh` (cert swap only, hostname unchanged, restarts nginx), `toggle-features.sh` (any combination of the 3 feature flags in one pass, restarts only what actually needs it — demo mode needs none). `configure-host.sh` gained symmetric `--disable-routing`/`--disable-demo`/`--disable-local-eseal` flags (previously enable-only). `keycloak-bootstrap.sh` gained `--skip-test-user` (used only by `update-hostname.sh`, so a live hostname change never resets the demo `test` account's password).
+- New `installation-scripts/`: `update-hostname.sh` (combined hostname + cert + Keycloak-client-sync change; recreates keycloak (new `KC_HOSTNAME`) + nginx (new network alias) and restarts ps-server — chains `configure-host.sh` + `keycloak-bootstrap.sh` the same way `bootstrap.sh` already does internally), `renew-cert.sh` (cert swap only, hostname unchanged, restarts nginx), `toggle-features.sh` (any combination of the 3 feature flags in one pass, restarts only what actually needs it — demo mode needs none). `configure-host.sh` gained symmetric `--disable-routing`/`--disable-demo`/`--disable-local-eseal` flags (previously enable-only). `keycloak-bootstrap.sh` gained `--skip-test-user` (used only by `update-hostname.sh`, so a live hostname change never resets the demo `test` account's password).
 - Wizard code: `deployment-wizard/routes/settingsRoutes.js` (all `/settings` + `/api/settings/*` routes — reuses `lib/scriptRunner.js`'s `startRun`/`subscribe` and `routes/deploy.js`'s SSE stream endpoint unchanged), `views/settings.ejs` + `settings-progress.ejs`, `lib/dockerFacts.js`'s `readConfiguredFeatures()`/`readConfiguredCompanyRole()`, `lib/certValidator.js`'s `checkLiveCert()` (read-only status of the *deployed* cert at `nginx/certs/`, distinct from `validateCert()`'s upload-staging path at `installation-scripts/certs/`).
 - Operator playbook: `documentation/37-settings-post-go-live-changes.md` (37.1 Concepts -> 37.2 Changing hostname -> 37.3 Renewing the TLS certificate -> 37.4 Toggling features -> 37.5 Known gap: Keycloak admin password rotation, which this feature deliberately does not attempt — the `docker-compose.yml` admin-password env var only takes effect on Keycloak's first boot against an empty volume).
+
+## Baseline + overlay hosts (psapp-saas#7)
+
+A host can run as a clean checkout of a release tag plus an overlay directory outside it (`installation-scripts/overlay.sh`, operator runbook `documentation/42-*`). Such a checkout has `.overlay-applied.json` at its root. On it:
+
+- never edit tracked files in place, and never run `upgrade.sh` / `rollback.sh` or the wizard's Upgrade there; changes go through a new overlay version (`documentation/42-06`);
+- `overlay.sh verify` fails on any git-visible change the overlay does not declare, on a compose project name that would give Keycloak a new, empty volume, and on storage mounts that are not the existing signed documents;
+- the overlay directory contains real secrets and must never be copied into the repo or into evidence.
+
+When changing what `configure-host.sh` / `upgrade.sh` rewrite, keep `lib/overlay.py`'s notion of release content vs. environment content (`RELEASE_CONTENT_PREFIXES`) in step.
+
+Secrets never go on a command line: use `kc_exec_with_secret` for kcadm, and `lib/redact.py` for anything that prints config.
 
 ## Environment management
 

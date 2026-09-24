@@ -21,8 +21,9 @@ Usage:
 Verifies (fails non-zero on mismatch):
   - realm exists
   - padsign-client settings (Root/Home/Admin URL, redirect URIs, post-logout URIs, web origins)
+  - padsign-client access tokens carry padsign-backend in their audience
   - padsign-backend settings (confidential + service accounts enabled)
-  - test user exists and has ONLY the company role
+  - the shared test user, if still present, has ONLY the company role (absent = OK)
 EOF
 }
 
@@ -68,7 +69,11 @@ expected_web_origins=("${portal_base}/" "${portal_base}")
 expected_post_logout=("${portal_base}/*" "${portal_base}/" "${portal_base}")
 
 docker compose up -d keycloak >/dev/null
+# postdeploy-check.sh runs this right after a (re)start; without the wait the
+# login races Keycloak's boot and the whole check aborts with no output.
+kc_wait_ready || exit 1
 kc_login "${admin_user}" "${admin_pass}"
+trap kc_logout EXIT
 
 fail=0
 exit_code=0
@@ -146,6 +151,15 @@ sys.exit(0 if rc == 0 else 1)
 PY
 )" "$host" "$realm" "$company_role" <<<"$front_json" || exit_code=$?
   if [[ ${exit_code:-0} -ne 0 ]]; then fail=1; fi
+
+  # Keycloak 26.4.12/26.6.2/26.7.0+ reject ps-server's introspection of a token
+  # whose aud lacks padsign-backend - every portal API call would 401.
+  front_cid="$(kc_client_uuid "$realm" "$client_front")"
+  if kc_backend_audience_present "$realm" "$front_cid" padsign-backend; then
+    ok "padsign-client access tokens carry padsign-backend in aud (token introspection)"
+  else
+    bad "padsign-client has no audience mapper for padsign-backend - token introspection fails on Keycloak 26.4.12+/26.6.2+ (fix: upgrade.sh, or documentation/14-08-token-audience-for-introspection.md)"
+  fi
 else
   bad "client '${client_front}' missing"
 fi
@@ -182,24 +196,32 @@ else
 fi
 
 # Verify test user role mapping is ONLY company_role.
+#
+# The shared 'test' account is optional: production deployments are told to
+# delete it (keycloak-bootstrap.sh prints exactly that) and to use
+# smoke-user.sh's disposable logins instead (psapp-saas#6). Its absence is the
+# recommended state, not a failure.
 unset exit_code
 test_uid="$(kc_exec "/opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username=test --fields id --format csv | tail -n 1" | tr -d '\r')"
 if [[ -z "$test_uid" || "$test_uid" == "id" ]]; then
-  bad "user 'test' missing"
+  ok "no shared 'test' user (recommended for production - use smoke-user.sh for smoke tests)"
 else
-  ok "user 'test' exists"
+  ok "user 'test' exists (shared long-lived login - delete it in production, see documentation/42-02)"
   roles_json="$(kc_exec "/opt/keycloak/bin/kcadm.sh get users/${test_uid}/role-mappings/realm -r ${realm}")"
   python3 -c "$(cat <<'PY'
 import json, sys
-company_role = sys.argv[1]
+company_role, realm = sys.argv[1], sys.argv[2]
 data = json.load(sys.stdin)  # list of roles
-names = sorted({r.get("name") for r in data if r.get("name")})
+# Keycloak assigns the realm's composite default role (default-roles-<realm>:
+# offline_access, uma_authorization) to EVERY new user automatically; it is
+# not something keycloak-bootstrap.sh granted and carries no PadSign rights.
+names = sorted({r.get("name") for r in data if r.get("name")} - {f"default-roles-{realm}"})
 if names != [company_role]:
   print(f"FAIL test user realm roles: got={names!r} expected={[company_role]!r}")
   sys.exit(1)
 print("OK   test user realm roles (only company role)")
 PY
-)" "$company_role" <<<"$roles_json" || exit_code=$?
+)" "$company_role" "$realm" <<<"$roles_json" || exit_code=$?
   if [[ ${exit_code:-0} -ne 0 ]]; then fail=1; fi
 fi
 

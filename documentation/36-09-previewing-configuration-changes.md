@@ -9,15 +9,27 @@ This exists to answer one question an operator could not previously answer:
 
 ## The additive-only guarantee
 
-`upgrade.sh` never overwrites a configuration value you have set. Every
-configuration migration is guarded by a presence check and only fires when its
-target is **absent**:
+`upgrade.sh` never overwrites a configuration value you have set, with one
+narrow exception below. Every other configuration migration is guarded by a
+presence check and only fires when its target is **absent**:
 
 | Migration | Fires only when |
 |---|---|
 | `document-routing` | `config/config.js` contains no `DOCUMENT_ROUTING` key at all |
 | `signed-output` | `docker-compose.yml` has no `signed-output` volume mount, or the `signed-output/` or `docs/` directory is missing |
+| `compose-hostname` | `docker-compose.yml`'s keycloak `KC_HOSTNAME`, or the nginx service's network alias, names a different host than `nginx/nginx.conf`'s `server_name` |
 | `local-eseal` | (only with `--enable-local-eseal`) whichever of its six parts are not yet in place |
+
+`compose-hostname` is the exception: it corrects an existing value. It is safe
+to, because the value it corrects never works. `KC_HOSTNAME` is Keycloak's
+fixed frontend hostname: a different host there means Keycloak renders that
+other host into the login form and redirects, so browsers are sent to it at
+login, and stamps it into every token's issuer.
+It is typically the shipped `padsign.trustlynx.com`, left on deployments
+configured before `configure-host.sh` rewrote it. It only rewrites what exists
+(it never adds a `KC_HOSTNAME` or an alias list), is skipped when `nginx.conf`
+doesn't name exactly one host, and when it does fire it recreates the keycloak
+container, so signed-in users sign in again.
 
 So a customised `DOCUMENT_ROUTING` block — your own `basePath`, your own
 `pathTemplate`, your own webhook URL — is read by the guard, found, and left
