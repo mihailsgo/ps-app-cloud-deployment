@@ -429,6 +429,36 @@ else
   done < <(compose_image_refs)
 fi
 
+# --- Image signatures (cosign) ---
+# ps-server / ps-client are signed by psapp's CI with the key whose public
+# half is release/cosign.pub. Checked by the pinned digest, i.e. exactly what
+# Docker pulls. Reads the registry; see lib/signatures.sh for what each
+# outcome means. No cosign on the host is a warning (a FAIL under CI=true or
+# PADSIGN_REQUIRE_SIGNATURES=1); a signature that does not verify always fails.
+echo ""
+echo "Image signatures (cosign):"
+# shellcheck source=lib/signatures.sh
+. "${repo_root}/installation-scripts/lib/signatures.sh"
+for image_key in "${signed_image_keys[@]}"; do
+  repository="mihailsgordijenko/${image_key}"
+  pinned="$(digest_from_compose "$repository")"
+  if [[ "$pinned" != *"@sha256:"* ]]; then
+    # Already a FAIL under "Image digest pinning"; there is no immutable
+    # reference to check a signature against.
+    warn "${image_key}: not digest-pinned, signature not checked"
+    continue
+  fi
+  pinned_digest="${pinned#*@}"
+  signature_check "$repository" "${repository}@${pinned_digest}" "$pinned_digest"
+  case "$sig_status" in
+    verified) ok "${image_key} (${pinned%@*}): ${sig_message}" ;;
+    exempt) warn "${image_key} (${pinned%@*}): ${sig_message}" ;;
+    unavailable)
+      if signatures_required; then bad "${image_key}: ${sig_message}"; else warn "${image_key}: ${sig_message}"; fi ;;
+    *) bad "${image_key} (${pinned%@*}): ${sig_message}" ;;
+  esac
+done
+
 # --- Running container checks (if Docker is available) ---
 if docker ps > /dev/null 2>&1; then
   echo ""
