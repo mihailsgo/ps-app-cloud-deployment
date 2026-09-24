@@ -58,10 +58,22 @@ documents where they already are.
    tooling and shell history. Read secrets with `read -rs VAR` (no echo), pass
    them through the environment, and `unset` them afterwards. Every script
    used here reads `KEYCLOAK_ADMIN_PASSWORD` from the environment, so omit
-   `--admin-pass`. This is also why the scripts now hand passwords to
-   `kcadm.sh` through the container environment instead of its argv: on the
-   previous code the admin password appeared in 565 of 1532 sampled host
-   process-list snapshots during a routine run, and in 0 of 1578 now.
+   `--admin-pass`. Processes inside the Keycloak container count too: they
+   are ordinary host processes, so their command lines are in the host's
+   `ps` as well. That is why the scripts give kcadm the admin password as
+   `KC_CLI_PASSWORD` (no `--password`) and set user passwords with JSON on
+   stdin (no `--new-password`). Measured on a Linux host with its own Docker
+   engine, sampling `ps -ww -eo args` while `keycloak-bootstrap.sh` (twice),
+   `verify-keycloak.sh` and `smoke-user.sh create` / `delete` ran: with
+   v1.0.37 the admin password was in 443 of 7047 snapshots and each
+   generated password in 82 to 84; with v1.0.40, none of them in any
+   snapshot. An earlier version of this rule reported 0 of 1578 for
+   v1.0.26. It was wrong, most likely because that `ps` cut lines off at
+   the terminal width: an 80-column `ps -eo args`, sampled in the same
+   v1.0.37 run, found the password in 0 snapshots, since kcadm's command
+   lines reach the password well past column 80. Sample with `ps -ww`, on
+   the Docker host itself (a Docker Desktop engine runs its containers in
+   a separate VM, out of reach of the host's `ps`).
 2. **Generated passwords are shown once, on the terminal only**
    (`print_secret`, `installation-scripts/lib/kcadm.sh`). If your SSH session
    is recorded (`script`, tmux logging, a PAM/bastion session recorder), that

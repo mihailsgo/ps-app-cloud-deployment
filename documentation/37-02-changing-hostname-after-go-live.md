@@ -33,7 +33,8 @@ so that failure mode isn't reachable through the UI.
 
 ## What actually runs
 
-`update-hostname.sh --host <new> --admin-pass <...> [--cert-crt/--cert-key]`:
+`update-hostname.sh --host <new> [--cert-crt/--cert-key]`, with the
+current admin password in `KEYCLOAK_ADMIN_PASSWORD`:
 
 1. **Backup** — `.bak` copies of `config.js`, `constants.json`,
    `nginx.conf`, `docker-compose.yml`, same convention as `bootstrap.sh`.
@@ -79,12 +80,16 @@ so that failure mode isn't reachable through the UI.
 ## Running it without the wizard
 
 ```bash
+ read -rs KEYCLOAK_ADMIN_PASSWORD && export KEYCLOAK_ADMIN_PASSWORD   # the CURRENT admin password; nothing is echoed
 ./installation-scripts/update-hostname.sh \
   --host padsign.newclient.com \
-  --admin-pass "CurrentKeycloakAdminPassword" \
   --cert-crt ./installation-scripts/certs/padsign.newclient.com.crt \
   --cert-key ./installation-scripts/certs/padsign.newclient.com.key
+unset KEYCLOAK_ADMIN_PASSWORD
 ```
+
+`--admin-pass "<password>"` still works, but puts the password on the
+command line, where every local user sees it in `ps` for the whole run.
 
 Omit `--cert-crt`/`--cert-key` if a cert for the new hostname is already
 staged at `installation-scripts/certs/<new-host>.{crt,key}` (the same

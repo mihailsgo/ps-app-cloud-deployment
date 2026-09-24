@@ -24,7 +24,7 @@
     <hr class="divider">
     <p class="subtitle">
       Deploying runs the same steps as
-      <code>bootstrap.sh --host <%= wizard.host %> --company-role "<%= wizard.companyRole %>" --admin-pass ****<% features.forEach((f) => { if (wizard.features[f.key]) { %> --<%= f.key.replace(/_/g, '-') %><% } }) %><% if (wizard.allowSelfSigned) { %> --allow-self-signed<% } %></code>
+      <code>KEYCLOAK_ADMIN_PASSWORD=**** bootstrap.sh --host <%= wizard.host %> --company-role "<%= wizard.companyRole %>"<% features.forEach((f) => { if (wizard.features[f.key]) { %> --<%= f.key.replace(/_/g, '-') %><% } }) %><% if (wizard.allowSelfSigned) { %> --allow-self-signed<% } %></code>
     </p>
 
     <button id="deployBtn" class="btn btn-primary">Confirm &amp; Deploy</button>
