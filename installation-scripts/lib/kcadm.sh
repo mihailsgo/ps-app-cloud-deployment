@@ -28,15 +28,29 @@ kc_exec() {
 # agents) records it permanently. `-e KC_SECRET` with no `=value` makes
 # compose read the value from its own environment, so only the variable NAME
 # appears on the host command line. Inside the container the value still
-# reaches kcadm.sh's argv (kcadm has no stdin/env password option) - that is
-# visible only to someone who can already `docker exec` into the container,
-# i.e. someone who already has root-equivalent access to the host.
+# reaches kcadm.sh's (and its java process's) argv. Container processes are
+# ordinary host processes, so on a Linux host that argv is in the host's
+# `ps -ww` / /proc/<pid>/cmdline too. kc_exec_with_cli_password below avoids
+# that for kcadm login credentials.
 #
 # Side benefit: a password containing a single quote no longer breaks the
 # quoting of the inline command.
 kc_exec_with_secret() {
   local secret="$1"; shift
   KC_SECRET="$secret" docker compose exec -T -e KC_SECRET keycloak sh -lc "$*"
+}
+
+# Like kc_exec, but for a kcadm command that logs in inline (--no-config
+# --server ... --user <u>) WITHOUT --password: the password goes into the
+# container as KC_CLI_PASSWORD, which kcadm.sh (Keycloak 26.0.0 and later,
+# checked on 26.0.0, 26.3.2 and 26.7.4) reads when --password is absent. The
+# password then appears in no argv at all, neither the host-side
+# `docker compose` nor kcadm.sh / java inside the container. stdin is
+# /dev/null so a kcadm that prompts anyway fails instead of waiting on the
+# operator's terminal.
+kc_exec_with_cli_password() {
+  local password="$1"; shift
+  KC_CLI_PASSWORD="$password" docker compose exec -T -e KC_CLI_PASSWORD keycloak sh -lc "$*" </dev/null
 }
 
 kc_csv_last() {
@@ -116,15 +130,28 @@ kc_role_exists() {
 # keycloak-backend-audience migration (existing realms) and verify-keycloak.sh.
 # The optional trailing <kcadm-auth> argument is inserted after the kcadm
 # subcommand: empty means "use the kcadm config kc_login() wrote", and
-# upgrade.sh passes `--no-config --server ... --user ... --password ...` so
-# its --plan-only path never writes a kcadm config file.
+# upgrade.sh passes `--no-config --server ... --user ...` so its --plan-only
+# path never writes a kcadm config file. Inline auth never carries --password:
+# the password is the optional <password> argument after <kcadm-auth>, and the
+# call then runs through kc_exec_with_cli_password. Without a <password>
+# argument the call runs through plain kc_exec, exactly as before.
 KC_BACKEND_AUDIENCE_MAPPER="padsign-backend-audience"
+
+# kc_exec_opt_password <cmd> [<password>]: kc_exec_with_cli_password when a
+# password argument is given (even an empty one), plain kc_exec otherwise.
+kc_exec_opt_password() {
+  if (( $# > 1 )); then
+    kc_exec_with_cli_password "$2" "$1"
+  else
+    kc_exec "$1"
+  fi
+}
 
 # Prints the internal id of client <clientId>, or nothing if it does not exist.
 kc_client_uuid() {
   local realm="$1" client_id="$2" auth="${3:-}"
   local cid
-  cid="$(kc_csv_last "/opt/keycloak/bin/kcadm.sh get clients -r ${realm} -q clientId=${client_id} --fields id --format csv ${auth}")"
+  cid="$(kc_exec_opt_password "/opt/keycloak/bin/kcadm.sh get clients -r ${realm} -q clientId=${client_id} --fields id --format csv ${auth}" ${4+"$4"} | tail -n 1 | tr -d '\r"')"
   [[ "$cid" == "id" ]] && cid=""
   printf '%s' "$cid"
 }
@@ -137,20 +164,20 @@ kc_client_uuid() {
 kc_backend_audience_present() {
   local realm="$1" frontend_cid="$2" audience="$3" auth="${4:-}"
   local mappers
-  mappers="$(kc_exec "/opt/keycloak/bin/kcadm.sh get clients/${frontend_cid}/protocol-mappers/models -r ${realm} ${auth}")" || return 2
+  mappers="$(kc_exec_opt_password "/opt/keycloak/bin/kcadm.sh get clients/${frontend_cid}/protocol-mappers/models -r ${realm} ${auth}" ${5+"$5"})" || return 2
   printf '%s' "$mappers" | tr -d '\r' | grep -qE "\"included\.client\.audience\"[[:space:]]*:[[:space:]]*\"${audience}\""
 }
 
 kc_backend_audience_create() {
   local realm="$1" frontend_cid="$2" audience="$3" auth="${4:-}"
-  kc_exec "/opt/keycloak/bin/kcadm.sh create clients/${frontend_cid}/protocol-mappers/models -r ${realm} ${auth} \
+  kc_exec_opt_password "/opt/keycloak/bin/kcadm.sh create clients/${frontend_cid}/protocol-mappers/models -r ${realm} ${auth} \
     -s name=${KC_BACKEND_AUDIENCE_MAPPER} \
     -s protocol=openid-connect \
     -s protocolMapper=oidc-audience-mapper \
     -s 'config.\"included.client.audience\"=${audience}' \
     -s 'config.\"access.token.claim\"=true' \
     -s 'config.\"introspection.token.claim\"=true' \
-    -s 'config.\"id.token.claim\"=false'" >/dev/null
+    -s 'config.\"id.token.claim\"=false'" ${5+"$5"} >/dev/null
 }
 
 # Prints secret material to the controlling terminal only, bypassing stdout
