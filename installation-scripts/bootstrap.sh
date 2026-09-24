@@ -116,8 +116,6 @@ scripts_dir="${repo_root}/installation-scripts"
 . "${scripts_dir}/lib/dir-permissions.sh"
 # shellcheck source=lib/health-wait.sh
 . "${scripts_dir}/lib/health-wait.sh"
-# shellcheck source=lib/deployment-evidence.sh
-. "${scripts_dir}/lib/deployment-evidence.sh"
 
 # --- Dependency checks ---
 need_cmd() {
@@ -276,8 +274,11 @@ echo ""
 echo "  Running containers:"
 docker ps --format '  {{.Names}}: {{.Image}} ({{.Status}})' | sort
 
-write_deployment_evidence "bootstrap.sh"
-
+# Once, at the end. Each call rotates deployment-evidence.json into
+# deployment-evidence.json.previous, so a second back-to-back call compared
+# this run against itself and recorded every restart delta as 0. With one
+# call, .previous is the pre-bootstrap snapshot (or absent on a fresh host,
+# which gives null deltas, not a fake 0). Same fix as upgrade.sh.
 echo ""
 echo "Recording deployment evidence..."
 write_deployment_evidence "bootstrap.sh"
