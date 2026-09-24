@@ -68,6 +68,32 @@ else
   bad "signed-output volume mount missing from docker-compose.yml"
 fi
 
+# Ownership checks (below) need the same image-uid resolution the scripts
+# that create these directories use.
+# shellcheck source=lib/dir-permissions.sh
+. "${repo_root}/installation-scripts/lib/dir-permissions.sh"
+
+# Reports whether <dir>'s tree is owned by the uid <repository>'s pinned image
+# runs as. Skipped (not failed) when that can't be determined, e.g. no docker.
+check_tree_owner() {  # <dir> <repository> <label>
+  local ref ids uid foreign
+  ref="$(pinned_image_ref "$2")"
+  if ! ids="$(image_runtime_ids "$ref")"; then
+    ok "$3 ownership not checked (could not resolve which uid ${ref:-$2} runs as)"
+    return
+  fi
+  uid="${ids%%:*}"
+  if [[ "$uid" == 0 ]]; then
+    ok "$3 ownership: ${ref} runs as root"
+  elif ! foreign="$(first_foreign_path "$1" "$uid" "$ref")"; then
+    bad "$3 could not be inspected (as this user or via ${ref}); it must be owned by ${ids}"
+  elif [[ -n "$foreign" ]]; then
+    bad "$3: ${foreign#"${repo_root}/"} is not owned by ${uid}, the user ${ref} runs as, so that container cannot write there. Fix: re-run upgrade.sh (it re-owns the tree), or sudo chown -R ${ids} $1"
+  else
+    ok "$3 owned by ${ids} (the user ${ref} runs as)"
+  fi
+}
+
 world_writable() {
   # Matches if "other" has the write bit set, portable across GNU/BSD find.
   find "$1" -maxdepth 0 -perm -002 2>/dev/null | grep -q .
@@ -76,22 +102,19 @@ world_writable() {
 if [[ -d "${repo_root}/signed-output" ]]; then
   ok "signed-output directory exists"
   if world_writable "${repo_root}/signed-output"; then
-    bad "signed-output directory is world-writable ($(stat -c '%a' "${repo_root}/signed-output" 2>/dev/null || stat -f '%Lp' "${repo_root}/signed-output" 2>/dev/null)). ps-server writes here as root and does not need this; fix: chmod 750 signed-output"
+    bad "signed-output directory is world-writable ($(stat -c '%a' "${repo_root}/signed-output" 2>/dev/null || stat -f '%Lp' "${repo_root}/signed-output" 2>/dev/null)). ps-server does not need this (it owns the tree, or runs as root); fix: chmod 750 signed-output"
   else
     ok "signed-output directory is not world-writable"
   fi
+  check_tree_owner "${repo_root}/signed-output" "$ps_server_image_repo" "signed-output directory"
 else
-  bad "signed-output directory missing (create with: mkdir -p signed-output && chmod 750 signed-output)"
+  bad "signed-output directory missing (re-run upgrade.sh, which creates it owned by the ps-server image's user, mode 750)"
 fi
 
 if [[ -d "${repo_root}/docs" ]]; then
-  if [[ -w "${repo_root}/docs" ]]; then
-    ok "docs directory exists and is writable"
-  else
-    bad "docs directory exists but is NOT writable (dmss-archive-services-fallback writes here as its 'spring' user). Fix: chgrp <spring's gid> docs && chmod 770 docs — see installation-scripts/lib/dir-permissions.sh. If that also fails, Docker likely auto-created it as root on an earlier 'docker compose up'; use sudo."
-  fi
+  check_tree_owner "${repo_root}/docs" "$dmss_fallback_image_repo" "docs directory"
   if world_writable "${repo_root}/docs"; then
-    bad "docs directory is world-writable ($(stat -c '%a' "${repo_root}/docs" 2>/dev/null || stat -f '%Lp' "${repo_root}/docs" 2>/dev/null)). Fix: chgrp <spring's gid> docs && chmod 770 docs — see installation-scripts/lib/dir-permissions.sh"
+    bad "docs directory is world-writable ($(stat -c '%a' "${repo_root}/docs" 2>/dev/null || stat -f '%Lp' "${repo_root}/docs" 2>/dev/null)). Fix: chmod 770 docs (re-running upgrade.sh does this) - see installation-scripts/lib/dir-permissions.sh"
   else
     ok "docs directory is not world-writable"
   fi

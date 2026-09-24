@@ -10,10 +10,13 @@
    - Copies TLS certificates to `nginx/certs/` (if provided)
    - Injects `DOCUMENT_ROUTING` config block if missing (disabled by default)
    - Validates JSON syntax of `constants.json` after editing
-4. **Creates `signed-output/` (mode 750) and `docs/` (mode 770, group-owned for
-   dmss-archive-services-fallback's `spring` user) directories** - see
+4. **Creates `signed-output/` (mode 750) and `docs/` (mode 770), each owned by
+   the uid its container image actually runs as** (read from the pinned image:
+   uid 1000 for the Node 24 ps-server image, root for older ones; 10001 for
+   dmss-archive-services-fallback 24.1.x). Stops with the exact `sudo chown`
+   fix if it can't. See
    [installation-scripts/lib/dir-permissions.sh](../installation-scripts/lib/dir-permissions.sh)
-   for why those modes and not 777
+   for why ownership and not 777
 5. **Bootstraps Keycloak** (`keycloak-bootstrap.sh`):
    - Starts Keycloak container and waits for health endpoint
    - Creates realm (`padsign`) if not exists
