@@ -1,8 +1,11 @@
 # 5.2 Upgrade to the current release (authenticated PDF download + signed-PDF receive-back)
 
 Use this when an instance is **already deployed on an older tag** and you want to
-move it to the current release. The current release is `ps-server:3.27` +
-`ps-client:8.38` (see [1. Release Snapshot](01-release-snapshot.md)).
+move it to the current release: the tags this checkout's `docker-compose.yml`
+pins, described in [1. Release Snapshot](01-release-snapshot.md)
+(`ps-server:3.28` + `ps-client:8.39` at the time of writing). The two features
+this page walks through arrived in `ps-server:3.27` / `ps-client:8.38` and are
+retained by every later tag.
 
 What you get:
 - **`ps-server:3.27`** — adds the signed-PDF **receive-back** buffer + endpoints
@@ -27,7 +30,7 @@ alone is safe and changes no behaviour until you enable routing.
 
 ```bash
 cd /path/to/ps-app-cloud-deployment
-./installation-scripts/upgrade.sh --server-tag 3.27 --client-tag 8.38
+./installation-scripts/upgrade.sh --server-tag 3.28 --client-tag 8.39
 ```
 
 This backs up `docker-compose.yml` + `config/config.js`, rewrites the image tags,
@@ -37,8 +40,9 @@ overwrites existing settings), pulls the new images, restarts only ps-server /
 ps-client, and prints a rollback command. Full breakdown:
 [5.1 What upgrade does](05-01-what-upgrade-does-step-by-step.md).
 
-> If you also run `--enable-local-eseal`, the `:3.27` tag clears the `≥3.26`
-> pre-flight guard automatically.
+> If you also run `--enable-local-eseal`, the current tag clears that flag's
+> pre-flight guard automatically (the minimum it checks is the `local-eseal`
+> entry in `release/capabilities.json`).
 
 ## Step 2 — enable receive-back (only if you want documents delivered back)
 
@@ -94,7 +98,7 @@ Full desktop steps + verification: [35. Receive-back deployment runbook](35-rece
 
 ```bash
 docker ps --format '  {{.Names}}: {{.Image}} ({{.Status}})' | grep -E 'ps-server|ps-client'
-#   expect  ps-server:3.27   and   ps-client:8.38
+#   expect the tags you passed above (ps-server:3.28 and ps-client:8.39)
 ```
 
 Then sign a (non-demo) document for a known `email`+`company`; the Manager should
@@ -112,10 +116,10 @@ services to report healthy:
 ./installation-scripts/rollback.sh --yes
 ```
 
-This restores the exact `tag@sha256:digest` that was running immediately
-before the upgrade — not just the tag — because the snapshot's manifest
-records the digest that was actually running, and `rollback.sh` writes it
-back rather than re-deriving it.
+This restores the exact `tag@sha256:digest` that was pinned immediately
+before the upgrade — not just the tag — taken from the snapshot's own copy of
+`docker-compose.yml` (falling back to the registry digest its manifest
+recorded for the running container), rather than re-deriving it.
 
 If no snapshot exists (a deployment upgraded before `rollback.sh` existed, or
 `.rollback-snapshots/` was pruned/lost), reconstruct manually: look up the
@@ -125,9 +129,10 @@ digest that was approved for the tag you're going back to — either
 
 ```bash
 ./installation-scripts/upgrade.sh --server-tag 3.27 --client-tag 8.37
-# upgrade.sh deliberately drops any digest pin on a tag bump (the old digest
-# belongs to the old content, not the tag you're moving to) - resolve and
-# pin the correct one for :3.27 / :8.37:
+# upgrade.sh only pins a digest for the tag this checkout's
+# release/approved-digests.json approves; an older tag is left unpinned (the
+# old digest belongs to the old content, not the tag you're moving to) -
+# resolve and pin the correct one for :3.27 / :8.37:
 #   docker buildx imagetools inspect mihailsgordijenko/ps-server:3.27
 # Edit docker-compose.yml + release/approved-digests.json together, then:
 ./installation-scripts/validate-config.sh
@@ -135,8 +140,9 @@ digest that was approved for the tag you're going back to — either
 
 > Note: if you protected the download route per
 > [22. Security and Route Protection](22-security-and-route-protection.md),
-> rolling the client back below `8.38` requires re-opening that route first,
-> otherwise pads cannot render PDFs.
+> rolling the client back below the `closable-download-route` minimum in
+> `release/capabilities.json` requires re-opening that route first, otherwise
+> pads cannot render PDFs.
 
-To keep `:3.27` but stop delivering documents back, set
+To keep the current `ps-server` tag but stop delivering documents back, set
 `DOCUMENT_ROUTING.enabled: false` and `docker compose restart ps-server`.

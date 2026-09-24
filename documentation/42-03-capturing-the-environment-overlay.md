@@ -14,7 +14,7 @@ single-commit public history). The release owner:
 1. Chooses the commit. It must satisfy gate G2 in 42.1: its
    `docker-compose.yml` pins the ps-server/ps-client versions the host runs
    today, digest-pinned per [39](39-release-procedure.md).
-2. Tags and pushes it: `git tag -a v1.0.22 -m "..." <commit> && git push origin v1.0.22`.
+2. Tags and pushes it: `git tag -a v1.0.26 -m "..." <commit> && git push origin v1.0.26`.
 
 Operator check: `git ls-remote --tags <repo-url> "$TAG"` returns exactly one line.
 

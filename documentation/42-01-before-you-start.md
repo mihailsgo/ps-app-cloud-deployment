@@ -6,7 +6,7 @@
 |---|---|---|
 | Change / ticket id | `CHG-1234` | operator |
 | Maintenance window for the cut-over (Keycloak and the app are unavailable for roughly 1-3 minutes) | low-traffic hour, announced to users | service owner |
-| Release tag to use as the baseline | `v1.0.22` | release owner (see gate G2) |
+| Release tag to use as the baseline | `v1.0.26` | release owner (see gate G2) |
 | **Keycloak admin credential owner** (a named person or role, not "ops") | | service owner |
 | **Where the admin credential is stored** (your approved password manager or vault entry) | `vault: padsign/<env>/keycloak-admin` | security owner |
 | Backup location and retention for this change | `/var/backups/padsign/CHG-1234`, keep 30 days after the next successful release | service owner |
@@ -22,7 +22,7 @@ Set these once per shell. Nothing secret goes into them.
 ```bash
 HOST=padsign.example.com                    # the public hostname
 OLD=/opt/psapp                              # the directory the stack runs from TODAY
-TAG=v1.0.22                                 # the release tag chosen as baseline (gate G2)
+TAG=v1.0.26                                 # the release tag chosen as baseline (gate G2)
 NEW=/opt/padsign/releases/$TAG              # fresh checkout of $TAG (created in 42.3)
 OVERLAY=/etc/padsign/overlay/$(date +%Y%m%d) # created by `overlay.sh capture`; outside every checkout
 EVID=/var/lib/padsign/evidence/CHG-1234     # evidence bundle (42.7)

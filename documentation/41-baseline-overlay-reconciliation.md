@@ -93,9 +93,11 @@ a script ran with.
 `signed-output/` and `docs/` no longer get `chmod 777`. See the header
 comment in
 [`lib/dir-permissions.sh`](../installation-scripts/lib/dir-permissions.sh)
-for the reasoning specific to each (ps-server runs as root and never actually
-needed it; dmss-archive-services-fallback runs as a real non-root user whose
-group id is resolved at run time). `validate-config.sh` now actively fails if
+for the reasoning. Each directory is owned by the uid its container image
+actually runs as, resolved from the pinned image at run time (ps-server: root
+up to 3.29, uid 1000 from the Node 24 image on; dmss-archive-services-fallback:
+999:1000 up to 24.0.5, 10001:10001 in 24.1.x), and re-owned when that
+changes. `validate-config.sh` now actively fails if
 either directory is world-writable, so drift back to 777 on a live host is
 caught by the tool operators already run.
 

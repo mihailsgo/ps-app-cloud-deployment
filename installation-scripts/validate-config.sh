@@ -109,6 +109,32 @@ if [[ "$docs_dir" != "${repo_root}/docs" ]]; then
   ok "docs is mounted from ${docs_dir} (environment overlay)"
 fi
 
+# Ownership checks (below) need the same image-uid resolution the scripts
+# that create these directories use.
+# shellcheck source=lib/dir-permissions.sh
+. "${repo_root}/installation-scripts/lib/dir-permissions.sh"
+
+# Reports whether <dir>'s tree is owned by the uid <repository>'s pinned image
+# runs as. Skipped (not failed) when that can't be determined, e.g. no docker.
+check_tree_owner() {  # <dir> <repository> <label>
+  local ref ids uid foreign
+  ref="$(pinned_image_ref "$2")"
+  if ! ids="$(image_runtime_ids "$ref")"; then
+    ok "$3 ownership not checked (could not resolve which uid ${ref:-$2} runs as)"
+    return
+  fi
+  uid="${ids%%:*}"
+  if [[ "$uid" == 0 ]]; then
+    ok "$3 ownership: ${ref} runs as root"
+  elif ! foreign="$(first_foreign_path "$1" "$uid" "$ref")"; then
+    bad "$3 could not be inspected (as this user or via ${ref}); it must be owned by ${ids}"
+  elif [[ -n "$foreign" ]]; then
+    bad "$3: ${foreign#"${repo_root}/"} is not owned by ${uid}, the user ${ref} runs as, so that container cannot write there. Fix: re-run upgrade.sh (it re-owns the tree), or sudo chown -R ${ids} $1"
+  else
+    ok "$3 owned by ${ids} (the user ${ref} runs as)"
+  fi
+}
+
 world_writable() {
   # Matches if "other" has the write bit set, portable across GNU/BSD find.
   find "$1" -maxdepth 0 -perm -002 2>/dev/null | grep -q .
@@ -117,22 +143,19 @@ world_writable() {
 if [[ -d "${signed_output_dir}" ]]; then
   ok "signed-output directory exists"
   if world_writable "${signed_output_dir}"; then
-    bad "signed-output directory is world-writable ($(stat -c '%a' "${signed_output_dir}" 2>/dev/null || stat -f '%Lp' "${signed_output_dir}" 2>/dev/null)). ps-server writes here as root and does not need this; fix: chmod 750 signed-output"
+    bad "signed-output directory is world-writable ($(stat -c '%a' "${signed_output_dir}" 2>/dev/null || stat -f '%Lp' "${signed_output_dir}" 2>/dev/null)). ps-server does not need this (it owns the tree, or runs as root); fix: chmod 750 signed-output"
   else
     ok "signed-output directory is not world-writable"
   fi
+  check_tree_owner "${signed_output_dir}" "$ps_server_image_repo" "signed-output directory"
 else
-  bad "signed-output directory missing (create with: mkdir -p signed-output && chmod 750 signed-output)"
+  bad "signed-output directory missing (re-run upgrade.sh, which creates it owned by the ps-server image's user, mode 750)"
 fi
 
 if [[ -d "${docs_dir}" ]]; then
-  if [[ -w "${docs_dir}" ]]; then
-    ok "docs directory exists and is writable"
-  else
-    bad "docs directory exists but is NOT writable (dmss-archive-services-fallback writes here as its 'spring' user). Fix: chgrp <spring's gid> docs && chmod 770 docs — see installation-scripts/lib/dir-permissions.sh. If that also fails, Docker likely auto-created it as root on an earlier 'docker compose up'; use sudo."
-  fi
+  check_tree_owner "${docs_dir}" "$dmss_fallback_image_repo" "docs directory"
   if world_writable "${docs_dir}"; then
-    bad "docs directory is world-writable ($(stat -c '%a' "${docs_dir}" 2>/dev/null || stat -f '%Lp' "${docs_dir}" 2>/dev/null)). Fix: chgrp <spring's gid> docs && chmod 770 docs — see installation-scripts/lib/dir-permissions.sh"
+    bad "docs directory is world-writable ($(stat -c '%a' "${docs_dir}" 2>/dev/null || stat -f '%Lp' "${docs_dir}" 2>/dev/null)). Fix: chmod 770 docs (re-running upgrade.sh does this) - see installation-scripts/lib/dir-permissions.sh"
   else
     ok "docs directory is not world-writable"
   fi
@@ -323,9 +346,9 @@ echo "Image digest pinning:"
 if [[ ! -f "$digests_json" ]]; then
   bad "release/approved-digests.json missing — no image digests can be verified"
 else
-  while IFS=$'\t' read -r image_key repository _tag approved_digest; do
+  approved_table="$(digest_registry_table | tr -d '\r')"
+  while IFS=$'\t' read -r image_key repository approved_tag approved_digest; do
     [[ -z "$image_key" ]] && continue
-    approved_digest="${approved_digest%$'\r'}"
     pinned="$(digest_from_compose "$repository")"
 
     if [[ -z "$pinned" ]]; then
@@ -333,14 +356,34 @@ else
     elif [[ "$pinned" != *"@sha256:"* ]]; then
       bad "${image_key}: pinned by tag only (${repository}:${pinned}), no immutable digest"
     else
+      pinned_tag="${pinned%@*}"
       pinned_digest="${pinned#*@}"
-      if [[ "$pinned_digest" == "$approved_digest" ]]; then
-        ok "${image_key}: digest-pinned and matches release/approved-digests.json"
-      else
+      if [[ "$pinned_digest" != "$approved_digest" ]]; then
         bad "${image_key}: pinned digest (${pinned_digest}) does not match the approved digest in release/approved-digests.json (${approved_digest}) — unapproved digest"
+      elif [[ "$pinned_tag" != "$approved_tag" ]]; then
+        # Same content, but the tag a human reads says something else - the
+        # compose file and the registry file disagree about which release
+        # this is.
+        bad "${image_key}: pinned tag (${pinned_tag}) does not match the approved tag in release/approved-digests.json (${approved_tag})"
+      else
+        ok "${image_key}: digest-pinned and matches release/approved-digests.json"
       fi
     fi
-  done < <(digest_registry_table)
+  done <<< "$approved_table"
+
+  # The loop above walks the approved list, so on its own it never sees an
+  # image that was added to docker-compose.yml without being approved at
+  # all - a new service with a tag-only (or digest-pinned but unreviewed)
+  # image would pass silently. Walk the compose side too.
+  approved_repos="$(cut -f2 <<< "$approved_table")"
+  while read -r image_ref; do
+    [[ -z "$image_ref" ]] && continue
+    image_repo="${image_ref%@*}"   # drop @sha256:...
+    image_repo="${image_repo%:*}"  # drop :tag
+    if ! grep -qxF "$image_repo" <<< "$approved_repos"; then
+      bad "docker-compose.yml references ${image_ref}, which has no entry in release/approved-digests.json — unapproved image"
+    fi
+  done < <(compose_image_refs)
 fi
 
 # --- Running container checks (if Docker is available) ---

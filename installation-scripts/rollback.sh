@@ -12,9 +12,10 @@ set -euo pipefail
 #   - docker-compose.yml's ps-server/ps-client image lines only (a targeted
 #     sed, not a wholesale file overwrite - so any unrelated docker-compose.yml
 #     edit made after the snapshot, e.g. a configure-host.sh
-#     --enable-local-eseal block, survives). Restores tag@digest when the
-#     snapshot's manifest.json recorded a digest (every snapshot since
-#     psapp-saas#11 does); falls back to a bare tag, with a re-pin reminder,
+#     --enable-local-eseal block, survives). Restores tag@digest: the digest
+#     the snapshot's own docker-compose.yml copy pinned for that tag, else
+#     the one its manifest.json recorded (every snapshot since psapp-saas#11
+#     has one or both); falls back to a bare tag, with a re-pin reminder,
 #     for older snapshots that predate digest recording.
 #   - config/config.js, restored verbatim from the snapshot
 #
@@ -29,8 +30,9 @@ set -euo pipefail
 # copy is byte-identical).
 #
 # Exit codes:
-#   0  rollback applied (or already at the target state)
-#   1  rollback failed
+#   0  rollback applied (or already at the target state) and the restored
+#      services are healthy
+#   1  rollback failed, or the restored services did not become healthy
 #   2  argument error / no snapshot found
 # ============================================================================
 
@@ -42,9 +44,12 @@ config_js="${repo_root}/config/config.js"
 . "${scripts_dir}/lib/rollback-snapshot.sh"
 # shellcheck source=lib/deployment-evidence.sh
 . "${scripts_dir}/lib/deployment-evidence.sh"
+# shellcheck source=lib/health-wait.sh
+. "${scripts_dir}/lib/health-wait.sh"
 
 target_ref="latest"
 assume_yes="false"
+health_timeout=300
 
 usage() {
   cat <<'EOF'
@@ -56,6 +61,9 @@ Usage:
           root's .rollback-snapshots/ (gitignored) - list them with:
             ls .rollback-snapshots/
   --yes   Skip the confirmation prompt (for non-interactive use).
+  --health-timeout N
+          Seconds to wait for the restored services to be healthy
+          (default 300). The rollback exits 1 if they are not.
 
 This restores the image tags and config/config.js exactly as they were
 immediately before the chosen upgrade.sh run. It does not touch
@@ -72,6 +80,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --to) target_ref="${2:-}"; shift 2;;
     --yes) assume_yes="true"; shift;;
+    --health-timeout) health_timeout="${2:-}"; shift 2;;
     -h|--help) usage; exit 0;;
     *) echo "ERROR: Unknown arg: $1" >&2; usage; exit 2;;
   esac
@@ -96,12 +105,31 @@ with open(os.environ['MANIFEST_PATH'], encoding='utf-8') as fh:
 manifest_server_tag="$(MANIFEST_JSON="$manifest_json" python3 -c "import json,os;print(json.loads(os.environ['MANIFEST_JSON']).get('image_tags',{}).get('ps-server') or '')" 2>/dev/null || echo "")"
 manifest_client_tag="$(MANIFEST_JSON="$manifest_json" python3 -c "import json,os;print(json.loads(os.environ['MANIFEST_JSON']).get('image_tags',{}).get('ps-client') or '')" 2>/dev/null || echo "")"
 # Recorded by write_rollback_snapshot() (lib/rollback-snapshot.sh) via
-# `docker inspect --format '{{.Image}}'` on the pre-upgrade container - this
-# is the exact content digest that was running, independent of whether
-# docker-compose.yml pinned by digest at snapshot time. Empty for snapshots
-# taken before this field existed.
+# digest_running (lib/digests.sh) on the pre-upgrade container - the registry
+# digest of what was running, independent of whether docker-compose.yml
+# pinned by digest at snapshot time. Empty for snapshots taken before this
+# field existed.
 manifest_server_digest="$(MANIFEST_JSON="$manifest_json" python3 -c "import json,os;print(json.loads(os.environ['MANIFEST_JSON']).get('image_digests',{}).get('ps-server') or '')" 2>/dev/null || echo "")"
 manifest_client_digest="$(MANIFEST_JSON="$manifest_json" python3 -c "import json,os;print(json.loads(os.environ['MANIFEST_JSON']).get('image_digests',{}).get('ps-client') or '')" 2>/dev/null || echo "")"
+
+# Prefer the digest the snapshot's own copy of docker-compose.yml pinned for
+# the same tag: that is the reviewed, approved pin that was deployed. The
+# manifest digest is only the fallback, because snapshots written before
+# digest_running existed recorded `docker inspect --format '{{.Image}}'`,
+# which on a classic (non-containerd) image store is the image config digest
+# and cannot be pulled - restoring it would leave the stack unpullable.
+#
+#   snapshot_pinned_digest <component> <tag>
+snapshot_pinned_digest() {
+  local component="$1" tag="$2"
+  [[ -z "$tag" ]] && return 0
+  sed -nE "s|.*mihailsgordijenko/${component}:${tag//./\\.}@(sha256:[0-9a-f]{64}).*|\1|p" \
+    "${snap_dir}/docker-compose.yml" 2>/dev/null | head -1
+}
+snap_server_digest="$(snapshot_pinned_digest ps-server "$manifest_server_tag")"
+snap_client_digest="$(snapshot_pinned_digest ps-client "$manifest_client_tag")"
+[[ -n "$snap_server_digest" ]] && manifest_server_digest="$snap_server_digest"
+[[ -n "$snap_client_digest" ]] && manifest_client_digest="$snap_client_digest"
 taken_at="$(MANIFEST_JSON="$manifest_json" python3 -c "import json,os;print(json.loads(os.environ['MANIFEST_JSON']).get('taken_at') or '')" 2>/dev/null || echo "")"
 
 current_server_tag="$(sed -nE 's|.*mihailsgordijenko/ps-server:([0-9]+\.[0-9]+(\.[0-9]+)?).*|\1|p' "$compose_yml" 2>/dev/null | head -1)"
@@ -174,24 +202,16 @@ if [[ -n "$services" ]]; then
 fi
 docker compose restart nginx 2>/dev/null || true
 
-echo "  Waiting for rolled-back services to report healthy..."
-for i in $(seq 1 30); do
-  all_healthy=true
-  for svc in $services; do
-    cid="$(docker compose ps -q "$svc" 2>/dev/null || echo "")"
-    [[ -z "$cid" ]] && { all_healthy=false; break; }
-    health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}healthy{{end}}' "$cid" 2>/dev/null || echo "unknown")"
-    [[ "$health" != "healthy" ]] && all_healthy=false
-  done
-  if [[ "$all_healthy" == "true" ]]; then
-    echo "  Rolled-back services are healthy."
-    break
-  fi
-  sleep 2
-  if [[ "$i" == "30" ]]; then
-    echo "  WARNING: rolled-back services did not report healthy within 60s. Check: docker compose ps" >&2
-  fi
-done
+echo "  Waiting for rolled-back services to report healthy (up to ${health_timeout}s)..."
+# shellcheck disable=SC2086 # word-splitting the service list is intended
+if ! wait_for_healthy "$health_timeout" $services nginx; then
+  write_deployment_evidence "rollback.sh (unhealthy)" || true
+  echo "" >&2
+  echo "ROLLBACK APPLIED BUT NOT HEALTHY: the restored configuration is in place," >&2
+  echo "but the services above did not become healthy. Check: docker compose ps" >&2
+  exit 1
+fi
+echo "  Rolled-back services are healthy."
 
 write_deployment_evidence "rollback.sh"
 

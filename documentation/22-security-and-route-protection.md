@@ -32,7 +32,7 @@ The recommended pattern needs no application changes and is enforced entirely at
 
 `GET /archive/api/document/{docid}/download` accepts either credential, so it works for both callers:
 
-- the pad browser (`ps-client` 8.38+) sends the user's Keycloak Bearer token
+- the pad browser (`ps-client` at or above the `closable-download-route` minimum in `release/capabilities.json`) sends the user's Keycloak Bearer token
 - a 3rd-party system sends the same `Authorization: Basic ...` credential used for `/archive/api` and `/container/api`
 
 Keep the Docker-subnet `allow` (ps-server's own internal downloads send no credential at all) and add both `auth_basic` and an `auth_request` check against Keycloak's userinfo endpoint to the same location; `satisfy any` grants access if either one passes.
