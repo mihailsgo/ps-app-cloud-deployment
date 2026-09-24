@@ -25,6 +25,7 @@ host than `nginx/nginx.conf` serves, a mismatch that never works. Details in
 ## The steps
 
 1. **Backs up** `docker-compose.yml` and `config/config.js` (`.bak` files)
+   Then, **before anything is rewritten or pulled, verifies the cosign signature** of each requested `ps-server` / `ps-client` image, and its signed SBOM and provenance attestations, against `release/cosign.pub` - by the approved digest when this checkout approves the tag, otherwise by the digest the tag resolves to now. A signature that does not verify stops the upgrade with `docker-compose.yml` and `config.js` untouched. No cosign on the host only warns (it refuses under `CI=true` or `PADSIGN_REQUIRE_SIGNATURES=1`); `ps-server:3.28` / `ps-client:8.39`, released before signing existed, pass with a warning. See [40.2](40-02-post-deploy-validation.md#image-signatures-cosign)
 2. **Updates image tags** in `docker-compose.yml` - replaces `ps-server:X.XX` and/or `ps-client:X.XX` with the new versions
 3. **Ensures `DOCUMENT_ROUTING`** config block exists in `config.js` (appends if missing, disabled by default - does not overwrite existing settings)
 4. **Ensures `signed-output` volume mount** exists in `docker-compose.yml` for ps-server
