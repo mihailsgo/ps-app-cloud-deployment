@@ -15,6 +15,8 @@
 
 It restores **only** `docker-compose.yml`'s `ps-server`/`ps-client` image lines (a targeted `sed`, the same mechanism `upgrade.sh` uses to bump them, run in reverse — not a wholesale file overwrite, so an unrelated `docker-compose.yml` edit made after the snapshot survives) and `config/config.js` (restored verbatim from the snapshot), then pulls and restarts the affected services and waits for them to report healthy using the health checks from [40.1](40-01-health-checks-and-startup-order.md). It never touches `signed-output/`, `docs/`, `nginx/nginx.conf`, or `config/constants.json`. It writes deployment evidence at the end, same as `upgrade.sh`. Since [psapp-saas#11](https://github.com/mihailsgo/psapp-saas/issues/11) (image digest pinning), it restores the exact `tag@sha256:digest` the snapshot's manifest recorded, not just the tag — see *Known limitation* below.
 
+**Signatures.** `rollback.sh` does not verify image signatures. It only ever restores a pin that was deployed before, and it is the emergency path, so it should not be the step that discovers a missing cosign. `validate-config.sh` still checks the restored pin afterwards: the pre-signing releases `ps-server:3.28` / `ps-client:8.39` are exempt by exact digest ([40.2](40-02-post-deploy-validation.md#image-signatures-cosign)), so rolling back to them from the first signed release does not fail validation.
+
 ## Failed deployments now fail
 
 `upgrade.sh` used to finish with `Upgrade complete!` and exit `0` for any image that pulled: `docker compose up -d` returns once the container is created, and step 6 only printed a warning if a log line was missing. A broken image that pulls fine was reported as a successful upgrade.

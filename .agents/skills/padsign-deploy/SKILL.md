@@ -61,6 +61,10 @@ At least one of `--server-tag` or `--client-tag` is required (exception: `--enab
 
 Every `upgrade.sh` run also applies the `keycloak-backend-audience` migration: it adds an audience mapper to `padsign-client` in the live Keycloak realm, because Keycloak 26.4.12/26.6.2/26.7.0+ otherwise reject ps-server's token introspection and every portal API call 401s. It needs the Keycloak admin credentials, which default to the keycloak container's own `KEYCLOAK_ADMIN_PASSWORD`. If the operator changed that password in the admin console, pass `KEYCLOAK_ADMIN_PASSWORD=...` in the environment. If the run prints `WARNING: could not add padsign-backend...`, surface it to the user, because the upgrade continues regardless (see documentation/14-08-token-audience-for-introspection.md).
 
+### Image signatures (cosign)
+
+`upgrade.sh` verifies the cosign signature, SBOM and provenance attestations of each requested ps-server / ps-client image against `release/cosign.pub` before it rewrites or pulls anything, and `validate-config.sh` checks the pinned digests the same way. If either reports that a signature does not verify, stop and surface it to the user: do not work around it by editing `release/cosign.pub` or `release/unsigned-legacy-images.json`. A `WARN ... cosign is not installed` means the check did not run; tell the user (install recipe in documentation/40-02-post-deploy-validation.md). `ps-server:3.28` / `ps-client:8.39` warn as pre-signing releases, which is expected.
+
 ### `validate-config.sh`
 
 `--host` is optional but should be passed whenever known — it's the only check that catches hostname drift between `nginx.conf`, `constants.json`, `config.js`, and compose's keycloak `KC_HOSTNAME` (a mismatch there sends browsers to that other host at login and stamps it into every token's issuer).

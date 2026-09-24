@@ -833,6 +833,56 @@ approved_pin() {
   digest_registry_table 2>/dev/null | tr -d '\r' \
     | awk -F'\t' -v k="$1" -v t="$2" '$1 == k && $3 == t && $4 ~ /^sha256:/ { print "@" $4; exit }'
 }
+
+# ── Signature pre-flight: before anything is rewritten or pulled ──
+# Each requested ps-server / ps-client image must carry a cosign signature
+# (plus signed SBOM and provenance attestations) from psapp's CI, checked
+# against release/cosign.pub - by the approved digest when this checkout
+# approves the tag, which is exactly what step 2 then pins and step 5
+# pulls. A signature that does not verify aborts here, with
+# docker-compose.yml and config.js untouched. No cosign on the host only
+# warns (fails under CI=true or PADSIGN_REQUIRE_SIGNATURES=1); see
+# lib/signatures.sh and documentation/40-02-post-deploy-validation.md.
+# shellcheck source=lib/signatures.sh
+. "${scripts_dir}/lib/signatures.sh"
+preflight_signature() {  # <image key> <tag>
+  local key="$1" tag="$2" repository="mihailsgordijenko/$1" pin digest ref
+  pin="$(approved_pin "$key" "$tag")"
+  digest="${pin#@}"
+  # Not approved here (a hotfix, or going back to an older release): check
+  # the digest the tag resolves to right now, so a pre-signing release is
+  # still recognised by its exact digest. Tags are never moved, so this is
+  # the content step 5 pulls.
+  [[ -z "$digest" ]] && digest="$(digest_live "$repository" "$tag" | tr -d '\r')"
+  if [[ -n "$digest" ]]; then ref="${repository}@${digest}"; else ref="${repository}:${tag}"; fi
+  signature_check "$repository" "$ref" "$digest"
+  case "$sig_status" in
+    verified) echo "  ${key}:${tag}: ${sig_message}" ;;
+    exempt) echo "  WARNING: ${key}:${tag}: ${sig_message}" ;;
+    unavailable)
+      if signatures_required; then
+        echo "ERROR: ${key}:${tag}: ${sig_message}. Install cosign v${cosign_min_major}+ to upgrade here." >&2
+        return 1
+      fi
+      echo "  WARNING: ${key}:${tag}: ${sig_message}" ;;
+    *)
+      echo "ERROR: ${key}:${tag} (${ref}): ${sig_message}" >&2
+      return 1 ;;
+  esac
+}
+if [[ -n "$server_tag" || -n "$client_tag" ]]; then
+  echo "Pre-flight: verifying image signatures..."
+  sig_ok=true
+  [[ -n "$server_tag" ]] && { preflight_signature ps-server "$server_tag" || sig_ok=false; }
+  [[ -n "$client_tag" ]] && { preflight_signature ps-client "$client_tag" || sig_ok=false; }
+  if [[ "$sig_ok" != true ]]; then
+    echo "" >&2
+    echo "Upgrade refused before any change: an image signature could not be verified." >&2
+    echo "Nothing was rewritten or pulled; the rollback snapshot written in step 1 is unused." >&2
+    exit 1
+  fi
+fi
+
 echo "Step 2/6: Updating image tags..."
 unpinned_tags=false
 if [[ -n "$server_tag" ]]; then

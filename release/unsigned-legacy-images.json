@@ -1,0 +1,15 @@
+{
+  "//": "Closed list of PadSign images released BEFORE cosign signing existed (psapp-saas#11), which installation-scripts/lib/signatures.sh accepts unsigned. Matched by exact repository + digest, never by tag or version range, so no image pushed later can ever match whatever it is tagged. These are the two releases deployed when signing was introduced, i.e. the images a rollback from the first signed release returns to. Older releases are not listed: they cannot pass validate-config.sh's approved-digest gate either, so listing them would exempt nothing a deployment can actually run. Do NOT add entries for new releases - a new release that is not signed is a failed release (sign it with psapp's sign-image.yml instead). Remove an entry once no supported deployment can roll back to it.",
+  "images": [
+    {
+      "repository": "mihailsgordijenko/ps-server",
+      "tag": "3.28",
+      "digest": "sha256:98bb0577865a576380796cffcb15c6e68b13c8e8c109192065d65bba26b2bac0"
+    },
+    {
+      "repository": "mihailsgordijenko/ps-client",
+      "tag": "8.39",
+      "digest": "sha256:8722d407215c680e40b0907e51f4e7a279014ea0d56088f9bc83605ddcf6511a"
+    }
+  ]
+}
