@@ -4,6 +4,9 @@ services:
     environment:
       - KEYCLOAK_ADMIN=admin
       - KEYCLOAK_ADMIN_PASSWORD=admin
+      # Set to the deployment host by configure-host.sh (so bootstrap.sh and
+      # update-hostname.sh too). Not cosmetic: Keycloak uses it as its fixed
+      # frontend hostname - the token issuer and the login form's URLs.
       - KC_HOSTNAME=padsign.trustlynx.com
       - KC_HTTP_RELATIVE_PATH=/auth
       - KC_PROXY=edge
@@ -193,6 +196,8 @@ services:
     networks:
       default:
         aliases:
+          # First entry is set to the deployment host by configure-host.sh, so
+          # https://<host>/ resolves to nginx from inside this network.
           - padsign.trustlynx.com
     healthcheck:
       # -k: this probes nginx's own TLS listener from inside its own

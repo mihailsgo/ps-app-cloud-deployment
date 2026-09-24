@@ -17,7 +17,7 @@ Decide which workflow the user actually needs before doing anything:
 | Bump `ps-server` and/or `ps-client` image tags | `upgrade.sh` | Only restarts the changed services; Keycloak/DMSS/nginx stay up |
 | Preview what an upgrade would change, without writing anything | `upgrade.sh [same args] --plan-only` | Read-only; renders every pending config migration and exits 0 |
 | Sanity-check files after manual edits or before handoff | `validate-config.sh --host <h>` | Read-only; exits non-zero on failure |
-| Change the hostname of a LIVE deployment | `update-hostname.sh --host <new> --admin-pass <p> [--cert-crt/--cert-key]` | Rewrites configs, syncs the Keycloak client's redirect URIs, restarts nginx + ps-server. Do NOT use bare `configure-host.sh` for this — it skips the Keycloak sync. |
+| Change the hostname of a LIVE deployment | `update-hostname.sh --host <new> --admin-pass <p> [--cert-crt/--cert-key]` | Rewrites configs (incl. compose `KC_HOSTNAME` + nginx alias), syncs the Keycloak client's redirect URIs, recreates keycloak + nginx, restarts ps-server. Users sign in again (the token issuer changes). Do NOT use bare `configure-host.sh` for this — it skips the Keycloak sync. |
 | Renew the TLS certificate (hostname unchanged) | `renew-cert.sh --host <h> --cert-crt <crt> --cert-key <key>` | Pure cert swap; restarts nginx and verifies the served cert over the wire |
 | Toggle features after go-live (routing / demo / local e-sealing) | `toggle-features.sh --enable-*/--disable-*` | Restarts only what each change needs; demo mode needs no restart |
 | Just rotate the backend client secret into config.js | `configure-host.sh --host <h> --backend-secret <s>` | Standalone; no other side effects |
@@ -63,7 +63,7 @@ Every `upgrade.sh` run also applies the `keycloak-backend-audience` migration: i
 
 ### `validate-config.sh`
 
-`--host` is optional but should be passed whenever known — it's the only check that catches hostname drift between `nginx.conf`, `constants.json`, and `config.js`.
+`--host` is optional but should be passed whenever known — it's the only check that catches hostname drift between `nginx.conf`, `constants.json`, `config.js`, and compose's keycloak `KC_HOSTNAME` (a mismatch there sends browsers to that other host at login and stamps it into every token's issuer).
 
 ## How to run
 
@@ -101,7 +101,7 @@ If any check fails, surface the exact failing command and its output to the user
 | `nginx/nginx.conf` | `configure-host.sh` | server_name, cert paths, root→/portal/ redirect |
 | `config/constants.json` | `configure-host.sh` (Python JSON edit) | client-side Keycloak URLs, redirect URIs, download API |
 | `config/config.js` | `configure-host.sh` + `upgrade.sh` | server-side service URLs, backend secret, ALLOWED_ORIGINS, DEMO_COMPANY_ROLE, DOCUMENT_ROUTING, CUSTOMER_DATA_* |
-| `docker-compose.yml` | `upgrade.sh` (image tags) + `configure-host.sh` (volume mount) | image tags, volumes, network, per-service `healthcheck:`/`depends_on: condition: service_healthy` (see documentation/40-01) |
+| `docker-compose.yml` | `upgrade.sh` (image tags, `compose-hostname` migration) + `configure-host.sh` (volume mount, keycloak `KC_HOSTNAME`, nginx network alias, Keycloak admin creds) — hostname fields via `lib/compose-hostname.sh` | image tags, volumes, network, per-service `healthcheck:`/`depends_on: condition: service_healthy` (see documentation/40-01) |
 | `nginx/certs/<host>.{crt,key}` | `configure-host.sh` copies from `installation-scripts/certs/` | TLS material — git-ignored |
 | `signed-output/`, `docs/` | `bootstrap.sh`/`upgrade.sh` via `lib/dir-permissions.sh` | mode 750/770, never 777 — see that file's header for why |
 | `deployment-evidence.json` | `bootstrap.sh`/`upgrade.sh`/`postdeploy-check.sh` via `lib/deployment-evidence.sh` | git revision, image tags/revisions/digests, config checksums, restart counts — git-ignored |

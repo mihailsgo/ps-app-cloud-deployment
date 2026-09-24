@@ -16,8 +16,10 @@ consumes.
 when its target is absent, so a value you have customised — a document-routing
 path, a real `seal.p12`, a non-default stamping `baseUrl` — is detected and
 left alone. `--plan-only` reports those as *already applied*. Step 2 (image
-tags) is the one step that always rewrites, because it is the change you asked
-for. Details in
+tags) always rewrites, because it is the change you asked for. Step 7
+(`compose-hostname`) is the one migration that corrects an existing value: it
+fires only when `KC_HOSTNAME` or the nginx network alias names a different
+host than `nginx/nginx.conf` serves, a mismatch that never works. Details in
 [36.9 Previewing configuration changes](36-09-previewing-configuration-changes.md).
 
 ## The steps
@@ -54,14 +56,26 @@ for. Details in
    Keycloak cannot be reached, the step prints a warning with the fix and the
    upgrade continues. See
    [14.8 Token audience for introspection](14-08-token-audience-for-introspection.md).
-8. **Pulls new Docker images** - only the services being upgraded
-9. **Restarts changed containers** - only ps-server and/or ps-client and
-   the new stamping service if applicable; Keycloak, DMSS, nginx stay running
-10. **Restarts nginx** to pick up any config changes
-11. **Verifies** ps-server startup and prints running container versions
-12. **Records deployment evidence** - writes `deployment-evidence.json`
+8. **Aligns the compose hostname (`compose-hostname`)** - if the keycloak
+   service's `KC_HOSTNAME` or the nginx service's first network alias names a
+   different host than `nginx/nginx.conf`'s `server_name`, rewrites it to that
+   host. Typically the shipped `padsign.trustlynx.com`, left behind on
+   deployments configured before `configure-host.sh` rewrote it: Keycloak then
+   issues tokens for, and sends logins to, `padsign.trustlynx.com`. Never adds a
+   `KC_HOSTNAME` or an alias list that isn't there, and is skipped when
+   `nginx.conf` doesn't name exactly one host. Changing `KC_HOSTNAME` changes the
+   token issuer, so signed-in users sign in again
+9. **Pulls new Docker images** - only the services being upgraded
+10. **Restarts changed containers** - only ps-server and/or ps-client and
+   the new stamping service if applicable; DMSS stays running, and Keycloak
+   stays running unless step 8 changed `KC_HOSTNAME` (then it is recreated and
+   waited for)
+11. **Restarts nginx** to pick up any config changes - recreated instead if
+    step 8 changed its network alias, since a restart keeps the old definition
+12. **Waits for the restarted services to be healthy** and prints running container versions; exits 1 if they are not healthy in time (`--health-timeout`), running `rollback.sh` first when `--rollback-on-failure` was given
+13. **Records deployment evidence** - writes `deployment-evidence.json`
     (git-ignored) with this repo's git revision/dirty flag, the pinned image
     tags and their OCI revision labels, sha256 checksums of the four
     per-host-mutated config files, and which optional features are enabled
-13. **Prints rollback command** in case anything goes wrong
+14. **Prints rollback command** in case anything goes wrong
 

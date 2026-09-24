@@ -1,8 +1,8 @@
 ###PLAN-BEGIN
 server_tag_from=3.28
 server_tag_to=3.28
-client_tag_from=8.38
-client_tag_to=8.38
+client_tag_from=8.39
+client_tag_to=8.39
 ###PLAN-ITEM
 id=document-routing
 status=already-applied
@@ -16,6 +16,14 @@ id=signed-output
 status=already-applied
 files=docker-compose.yml,signed-output/,docs/
 title=Add signed-output volume mount and create signed-output/ and docs/
+###PLAN-BODY-BEGIN
+###PLAN-BODY-END
+###PLAN-ITEM-END
+###PLAN-ITEM
+id=compose-hostname
+status=already-applied
+files=docker-compose.yml
+title=Point Keycloak KC_HOSTNAME and the nginx network alias at the hostname nginx serves
 ###PLAN-BODY-BEGIN
 ###PLAN-BODY-END
 ###PLAN-ITEM-END

@@ -119,9 +119,10 @@ async function checkLiveCert(host) {
 //
 //  1. --connect nginx:443 is passed explicitly. scriptRunner/this process run
 //     INSIDE the wizard container, where localhost:443 is nothing at all —
-//     nginx is reachable only by its compose service name. (The nginx service's
-//     network alias is the repo's baseline hostname, which configure-host.sh
-//     never rewrites, so the alias is not a usable target either.)
+//     nginx is reachable only by its compose service name. (configure-host.sh
+//     sets the nginx service's network alias to the host, but a customised
+//     compose file may have no alias at all, or one left stale by an older
+//     checkout, so the service name is the target that always resolves.)
 //
 //  2. It NEVER rethrows. runValidateCerts() rethrows anything that isn't exit
 //     1, which is right for an upload flow but wrong here: GET /settings does

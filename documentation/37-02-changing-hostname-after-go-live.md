@@ -23,8 +23,11 @@ so that failure mode isn't reachable through the UI.
    to Keycloak and sync its client config — never stored anywhere, exactly
    like onboarding's own admin-password field).
 5. Click **Update Hostname** — shown in red, because it restarts live
-   services. Confirm in the dialog and watch the live progress. nginx and
-   ps-server both restart as part of this — expect a brief interruption.
+   services. Confirm in the dialog and watch the live progress. Keycloak and
+   nginx are recreated and ps-server restarts as part of this — expect a
+   brief interruption, and expect every user to sign in again afterwards
+   (Keycloak's token issuer is the hostname, so tokens issued for the old
+   one stop validating).
    If the run fails, **Retry** re-runs it with the identical arguments; see
    [36.6](36-06-troubleshooting-the-wizard.md).
 
@@ -39,7 +42,11 @@ so that failure mode isn't reachable through the UI.
    Keycloak-admin-credential and feature-flag arguments (a hostname change
    doesn't touch either). The company/role name is read live from
    `config/config.js`'s `DEMO_COMPANY_ROLE` and passed straight through
-   unchanged.
+   unchanged. In `docker-compose.yml` it sets the keycloak service's
+   `KC_HOSTNAME` and the nginx service's first network alias to the new host.
+   `KC_HOSTNAME` is Keycloak's fixed frontend hostname, which decides the
+   token issuer and the login form's URLs: left on the old host, browsers
+   are sent there at login.
 
    > **Why a cert is always required here, even for "just" a hostname
    > change**: `configure-host.sh` unconditionally points `nginx.conf` at
@@ -54,10 +61,14 @@ so that failure mode isn't reachable through the UI.
    is new (added for this feature) — without it, this step would silently
    delete and recreate the demo `test` Keycloak user with a fresh random
    password on every hostname change, which is fine during first bootstrap
-   but a surprising side effect on an already-live deployment.
-4. **Restart & verify** — `docker compose restart nginx ps-server`, then
-   confirms ps-server actually came back up and the new hostname's root
-   redirect responds.
+   but a surprising side effect on an already-live deployment. Its
+   `docker compose up -d keycloak` recreates the keycloak container, because
+   step 2 changed `KC_HOSTNAME`; the client sync then runs against the
+   recreated one.
+4. **Recreate, restart & verify** — `docker compose up -d --no-deps
+   --force-recreate nginx` (a plain restart would keep the old network alias)
+   and `docker compose restart ps-server`, then confirms ps-server actually
+   came back up and the new hostname's root redirect responds.
 
 ## Running it without the wizard
 
@@ -78,6 +89,10 @@ default location `configure-host.sh`/`bootstrap.sh` already use).
 ```bash
 curl -kI https://padsign.newclient.com/          # expect a 301 to /portal/
 docker compose logs ps-server --tail 20          # confirm it restarted cleanly
+curl -s https://padsign.newclient.com/auth/realms/padsign/.well-known/openid-configuration \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["issuer"])'
+                                                 # expect https://padsign.newclient.com/auth/realms/padsign
+./installation-scripts/validate-config.sh --host padsign.newclient.com
 ```
 
 In Keycloak's admin console (`https://<host>/auth/admin/`), open the

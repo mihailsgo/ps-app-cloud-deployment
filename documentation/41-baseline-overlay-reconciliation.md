@@ -19,7 +19,7 @@ fields either script mutates:
 | `nginx/nginx.conf` | `server_name`, TLS cert paths, root→`/portal/` redirect |
 | `config/constants.json` | `KEYCLOAK_URL`, `KEYCLOAK_REDIRECT_URI`, `KEYCLOAK_POST_LOGOUT_REDIRECT_URI`, `PS_DOWNLOAD_API`, `PDF_TEST_PATH`, `DEMO_MODE` |
 | `config/config.js` | hostname-embedded service URLs, Keycloak backend `secret`, `DEMO_COMPANY_ROLE`, the `DOCUMENT_ROUTING` block, `STAMP_MODE`/`STAMP_LOCAL` |
-| `docker-compose.yml` | `ps-server`/`ps-client` image tags, the `signed-output` volume mount, `KEYCLOAK_ADMIN`/`KEYCLOAK_ADMIN_PASSWORD`, the optional local-eseal service block + its `SPRING_SECURITY_USER_*` env |
+| `docker-compose.yml` | `ps-server`/`ps-client` image tags, the `signed-output` volume mount, `KEYCLOAK_ADMIN`/`KEYCLOAK_ADMIN_PASSWORD`, keycloak's `KC_HOSTNAME`, nginx's network alias, the optional local-eseal service block + its `SPRING_SECURITY_USER_*` env |
 
 Anything that changes in these files but isn't in this table is drift, not
 overlay — a hand edit that a plain `git pull`/`merge` on the host risks

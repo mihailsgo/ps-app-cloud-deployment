@@ -14,17 +14,27 @@ set -euo pipefail
 #
 # What it does (end-to-end):
 #   1) Backs up config files
-#   2) Rewrites nginx/config files for the new hostname (+ cert, if given)
-#   3) Syncs the Keycloak client's redirect URIs to the new hostname
-#   4) Restarts nginx + ps-server and verifies
+#   2) Rewrites nginx/config files for the new hostname (+ cert, if given),
+#      including docker-compose.yml's KC_HOSTNAME and nginx network alias
+#   3) Syncs the Keycloak client's redirect URIs to the new hostname. This
+#      also recreates the keycloak container (keycloak-bootstrap.sh's
+#      `docker compose up -d keycloak` sees the changed KC_HOSTNAME), which
+#      is what makes Keycloak issue tokens for the new host.
+#   4) Recreates nginx (picks up the new alias, nginx.conf and cert),
+#      restarts ps-server, and verifies
+#
+# KC_HOSTNAME is not inert: with it set, Keycloak uses it as its fixed
+# frontend hostname whatever KC_HOSTNAME_STRICT or the proxy headers say, so
+# it decides the token issuer and the login form's action URL. Changing it
+# changes the issuer, so tokens issued for the old hostname stop validating
+# and every user signs in again.
 #
 # Deliberately does NOT: touch Keycloak's own admin bootstrap credentials
 # (docker-compose.yml's KEYCLOAK_ADMIN*), change any --enable-*/--disable-*
 # feature flags (configure-host.sh's flags are additive-only, so omitting
-# them is already a true no-op against existing feature state), reset the
-# demo 'test' Keycloak user (see keycloak-bootstrap.sh --skip-test-user), or
-# touch KC_HOSTNAME on the keycloak compose service (inert today given
-# KC_HOSTNAME_STRICT=false + KC_PROXY=edge) — it changes ONLY the hostname.
+# them is already a true no-op against existing feature state), or reset the
+# demo 'test' Keycloak user (see keycloak-bootstrap.sh --skip-test-user) —
+# it changes ONLY the hostname.
 # ============================================================================
 
 host=""
@@ -162,10 +172,14 @@ fi
   --skip-test-user
 
 # ── Step 4: Restart and verify ──
-echo "Step 4/4: Restarting nginx + ps-server and verifying..."
+# nginx is recreated, not restarted: its network alias changed in
+# docker-compose.yml, and a restart reuses the old container definition.
+# --no-deps: ps-client/ps-server are already up; don't touch them here.
+echo "Step 4/4: Recreating nginx, restarting ps-server and verifying..."
 cd "${repo_root}"
 restart_at="$(date +%s)"
-docker compose restart nginx ps-server
+docker compose up -d --no-deps --force-recreate nginx
+docker compose restart ps-server
 
 # --since filters to lines emitted AFTER this restart — docker compose
 # restart reuses the same container, so its log history still contains

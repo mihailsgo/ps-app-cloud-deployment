@@ -70,7 +70,9 @@ the actual work:
 
 - `update-hostname.sh` — chains `configure-host.sh` (file rewrites) and
   `keycloak-bootstrap.sh` (Keycloak client sync) the same way `bootstrap.sh`
-  already does internally, then restarts nginx + ps-server. See
+  already does internally, then recreates Keycloak and nginx (new
+  `KC_HOSTNAME` and network alias in `docker-compose.yml`) and restarts
+  ps-server. See
   [37.2](37-02-changing-hostname-after-go-live.md).
 - `renew-cert.sh` — calls `configure-host.sh` with the hostname unchanged
   (a pure cert swap) then restarts nginx. See
