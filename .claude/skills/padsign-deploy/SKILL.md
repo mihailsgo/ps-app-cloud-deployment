@@ -76,7 +76,7 @@ Its image-digest section checks the *effective* compose model (`docker-compose.y
 
 ## How to run
 
-The scripts are bash. On Linux/macOS run them directly; on Windows use Git Bash, WSL, or invoke via the Bash tool. There is a `keycloak-bootstrap.ps1` PowerShell companion for the Keycloak step only — there is **no** PowerShell port of `bootstrap.sh` / `upgrade.sh` / `configure-host.sh`, so don't try to translate them on the fly.
+The scripts are bash. On Linux/macOS run them directly; on Windows use Git Bash, WSL, or invoke via the Bash tool. There is **no** PowerShell port of any of them (including `keycloak-bootstrap.sh`), so don't try to translate them on the fly.
 
 Bootstrap requires: `docker`, `docker compose` v2, `awk`, `perl`, `python3`, `curl`, `openssl`. Verify with `command -v` if a run fails on a fresh machine.
 

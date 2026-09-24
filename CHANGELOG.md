@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.0.39
+
+- Removed `installation-scripts/keycloak-bootstrap.ps1`, the Windows-only Keycloak bootstrap. It no longer worked and could not be made safe without a full second copy of `keycloak-bootstrap.sh`:
+  - It did not parse on Windows PowerShell 5.1. `$ErrorActionPreference` came before `param(...)`, and the redirect-URI line used `\"`, which is not a PowerShell escape ("Unexpected token").
+  - Its readiness check polled `http://localhost:8080/auth/health/ready`. With `KC_HEALTH_ENABLED`, Keycloak 26 serves health on the management port 9000, so the check could only time out.
+  - It put secrets on command lines. The kcadm login expanded `--password "${KEYCLOAK_ADMIN_PASSWORD:-admin}"` into kcadm's argv inside the container, which the host's `ps` lists. The `test` user's password was inlined into the `docker compose exec` argv, and it was just the lowercased company role.
+  - It never created the `padsign-backend-audience` mapper ([14.8](documentation/14-08-token-audience-for-introspection.md)), so on the pinned Keycloak a realm it built would log in but return 401 on every API call. It also left out the `test` user's first and last name and the client `name` fields.
+- On a Windows development machine, run `keycloak-bootstrap.sh` (and every other script) from Git Bash or WSL. It reaches Keycloak through `docker compose exec`, not the host port. Linux stays the only supported deployment target.
+- Keycloak's `127.0.0.1:8080` host port is unchanged. It is still used for local `curl localhost:8080` diagnostics, and the `docker-compose.yml` comment now gives only that reason.
+- Docs: [9](documentation/09-prerequisites.md), [14.2](documentation/14-02-automated-setup-recommended.md), `AGENTS.md`, and the `padsign-deploy` skill (both mirrors).
+
 ## v1.0.38
 
 Two gaps in deployment evidence against [psapp-saas#12](https://github.com/mihailsgo/psapp-saas/issues/12) criterion 6 ("Validation evidence records exact image digests, configuration checksums, and restart deltas").
