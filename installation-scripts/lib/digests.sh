@@ -1,19 +1,30 @@
 # shellcheck shell=bash
 #
 # Shared reader for release/approved-digests.json, plus helpers for reading
-# what's actually pinned in docker-compose.yml and what a registry currently
-# serves for a tag. Follows the same pattern as lib/capabilities.sh: one
-# machine-readable registry, read at run time, never a value hardcoded in a
-# script.
+# what the EFFECTIVE compose model actually pins and what a registry
+# currently serves for a tag. Follows the same pattern as lib/capabilities.sh:
+# one machine-readable registry, read at run time, never a value hardcoded in
+# a script.
 #
-# Sourced by validate-config.sh (compose file vs. registry file only - no
-# network), check-digest-drift.sh (registry file vs. the live registry
-# over the network), and rollback-snapshot.sh / deployment-evidence.sh
-# (digest_running, to record what a container is actually running).
+# "Effective compose model" = what `docker compose up` would run here: every
+# file COMPOSE_FILE names (an environment overlay such as the section 42
+# compose.overlay.yml adds or replaces images), with every profile enabled so
+# the profile-gated stamping and wizard services are always covered. Reading
+# docker-compose.yml alone let an overlay's images bypass the gate. The model
+# comes from lib/digest_gate.py (`docker compose config`, with a plain-file
+# fallback when docker is unavailable).
+#
+# Sourced by validate-config.sh (compose model vs. registry file only - no
+# network; postdeploy-check.sh runs it), check-digest-drift.sh (also vs. the
+# live registry over the network), upgrade.sh (approved_pin and the
+# unapproved-tag refusal), dmss-seal-smoke.sh (which DMSS images to boot),
+# and rollback-snapshot.sh / deployment-evidence.sh (digest_running, to
+# record what a container is actually running).
 #
 # Expects "$repo_root" to be set by the sourcing script.
 
 digests_json="${digests_json:-${repo_root}/release/approved-digests.json}"
+digest_gate_py="${repo_root}/installation-scripts/lib/digest_gate.py"
 
 # Prints the whole registry as one image per line, tab-separated:
 #   <key><TAB><repository><TAB><tag><TAB><digest>
@@ -52,16 +63,32 @@ for key, entry in data.get("images", {}).items():
 PY
 }
 
-# Extracts what's actually pinned for <repository> in docker-compose.yml:
-# prints "TAG@sha256:DIGEST" if a digest is pinned, bare "TAG" if the image
-# is only tag-pinned, or nothing if the repository isn't referenced at all.
+# Loads the effective compose model once into $compose_images (one
+# "<service>\t<image>" line per service) and $compose_images_source (how it
+# was obtained). Call it at top level before any loop: a call made inside
+# $(...) primes only that subshell, so every helper below still works
+# unprimed, just slower (each call renders the model again).
+compose_images_prime() {
+  local out
+  out="$(python3 "$digest_gate_py" images "$repo_root" | tr -d '\r')" || return 3
+  compose_images_source="$(grep '^#source' <<< "$out" | head -1 | cut -f3-)"
+  compose_images="$(grep -v '^#source' <<< "$out" || true)"
+  compose_images_raw="$out"
+}
+
+_compose_images_ensure() {
+  [[ -n "${compose_images_raw+x}" ]] || compose_images_prime
+}
+
+# Extracts what the effective compose model pins for <repository>: prints
+# "TAG@sha256:DIGEST" if a digest is pinned, bare "TAG" if the image is only
+# tag-pinned, or nothing if no service uses the repository at all.
 #
 #   digest_from_compose <repository>
 digest_from_compose() {
   local repository="$1"
-  grep -oE "${repository}:[A-Za-z0-9._-]+(@sha256:[0-9a-f]{64})?" "${repo_root}/docker-compose.yml" \
-    | head -1 \
-    | sed "s|^${repository}:||"
+  _compose_images_ensure
+  cut -f2 <<< "$compose_images"     | grep -E "^${repository}:[A-Za-z0-9._-]+(@sha256:[0-9a-f]{64})?$"     | head -1     | sed "s|^${repository}:||"
 }
 
 # Queries the live registry for what <repository>:<tag> currently resolves
@@ -76,14 +103,27 @@ digest_live() {
     | awk '/^Digest:/ { print $2; exit }'
 }
 
-# Prints every image reference docker-compose.yml declares, one per line,
-# quotes and \r stripped. A plain sed over the file rather than
-# `docker compose config --images`, which only lists services whose profile
-# is active - the profile-gated stamping and wizard services would never be
-# seen, and this also has to work on a host without Docker.
+# Prints every image reference of the effective compose model, one per line.
 compose_image_refs() {
-  sed -nE "s/^[[:space:]]*image:[[:space:]]*['\"]?([^'\"[:space:]]+).*/\1/p" \
-    "${repo_root}/docker-compose.yml" | tr -d '\r'
+  _compose_images_ensure
+  cut -f2 <<< "$compose_images" | sed '/^$/d'
+}
+
+# The digest gate itself: every image of the effective compose model must be
+# digest-pinned and approved, by release/approved-digests.json or, on a host
+# running an environment overlay, by the overlay's own approved-digests.json
+# (documentation/42-03). Prints "<OK|FAIL|INFO><TAB><message>" lines; the
+# caller decides how to render them. validate-config.sh and
+# check-digest-drift.sh both use this, so they cannot disagree.
+digest_gate_check() {
+  _compose_images_ensure
+  python3 "$digest_gate_py" check "$repo_root" "$digests_json" <<< "$compose_images_raw" | tr -d '\r'
+}
+
+# The overlay's approvals, same columns as digest_registry_table
+# (<key><TAB><repository><TAB><tag><TAB><digest>), or nothing.
+digest_env_registry_table() {
+  python3 "$digest_gate_py" approvals "$repo_root" | tr -d '\r'
 }
 
 # Prints the registry digest (sha256:..., the same value docker-compose.yml

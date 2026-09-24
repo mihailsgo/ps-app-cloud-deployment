@@ -17,7 +17,7 @@ The three pieces #7 names explicitly are all inside
 |---|---|
 | Source revision | `deployment_repo.revision` (the tag's commit, cross-check against `O2-baseline-revision.txt`); `deployment_repo.modified_tracked_files`; `overlay.baseline_commit` |
 | Configuration checksums | `config_checksums`: `config/config.js`, `config/constants.json`, `nginx/nginx.conf`, `docker-compose.yml`, each DMSS `application.yml` and `documentsigningprofiles.json`, and the compose overlay file |
-| Image digests | `image_digests`: the running container image id per service; the pinned `tag@sha256` lines are in `docker-compose.yml` / `compose.overlay.yml` |
+| Image digests | `image_digests`: the running container image id per service; the pinned `tag@sha256` lines are in `docker-compose.yml` / `compose.overlay.yml`. Who approved each: `release/approved-digests.json`, or `$OVERLAY/approved-digests.json` for an image the overlay adds or replaces (no secrets, so copy it into `$EVID`). `C3-validate-config.log`'s *Image digest pinning* section lists every image with the file that approves it. `unapproved_override` must be empty |
 
 `overlay.manifest_sha256` ties the evidence to the exact overlay version that
 was applied.

@@ -377,10 +377,14 @@ if [[ -f "$snapshot_doc" ]]; then
 fi
 
 # --- Image digest pinning ---
-# Every image docker-compose.yml references must be pinned by immutable
-# sha256 digest, and that digest must match what release/approved-digests.json
-# records as reviewed — a tag-only pin or a digest that doesn't match the
-# registry both fail here. See documentation/39-release-procedure.md.
+# Every image of the EFFECTIVE compose model - docker-compose.yml plus any
+# COMPOSE_FILE overlay, every profile enabled - must be pinned by immutable
+# sha256 digest, and that digest must be approved: by
+# release/approved-digests.json, or on an overlay host by the overlay's own
+# approved-digests.json (documentation/42-03). A tag-only pin, an unreviewed
+# digest and an image nobody approved all fail here. The checks live in
+# lib/digest_gate.py so check-digest-drift.sh applies the identical rules.
+# See documentation/39-release-procedure.md.
 echo ""
 echo "Image digest pinning:"
 # shellcheck source=lib/digests.sh
@@ -388,45 +392,17 @@ echo "Image digest pinning:"
 
 if [[ ! -f "$digests_json" ]]; then
   bad "release/approved-digests.json missing — no image digests can be verified"
+elif ! compose_images_prime; then
+  bad "could not read the effective compose model - no image digests can be verified"
 else
-  approved_table="$(digest_registry_table | tr -d '\r')"
-  while IFS=$'\t' read -r image_key repository approved_tag approved_digest; do
-    [[ -z "$image_key" ]] && continue
-    pinned="$(digest_from_compose "$repository")"
-
-    if [[ -z "$pinned" ]]; then
-      bad "${image_key}: ${repository} not found in docker-compose.yml"
-    elif [[ "$pinned" != *"@sha256:"* ]]; then
-      bad "${image_key}: pinned by tag only (${repository}:${pinned}), no immutable digest"
-    else
-      pinned_tag="${pinned%@*}"
-      pinned_digest="${pinned#*@}"
-      if [[ "$pinned_digest" != "$approved_digest" ]]; then
-        bad "${image_key}: pinned digest (${pinned_digest}) does not match the approved digest in release/approved-digests.json (${approved_digest}) — unapproved digest"
-      elif [[ "$pinned_tag" != "$approved_tag" ]]; then
-        # Same content, but the tag a human reads says something else - the
-        # compose file and the registry file disagree about which release
-        # this is.
-        bad "${image_key}: pinned tag (${pinned_tag}) does not match the approved tag in release/approved-digests.json (${approved_tag})"
-      else
-        ok "${image_key}: digest-pinned and matches release/approved-digests.json"
-      fi
-    fi
-  done <<< "$approved_table"
-
-  # The loop above walks the approved list, so on its own it never sees an
-  # image that was added to docker-compose.yml without being approved at
-  # all - a new service with a tag-only (or digest-pinned but unreviewed)
-  # image would pass silently. Walk the compose side too.
-  approved_repos="$(cut -f2 <<< "$approved_table")"
-  while read -r image_ref; do
-    [[ -z "$image_ref" ]] && continue
-    image_repo="${image_ref%@*}"   # drop @sha256:...
-    image_repo="${image_repo%:*}"  # drop :tag
-    if ! grep -qxF "$image_repo" <<< "$approved_repos"; then
-      bad "docker-compose.yml references ${image_ref}, which has no entry in release/approved-digests.json — unapproved image"
-    fi
-  done < <(compose_image_refs)
+  while IFS=$'\t' read -r gate_status gate_message; do
+    case "$gate_status" in
+      OK)   ok "$gate_message";;
+      FAIL) bad "$gate_message";;
+      INFO) printf '  %s
+' "$gate_message";;
+    esac
+  done < <(digest_gate_check)
 fi
 
 # --- Image signatures (cosign) ---

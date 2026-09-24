@@ -18,6 +18,7 @@ plan_format="text"
 require_capabilities=()
 health_timeout=300
 rollback_on_failure=false
+allow_unapproved=false
 
 usage() {
   cat <<'EOF'
@@ -26,6 +27,19 @@ Usage:
   ./installation-scripts/upgrade.sh [same args] --require-capability NAME
   ./installation-scripts/upgrade.sh [same args] --plan-only [--plan-format text|machine]
   ./installation-scripts/upgrade.sh [same args] [--health-timeout 300] [--rollback-on-failure]
+  ./installation-scripts/upgrade.sh [same args] --allow-unapproved
+
+Approved tags only:
+  A --server-tag / --client-tag must be the tag release/approved-digests.json
+  approves for that image. Any other tag is refused (exit 2) before anything
+  is pulled or modified. --plan-only reports the same refusal.
+  --allow-unapproved   Emergency hotfix only. Lets an unapproved tag through
+                       with a loud warning. The tag is pulled without a
+                       digest pin, so validate-config.sh / postdeploy-check.sh
+                       keep failing until the tag is approved and pinned
+                       (documentation/39-release-procedure.md). The override
+                       is recorded in deployment-evidence.json as
+                       "unapproved_override".
 
 Failing and rolling back:
   After restarting, the upgrade waits for every restarted service to report
@@ -111,6 +125,7 @@ while [[ $# -gt 0 ]]; do
     --plan-format=*) plan_format="${1#*=}"; shift;;
     --health-timeout) health_timeout="${2:-}"; shift 2;;
     --rollback-on-failure) rollback_on_failure=true; shift;;
+    --allow-unapproved) allow_unapproved=true; shift;;
     -h|--help) usage; exit 0;;
     *) echo "ERROR: Unknown arg: $1" >&2; usage; exit 2;;
   esac
@@ -240,6 +255,91 @@ for cap in ${require_capabilities[@]+"${require_capabilities[@]}"}; do
   [[ -z "$cap" ]] && { echo "ERROR: --require-capability needs a value." >&2; exit 2; }
   require_capability "$cap" "--require-capability ${cap}" "--require-capability ${cap}"
 done
+
+# ── Approved-tag gate ───────────────────────────────────────────────────────
+#
+# A requested ps-server / ps-client tag must be the one
+# release/approved-digests.json approves. Anything else is refused here, before
+# the plan, the snapshot, any edit or any pull - the same place and the same
+# exit code as the capability gate above, so --plan-only (and the wizard's
+# preview, which runs it) refuses exactly what a real run would.
+# --allow-unapproved is the hotfix escape hatch: allowed, loudly, and recorded
+# in deployment-evidence.json by write_deployment_evidence.
+#
+#   approved_pin <approved-digests key> <tag>   -> "@sha256:..." or nothing
+approved_pin() {
+  digest_registry_table 2>/dev/null | tr -d '\r' \
+    | awk -F'\t' -v k="$1" -v t="$2" '$1 == k && $3 == t && $4 ~ /^sha256:/ { print "@" $4; exit }'
+}
+approved_tag_for() {  # <approved-digests key> -> its approved tag, or nothing
+  digest_registry_table 2>/dev/null | tr -d '\r' \
+    | awk -F'\t' -v k="$1" '$1 == k { print $3; exit }'
+}
+# One "<key> <requested tag> <approved tag, or ->" entry per unapproved request.
+unapproved_requests=()
+check_approved_tag() {  # <key> <requested tag>
+  [[ -z "$2" ]] && return 0
+  [[ -n "$(approved_pin "$1" "$2")" ]] && return 0
+  local approved
+  approved="$(approved_tag_for "$1")"
+  unapproved_requests+=("$1 $2 ${approved:--}")
+}
+check_approved_tag ps-server "$server_tag"
+check_approved_tag ps-client "$client_tag"
+
+describe_unapproved() {  # "ps-server:3.99 (approved: 3.28), ..."
+  local entry key tag approved out=""
+  for entry in "${unapproved_requests[@]}"; do
+    read -r key tag approved <<< "$entry"
+    [[ "$approved" == "-" ]] && approved="none"
+    out="${out:+${out}, }${key}:${tag} (approved: ${approved})"
+  done
+  printf '%s' "$out"
+}
+
+if [[ ${#unapproved_requests[@]} -gt 0 && "$allow_unapproved" != true ]]; then
+  # The first line stands on its own: the wizard shows only that one.
+  echo "ERROR: Refusing to upgrade to a tag release/approved-digests.json does not approve: $(describe_unapproved)." >&2
+  echo "" >&2
+  echo "       Nothing has been pulled or modified." >&2
+  if [[ ! -f "$digests_json" ]] || ! digest_registry_table >/dev/null 2>&1; then
+    echo "       (${digests_json} could not be read - is python3 installed?)" >&2
+  fi
+  echo "       Upgrade to the approved tag, or approve the new tag first: cut the" >&2
+  echo "       release and record its digest in release/approved-digests.json" >&2
+  echo "       (documentation/39-release-procedure.md)." >&2
+  echo "" >&2
+  echo "       Emergency hotfix only: re-run with --allow-unapproved. The tag is then" >&2
+  echo "       pulled without a digest pin, validate-config.sh keeps failing until it" >&2
+  echo "       is approved, and the override is recorded in deployment-evidence.json." >&2
+  exit 2
+fi
+
+# Read by write_deployment_evidence (lib/deployment-evidence.sh) on every
+# evidence write this run makes, a failed upgrade's included.
+if [[ ${#unapproved_requests[@]} -gt 0 ]]; then
+  deployment_evidence_unapproved_override="$(
+    for entry in "${unapproved_requests[@]}"; do
+      read -r key tag approved <<< "$entry"
+      printf '%s\t%s\t%s\n' "$key" "$tag" "$approved"
+    done)"
+fi
+
+print_unapproved_banner() {
+  local entry key tag approved
+  echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" >&2
+  echo "!! WARNING: --allow-unapproved - deploying UNAPPROVED image tag(s):" >&2
+  for entry in "${unapproved_requests[@]}"; do
+    read -r key tag approved <<< "$entry"
+    [[ "$approved" == "-" ]] && approved="none"
+    echo "!!   mihailsgordijenko/${key}:${tag}   (approved in release/approved-digests.json: ${approved})" >&2
+  done
+  echo "!! Not reviewed and not digest-pinned. validate-config.sh and" >&2
+  echo "!! postdeploy-check.sh FAIL until the tag is approved and pinned" >&2
+  echo "!! (documentation/39-release-procedure.md). Recorded in" >&2
+  echo "!! deployment-evidence.json as \"unapproved_override\"." >&2
+  echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" >&2
+}
 
 # ── Config-migration table ──────────────────────────────────────────────────
 #
@@ -724,6 +824,14 @@ plan_scope() {
 # Evaluates every migration predicate and prints what WOULD change. Touches no
 # file and runs no container. Reads the same predicates the apply path uses,
 # so the plan cannot disagree with the run.
+plan_tag_note() {  # <key> <requested tag>
+  if [[ -n "$(approved_pin "$1" "$2")" ]]; then
+    printf '   (approved; pinned to its approved digest)'
+  else
+    printf '   (UNAPPROVED - allowed by --allow-unapproved, not digest-pinned)'
+  fi
+}
+
 render_plan() {
   local id status title
   local srv_now cli_now
@@ -736,6 +844,16 @@ render_plan() {
     printf 'server_tag_to=%s\n'   "${server_tag:-$srv_now}"
     printf 'client_tag_from=%s\n' "$cli_now"
     printf 'client_tag_to=%s\n'   "${client_tag:-$cli_now}"
+    # Only reachable with --allow-unapproved; without it the gate has already
+    # refused. "ps-server:3.99:3.28" = key, requested tag, approved tag (or -).
+    if [[ ${#unapproved_requests[@]} -gt 0 ]]; then
+      local entry key tag approved list=""
+      for entry in "${unapproved_requests[@]}"; do
+        read -r key tag approved <<< "$entry"
+        list="${list:+${list},}${key}:${tag}:${approved}"
+      done
+      printf 'unapproved_override=%s\n' "$list"
+    fi
     while read -r id; do
       [[ -z "$id" ]] && continue
       if mig_call "$id" needed; then status="will-apply"; else status="already-applied"; fi
@@ -758,11 +876,18 @@ render_plan() {
   echo "========================================"
   echo ""
   echo "  Image tags:"
-  if [[ -n "$server_tag" ]]; then echo "    ps-server: ${srv_now} → ${server_tag}"
+  if [[ -n "$server_tag" ]]; then echo "    ps-server: ${srv_now} → ${server_tag}$(plan_tag_note ps-server "$server_tag")"
   else echo "    ps-server: ${srv_now} (unchanged)"; fi
-  if [[ -n "$client_tag" ]]; then echo "    ps-client: ${cli_now} → ${client_tag}"
+  if [[ -n "$client_tag" ]]; then echo "    ps-client: ${cli_now} → ${client_tag}$(plan_tag_note ps-client "$client_tag")"
   else echo "    ps-client: ${cli_now} (unchanged)"; fi
   echo ""
+  if [[ ${#unapproved_requests[@]} -gt 0 ]]; then
+    echo "  UNAPPROVED OVERRIDE (--allow-unapproved): $(describe_unapproved)."
+    echo "    A real run pulls these without a digest pin, prints a warning, and"
+    echo "    records them in deployment-evidence.json as \"unapproved_override\"."
+    echo "    validate-config.sh / postdeploy-check.sh FAIL until they are approved."
+    echo ""
+  fi
   echo "  Configuration migrations:"
   echo ""
   local pending=0
@@ -802,45 +927,23 @@ echo "PadSign Upgrade"
 [[ -n "$client_tag" ]] && echo "  ps-client: → ${client_tag}"
 echo "========================================"
 echo ""
+if [[ ${#unapproved_requests[@]} -gt 0 ]]; then
+  print_unapproved_banner
+  echo "" >&2
+fi
 
-# ── Step 1: Backup ──
-echo "Step 1/6: Backing up..."
-# Timestamped, non-overwriting snapshot FIRST (before anything below mutates
-# either file) - this is what rollback.sh restores from. The single-generation
-# .bak copy is kept alongside it for the manual "cp ...bak" recipe printed at
-# the end, unchanged from before.
-snapshot_dir="$(write_rollback_snapshot)"
-echo "  Rollback snapshot: ${snapshot_dir}"
-cp -f "$compose_yml" "${compose_yml}.bak"
-cp -f "$config_js" "${config_js}.bak"
-echo "  Backups created"
-
-# ── Step 2: Update image tags ──
-# The replacement deliberately also strips any existing "@sha256:..." — that
-# digest was resolved for the OLD tag, and carrying it forward onto the new
-# tag would silently re-pin the new image to the wrong (old) content instead
-# of leaving it correctly unpinned.
-#
-# The one digest this script does write is the reviewed one: if
-# release/approved-digests.json approves exactly the requested tag, its
-# approved digest is pinned straight away, so upgrading to the release this
-# checkout ships ends digest-pinned and passes validate-config.sh. Any other
-# tag is left unpinned - resolving and approving a new tag's digest is a
-# separate, deliberate step (documentation/39-release-procedure.md).
-#
-#   approved_pin <approved-digests key> <tag>   -> "@sha256:..." or nothing
-approved_pin() {
-  digest_registry_table 2>/dev/null | tr -d '\r' \
-    | awk -F'\t' -v k="$1" -v t="$2" '$1 == k && $3 == t && $4 ~ /^sha256:/ { print "@" $4; exit }'
-}
-
-# ── Signature pre-flight: before anything is rewritten or pulled ──
+# ── Signature pre-flight: before anything is written or pulled ──
+# Runs after the approved-tag gate (which already refused, before the
+# plan, any tag release/approved-digests.json does not approve unless
+# --allow-unapproved was given) and before Step 1, so a signature that does
+# not verify leaves no snapshot, no .bak and no edit behind. --plan-only has
+# exited above and does not call cosign.
 # Each requested ps-server / ps-client image must carry a cosign signature
 # (plus signed SBOM and provenance attestations) from psapp's CI, checked
 # against release/cosign.pub - by the approved digest when this checkout
 # approves the tag, which is exactly what step 2 then pins and step 5
-# pulls. A signature that does not verify aborts here, with
-# docker-compose.yml and config.js untouched. No cosign on the host only
+# pulls. A signature that does not verify aborts here, before anything is
+# written. No cosign on the host only
 # warns (fails under CI=true or PADSIGN_REQUIRE_SIGNATURES=1); see
 # lib/signatures.sh and documentation/40-02-post-deploy-validation.md.
 # shellcheck source=lib/signatures.sh
@@ -849,7 +952,7 @@ preflight_signature() {  # <image key> <tag>
   local key="$1" tag="$2" repository="mihailsgordijenko/$1" pin digest ref
   pin="$(approved_pin "$key" "$tag")"
   digest="${pin#@}"
-  # Not approved here (a hotfix, or going back to an older release): check
+  # Not approved here (only reachable with --allow-unapproved): check
   # the digest the tag resolves to right now, so a pre-signing release is
   # still recognised by its exact digest. Tags are never moved, so this is
   # the content step 5 pulls.
@@ -878,11 +981,36 @@ if [[ -n "$server_tag" || -n "$client_tag" ]]; then
   if [[ "$sig_ok" != true ]]; then
     echo "" >&2
     echo "Upgrade refused before any change: an image signature could not be verified." >&2
-    echo "Nothing was rewritten or pulled; the rollback snapshot written in step 1 is unused." >&2
+    echo "Nothing was written or pulled." >&2
     exit 1
   fi
 fi
 
+# ── Step 1: Backup ──
+echo "Step 1/6: Backing up..."
+# Timestamped, non-overwriting snapshot FIRST (before anything below mutates
+# either file) - this is what rollback.sh restores from. The single-generation
+# .bak copy is kept alongside it for the manual "cp ...bak" recipe printed at
+# the end, unchanged from before.
+snapshot_dir="$(write_rollback_snapshot)"
+echo "  Rollback snapshot: ${snapshot_dir}"
+cp -f "$compose_yml" "${compose_yml}.bak"
+cp -f "$config_js" "${config_js}.bak"
+echo "  Backups created"
+
+# ── Step 2: Update image tags ──
+# The replacement deliberately also strips any existing "@sha256:..." - that
+# digest was resolved for the OLD tag, and carrying it forward onto the new
+# tag would silently re-pin the new image to the wrong (old) content instead
+# of leaving it correctly unpinned.
+#
+# The one digest this script does write is the reviewed one. The approved-tag
+# gate above only lets through a tag release/approved-digests.json approves,
+# and that tag's approved digest (approved_pin) is pinned straight away, so
+# the upgrade ends digest-pinned and passes validate-config.sh. Only a tag
+# let through by --allow-unapproved is left unpinned - resolving and
+# approving a new tag's digest is a separate, deliberate step
+# (documentation/39-release-procedure.md).
 echo "Step 2/6: Updating image tags..."
 unpinned_tags=false
 if [[ -n "$server_tag" ]]; then
@@ -908,9 +1036,10 @@ if [[ -n "$client_tag" ]]; then
   fi
 fi
 if [[ "$unpinned_tags" == true ]]; then
-  echo "  NOTE: the new tag(s) above are not yet digest-pinned. Resolve and pin"
-  echo "        the digest before this deployment is considered complete:"
-  echo "        see documentation/39-release-procedure.md and"
+  echo "  NOTE: the new tag(s) above were let through by --allow-unapproved and"
+  echo "        are not digest-pinned. Approve and pin the digest before this"
+  echo "        deployment is considered complete: see"
+  echo "        documentation/39-release-procedure.md and"
   echo "        installation-scripts/check-digest-drift.sh. validate-config.sh"
   echo "        will fail until release/approved-digests.json and"
   echo "        docker-compose.yml agree again."

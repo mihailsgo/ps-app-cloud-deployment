@@ -13,10 +13,23 @@ checkout's `docker-compose.yml` pins, described in
 
 The script only changes what you ask it to — it pulls the new image(s), restarts
 just those containers, and prints a rollback command. It is safe to re-run.
-When a requested tag is the one `release/approved-digests.json` approves, the
+A requested tag must be the one `release/approved-digests.json` approves. The
 script pins that approved digest too, so the deployment ends digest-pinned and
-`validate-config.sh` passes; any other tag is left unpinned for you to resolve
-and approve (see [39. Release Procedure](39-release-procedure.md) step 5).
+`validate-config.sh` passes. Any other tag is **refused** (exit 2) before
+anything is pulled or modified, and `--plan-only` reports the same refusal. To
+move to a new tag, approve it first
+(see [39. Release Procedure](39-release-procedure.md) steps 4-5).
+
+For an emergency hotfix only, `--allow-unapproved` lets an unapproved tag
+through. The script prints a loud warning, leaves the tag without a digest pin,
+and records the override in `deployment-evidence.json` as
+`"unapproved_override"`. `validate-config.sh` and `postdeploy-check.sh` keep
+failing until the tag is approved and pinned:
+
+```bash
+./installation-scripts/upgrade.sh --server-tag 3.31 --allow-unapproved --plan-only   # review first
+./installation-scripts/upgrade.sh --server-tag 3.31 --allow-unapproved
+```
 
 > Coming from `ps-server:3.28` or older? `3.30` runs as a non-root user
 > (uid 1000) on Node 24, and on a deployment that already uses signed-PDF
@@ -31,8 +44,9 @@ and approve (see [39. Release Procedure](39-release-procedure.md) step 5).
 > credential rotation, and rollback.
 
 > Pass the tags for the version you are moving to. The examples use the current
-> release; substitute newer tags as they ship. Older tags are valid too (e.g. for
-> a controlled rollback).
+> release; substitute newer tags once they are approved in the checkout you
+> pulled. To go back to an older release, use `rollback.sh`
+> ([40.4 Rollback](40-04-rollback.md)), not `upgrade.sh` with an older tag.
 
 > Prefer a browser over the CLI? [36. Deployment Wizard](36-deployment-wizard.md)'s
 > dashboard has an Upgrade panel that wraps this same script with live progress.

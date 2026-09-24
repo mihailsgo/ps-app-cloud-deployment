@@ -37,7 +37,7 @@ Nothing is written to a public transparency log (the source repository is privat
 `installation-scripts/lib/signatures.sh` does the check. Two scripts use it:
 
 - **`validate-config.sh`** checks the pinned `ps-server` / `ps-client` digests (so `postdeploy-check.sh` does too).
-- **`upgrade.sh`** checks the requested tags **before** it rewrites `docker-compose.yml` or pulls anything, and refuses the upgrade if a signature does not verify.
+- **`upgrade.sh`** checks the requested tags **before** it writes anything (rollback snapshot, `.bak` files, `docker-compose.yml`) or pulls, and refuses the upgrade if a signature does not verify. It runs after the approved-tag gate, so it only sees a tag `release/approved-digests.json` does not approve under `--allow-unapproved`. `--plan-only` does not run it.
 
 What each outcome means:
 
