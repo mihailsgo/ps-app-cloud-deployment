@@ -128,6 +128,7 @@ Either way, read [9. Prerequisites](documentation/09-prerequisites.md) and [11.1
     - [40.2 Post-Deploy Validation](documentation/40-02-post-deploy-validation.md)
     - [40.3 Monitoring and Alerting](documentation/40-03-monitoring-and-alerting.md)
     - [40.4 Rollback](documentation/40-04-rollback.md)
+    - [40.5 Production-Safe Signing Smoke Test](documentation/40-05-production-safe-signing-smoke-test.md)
 41. [Baseline/Overlay Reconciliation](documentation/41-baseline-overlay-reconciliation.md)
 42. [Host Reconciliation Runbook: Keycloak Admin Recovery and Baseline + Overlay Migration](documentation/42-host-reconciliation-runbook.md)
     - [42.1 Before you start](documentation/42-01-before-you-start.md)

@@ -272,6 +272,18 @@ services:
     volumes:
       - "${PWD}:${PWD}"
       - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      # Long-running (restart: unless-stopped), so it gets a real probe, not
+      # an exemption. /login is the one page served without a session: a 200
+      # proves the HTTPS listener, the Express app and its EJS rendering are
+      # up. -k: the wizard's certificate is self-signed and regenerated on
+      # every start. curl is in the image (deployment-wizard/Dockerfile).
+      # $$ keeps compose from interpolating; the container's shell expands it.
+      test: ["CMD-SHELL", "curl -skf -o /dev/null https://localhost:$${WIZARD_PORT:-8443}/login"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     networks:
       - default
 
