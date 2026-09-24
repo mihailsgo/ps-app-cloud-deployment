@@ -55,6 +55,7 @@ ps-app-cloud-deployment/
 │   ├── verify-keycloak.sh            # Verify Keycloak setup
 │   ├── verify-served-cert.sh         # Wire check: cert nginx actually serves
 │   ├── diff-baseline-overlay.sh      # Drift check: live host vs. a clean baseline ref (see documentation/41)
+│   ├── dmss-seal-smoke.sh            # Boot + 3 consecutive local e-seals on the pinned DMSS images, isolated project (see documentation/39)
 │   ├── lib/
 │   │   ├── capabilities.sh           # Shared reader for release/capabilities.json
 │   │   ├── kcadm.sh                  # Shared Keycloak admin CLI helpers (incl. print_secret(), see smoke-user.sh)

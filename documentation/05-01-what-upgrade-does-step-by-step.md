@@ -26,9 +26,15 @@ for. Details in
 2. **Updates image tags** in `docker-compose.yml` - replaces `ps-server:X.XX` and/or `ps-client:X.XX` with the new versions
 3. **Ensures `DOCUMENT_ROUTING`** config block exists in `config.js` (appends if missing, disabled by default - does not overwrite existing settings)
 4. **Ensures `signed-output` volume mount** exists in `docker-compose.yml` for ps-server
-5. **Creates `signed-output/` (mode 750) and `docs/` (mode 770, group-owned for
-   dmss-archive-services-fallback's `spring` user) directories** if they don't
-   exist - see
+5. **Creates `signed-output/` (mode 750) and `docs/` (mode 770) if missing, and
+   re-owns either tree to the uid its container image runs as** whenever
+   anything in it belongs to someone else - e.g. the root-owned
+   `{company}/...` directories and `.padsign-buffer/` entries a pre-Node-24
+   ps-server wrote, which the non-root Node 24 image cannot write into or
+   delete from. Uses the image being upgraded TO, runs through a one-shot
+   container when the operator isn't root, re-checks after the restart, and
+   stops the upgrade before any container is recreated if the tree still
+   isn't writable - see
    [installation-scripts/lib/dir-permissions.sh](../installation-scripts/lib/dir-permissions.sh)
    for why those modes and not 777
 6. **(`--enable-local-eseal` only)** Stages `dmss-digital-stamping-service/` from

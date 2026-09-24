@@ -400,7 +400,7 @@ mig_signed_output_files() { echo 'docker-compose.yml,signed-output/,docs/'; }
 mig_signed_output_needed() { need_signed_output_vol || need_signed_output_dir; }
 mig_signed_output_body() {
   need_signed_output_vol && printf 'docker-compose.yml, under the ps-server volumes:\n%s\n' "$SIGNED_OUTPUT_VOLUME_LINE"
-  need_signed_output_dir && printf 'mkdir -p signed-output/ (mode 750) docs/ (mode 770, group dmss-archive-services-fallback spring)\n'
+  need_signed_output_dir && printf 'mkdir -p signed-output/ (mode 750) docs/ (mode 770), each owned by the uid its container image runs as\n'
   return 0
 }
 mig_signed_output_apply() {
@@ -412,17 +412,13 @@ mig_signed_output_apply() {
   fi
   # Always ensured: the mount without the directory silently writes into the
   # container's ephemeral layer, so these two belong to the same migration.
+  # Runs after Step 2 has rewritten the tag, so it sizes both trees to the uid
+  # of the image being upgraded TO (root <= 3.29, uid 1000 from the Node 24
+  # image on). Returns non-zero - stopping the upgrade before any container
+  # is recreated - if a non-root image would not be able to write its tree.
   # Permission model: see lib/dir-permissions.sh.
   fix_signed_output_permissions
   fix_docs_permissions
-  if [[ ! -w "${repo_root}/docs" ]]; then
-    target_gid="$(resolve_dmss_fallback_gid 2>/dev/null)"
-    echo "  WARNING: ${repo_root}/docs is still not writable by this user after fix_docs_permissions —" >&2
-    echo "           likely root-owned because Docker auto-created it on an earlier 'docker compose up'," >&2
-    echo "           or this mount predates upgrading past the chmod-777 removal (chgrp needs" >&2
-    echo "           ownership or root). Fix:" >&2
-    echo "           sudo chgrp ${target_gid:-<dmss-archive-services-fallback spring gid>} ${repo_root}/docs && sudo chmod 770 ${repo_root}/docs" >&2
-  fi
 }
 
 # ---- local-eseal ----
@@ -808,17 +804,35 @@ echo ""
 echo "  Running containers:"
 docker ps --format '  {{.Names}}: {{.Image}} ({{.Status}})' | grep -E 'ps-server|ps-client|nginx' | sort
 
-# Health check
-if docker compose logs ps-server 2>/dev/null | grep -q "PadSign Server listening"; then
-  echo ""
-  echo "  ps-server: OK"
+# Health check. Waits on the compose health check (psapp-saas#12) instead of
+# grepping the log once: ps-server is often still being recreated 3s after
+# the nginx restart above (e.g. when --enable-local-eseal recreated
+# container-signature, which ps-server depends on), and the one-shot grep
+# then printed "may not have started" for a container that came up healthy.
+echo ""
+ps_health="unknown"
+for _ in $(seq 1 30); do
+  cid="$(docker compose ps -q ps-server 2>/dev/null || true)"
+  ps_health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}running{{end}}' "$cid" 2>/dev/null || echo unknown)"
+  [[ "$ps_health" == "healthy" || "$ps_health" == "running" ]] && break
+  sleep 2
+done
+if [[ "$ps_health" == "healthy" || "$ps_health" == "running" ]]; then
+  echo "  ps-server: OK (${ps_health})"
 else
-  echo ""
-  echo "  WARNING: ps-server may not have started. Check: docker compose logs ps-server" >&2
+  echo "  WARNING: ps-server is not healthy after 60s (${ps_health}). Check: docker compose logs ps-server" >&2
 fi
 
-write_deployment_evidence "upgrade.sh"
+# Re-assert storage ownership now that the new containers are running: the
+# previous (possibly root) ps-server kept writing between Step 4 and its
+# recreation in Step 5. A no-op when everything is already owned correctly.
+fix_signed_output_permissions >/dev/null
+fix_docs_permissions >/dev/null
 
+# Once, at the end. Each call rotates deployment-evidence.json into
+# deployment-evidence.json.previous, so a second call here used to overwrite
+# the PRE-upgrade evidence with this same run's, losing the prior record and
+# zeroing every restart delta.
 echo ""
 echo "Recording deployment evidence..."
 write_deployment_evidence "upgrade.sh"
