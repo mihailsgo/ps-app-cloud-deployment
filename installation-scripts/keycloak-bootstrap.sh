@@ -80,7 +80,11 @@ kc_wait_ready || exit 1
 kc_login "${admin_user}" "${admin_pass}"
 trap kc_logout EXIT
 
-kc_exec "/opt/keycloak/bin/kcadm.sh get realms/${realm} >/dev/null 2>&1 || /opt/keycloak/bin/kcadm.sh create realms -s realm=${realm} -s enabled=true" >/dev/null
+# Get-or-create, re-verified: kc_wait_ready only proves port 8080 is open, so
+# a `get` right after it can fail spuriously. Don't take that failure as "does
+# not exist" - if the `create` then fails too (typically 409, it does exist),
+# look again before calling it fatal.
+kc_exec "/opt/keycloak/bin/kcadm.sh get realms/${realm} >/dev/null 2>&1 || /opt/keycloak/bin/kcadm.sh create realms -s realm=${realm} -s enabled=true || { /opt/keycloak/bin/kcadm.sh get realms/${realm} >/dev/null 2>&1 || { echo \"ERROR: could not create or verify realm '${realm}' (see kcadm error above)\" >&2; exit 1; }; }" >/dev/null
 
 ensure_role() {
   local name="$1"
@@ -205,18 +209,20 @@ if [[ -n "$users_csv" ]]; then
     fi
 
     kc_exec "
-      /opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username=${username} --fields id,username | grep -q '\"id\"' || \
-      /opt/keycloak/bin/kcadm.sh create users -r ${realm} -s username=${username} -s enabled=true >/dev/null
+      /opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username='${username}' --fields id,username | grep -q '\"id\"' || \
+      /opt/keycloak/bin/kcadm.sh create users -r ${realm} -s username='${username}' -s enabled=true >/dev/null || \
+      { /opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username='${username}' --fields id,username | grep -q '\"id\"' || \
+        { echo \"ERROR: could not create or verify user '${username}' (see kcadm error above)\" >&2; exit 1; }; }
     " >/dev/null
 
     uid="$(
-      kc_exec "/opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username=${username} --fields id --format csv | tail -n 1" | tr -d '\r"'
+      kc_exec "/opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username='${username}' --fields id --format csv | tail -n 1" | tr -d '\r"'
     )"
 
     kc_exec_with_secret "${password}" "/opt/keycloak/bin/kcadm.sh set-password -r ${realm} --userid ${uid} --new-password \"\$KC_SECRET\" --temporary=false" >/dev/null
     if [[ -n "${role:-}" ]]; then
       ensure_role "${role}"
-      kc_exec "/opt/keycloak/bin/kcadm.sh add-roles -r ${realm} --uusername ${username} --rolename ${role}" >/dev/null
+      kc_exec "/opt/keycloak/bin/kcadm.sh add-roles -r ${realm} --uusername '${username}' --rolename '${role}'" >/dev/null
     fi
   done <<< "$(printf '%s' "$users_csv" | tr ',' '\0')"
 fi
