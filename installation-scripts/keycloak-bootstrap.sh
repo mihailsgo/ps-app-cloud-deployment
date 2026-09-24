@@ -78,6 +78,7 @@ docker compose up -d keycloak >/dev/null
 kc_wait_ready || exit 1
 
 kc_login "${admin_user}" "${admin_pass}"
+trap kc_logout EXIT
 
 kc_exec "/opt/keycloak/bin/kcadm.sh get realms/${realm} >/dev/null 2>&1 || /opt/keycloak/bin/kcadm.sh create realms -s realm=${realm} -s enabled=true" >/dev/null
 
@@ -111,15 +112,17 @@ if [[ "$skip_test_user" != "true" ]]; then
   test_pass="$(head -c 32 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 12)"
   test_email="test@$(printf '%s' "${company_role}" | tr '[:upper:]' '[:lower:]' | tr ' ' '-').padsign"
 
-  # Recreate test user to ensure correct role assignment
-  kc_exec "
+  # Recreate test user to ensure correct role assignment. firstName/lastName
+  # are required by Keycloak 26's user profile - without them the first
+  # browser login stops at VERIFY_PROFILE (see smoke-user.sh).
+  kc_exec_with_secret "${test_pass}" "
     TEST_UID=\$(/opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username=${test_user} --fields id --format csv | tail -n 1 | tr -d '\r\"')
     if [ -n \"\$TEST_UID\" ] && [ \"\$TEST_UID\" != \"id\" ]; then
       /opt/keycloak/bin/kcadm.sh delete users/\$TEST_UID -r ${realm} >/dev/null
     fi
-    /opt/keycloak/bin/kcadm.sh create users -r ${realm} -s username=${test_user} -s enabled=true -s email='${test_email}' >/dev/null
+    /opt/keycloak/bin/kcadm.sh create users -r ${realm} -s username=${test_user} -s enabled=true -s email='${test_email}' -s firstName=Test -s lastName=User >/dev/null
     TEST_UID=\$(/opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username=${test_user} --fields id --format csv | tail -n 1 | tr -d '\r\"')
-    /opt/keycloak/bin/kcadm.sh set-password -r ${realm} --userid \$TEST_UID --new-password '${test_pass}' --temporary=false >/dev/null
+    /opt/keycloak/bin/kcadm.sh set-password -r ${realm} --userid \$TEST_UID --new-password \"\$KC_SECRET\" --temporary=false >/dev/null
     /opt/keycloak/bin/kcadm.sh add-roles -r ${realm} --uusername ${test_user} --rolename '${company_role}' >/dev/null
   " >/dev/null
 fi
@@ -160,6 +163,13 @@ kc_exec "
     -s adminUrl=${portal_base}/ \
     -s \"attributes.\\\"post.logout.redirect.uris\\\"=${post_logout_uris}\" >/dev/null
 " >/dev/null
+
+# padsign-backend must be in padsign-client access tokens' audience, or
+# Keycloak 26.4.12/26.6.2/26.7.0+ refuse ps-server's token introspection and
+# every portal API call 401s. See lib/kcadm.sh (KC_BACKEND_AUDIENCE_MAPPER).
+if ! kc_backend_audience_present "${realm}" "${frontend_cid}" padsign-backend; then
+  kc_backend_audience_create "${realm}" "${frontend_cid}" padsign-backend
+fi
 
 # --- Backend client ---
 client_backend="padsign-backend"
@@ -203,7 +213,7 @@ if [[ -n "$users_csv" ]]; then
       kc_exec "/opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username=${username} --fields id --format csv | tail -n 1" | tr -d '\r"'
     )"
 
-    kc_exec "/opt/keycloak/bin/kcadm.sh set-password -r ${realm} --userid ${uid} --new-password '${password}' --temporary=false" >/dev/null
+    kc_exec_with_secret "${password}" "/opt/keycloak/bin/kcadm.sh set-password -r ${realm} --userid ${uid} --new-password \"\$KC_SECRET\" --temporary=false" >/dev/null
     if [[ -n "${role:-}" ]]; then
       ensure_role "${role}"
       kc_exec "/opt/keycloak/bin/kcadm.sh add-roles -r ${realm} --uusername ${username} --rolename ${role}" >/dev/null

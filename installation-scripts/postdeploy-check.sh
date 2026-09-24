@@ -33,6 +33,8 @@ realm="padsign"
 admin_user="${KEYCLOAK_ADMIN:-admin}"
 admin_pass="${KEYCLOAK_ADMIN_PASSWORD:-admin}"
 smoke_spec_path="${PADSIGN_SIGNING_SMOKE_SPEC:-${repo_root}/../psapp/client/tests/e2e/authenticated-sign-flow.spec.js}"
+signing_smoke=false
+[[ -n "${PADSIGN_SIGNING_SMOKE_SPEC:-}" ]] && signing_smoke=true
 
 usage() {
   cat <<'EOF'
@@ -40,6 +42,7 @@ Usage:
   ./installation-scripts/postdeploy-check.sh --host example.com
                                   [--company-role "Acme"] [--realm padsign]
                                   [--admin-user admin] [--admin-pass secret]
+                                  [--signing-smoke]
 
 Runs, in order:
   1. validate-config.sh --host <host>
@@ -48,9 +51,12 @@ Runs, in order:
   4. Portal/runtime config:     served /portal/constants.json matches config/constants.json
   5. Keycloak discovery:        /auth/realms/<realm>/.well-known/openid-configuration
   6. Protected API behavior:    unauthenticated /api/health is rejected, not 200
-  7. Authorized signing smoke test: psapp's authenticated-sign-flow Playwright spec,
-     if present and runnable (npx playwright test). SKIPPED (not a FAIL) when the
-     spec doesn't exist yet — see psapp-saas#9.
+  7. Authorized signing smoke test (opt-in: --signing-smoke, or set
+     PADSIGN_SIGNING_SMOKE_SPEC): runs psapp's authenticated-sign-flow Playwright
+     spec (psapp-saas#9) with its own playwright.auth.config.js against
+     https://<host>. Needs a psapp checkout with client/node_modules installed,
+     KEYCLOAK_ADMIN_URL reachable, and local e-sealing - see
+     documentation/40-02-post-deploy-validation.md. SKIPPED otherwise.
   8. TLS:                       verify-served-cert.sh
   9. Deployment evidence written (deployment-evidence.json)
 EOF
@@ -63,6 +69,7 @@ while [[ $# -gt 0 ]]; do
     --realm) realm="${2:-}"; shift 2;;
     --admin-user) admin_user="${2:-}"; shift 2;;
     --admin-pass) admin_pass="${2:-}"; shift 2;;
+    --signing-smoke) signing_smoke=true; shift;;
     -h|--help) usage; exit 0;;
     *) echo "ERROR: Unknown arg: $1" >&2; usage; exit 2;;
   esac
@@ -194,15 +201,23 @@ echo ""
 
 # ── 7. Authorized signing smoke test (psapp-saas#9) ──
 echo "== 7. Authorized signing smoke test =="
-if [[ -f "$smoke_spec_path" ]] && command -v npx >/dev/null 2>&1; then
-  echo "  Found spec at ${smoke_spec_path}, running via Playwright..."
-  if (cd "$(dirname "$smoke_spec_path")/../../.." && npx playwright test "$smoke_spec_path" --reporter=line); then
+# The spec is excluded from psapp's default playwright.config.js (testIgnore)
+# and only runs under client/playwright.auth.config.js, which reads the target
+# from PADSIGN_STACK_URL - so both have to be passed, from the client/ dir.
+smoke_client_dir="$(cd "$(dirname "$smoke_spec_path")/../.." 2>/dev/null && pwd || true)"
+if [[ "$signing_smoke" != true ]]; then
+  skip "authorized signing smoke test (opt-in: pass --signing-smoke or set PADSIGN_SIGNING_SMOKE_SPEC)"
+elif [[ ! -f "$smoke_spec_path" || ! -f "${smoke_client_dir}/playwright.auth.config.js" ]]; then
+  bad "authorized signing smoke test requested but ${smoke_spec_path} (and its client/playwright.auth.config.js) not found"
+elif ! command -v npx >/dev/null 2>&1; then
+  bad "authorized signing smoke test requested but npx is not installed"
+else
+  echo "  Running ${smoke_spec_path} against https://${host} ..."
+  if (cd "$smoke_client_dir" && PADSIGN_STACK_URL="https://${host}" npx playwright test --config=playwright.auth.config.js --reporter=line); then
     ok "authenticated signing smoke test passed"
   else
     bad "authenticated signing smoke test FAILED"
   fi
-else
-  skip "authorized signing smoke test — depends on psapp-saas#9 (real authenticated browser test), not landed yet. Set PADSIGN_SIGNING_SMOKE_SPEC to point at it once it exists."
 fi
 echo ""
 

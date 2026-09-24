@@ -8,3 +8,6 @@
 
 # Windows-only counterpart script — keep native CRLF.
 *.ps1 text eol=crlf
+
+# Python helpers under installation-scripts/lib run on the Linux target too.
+*.py text eol=lf

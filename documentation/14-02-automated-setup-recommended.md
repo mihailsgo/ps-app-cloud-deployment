@@ -80,3 +80,13 @@ names, assigns exactly the role you pass (never `padsign-admin`), and never
 restarts Keycloak. Like the `test` account's password, the generated
 password is shown once at an interactive terminal only.
 
+Pass the Keycloak admin password through the environment
+(`read -rs KEYCLOAK_ADMIN_PASSWORD && export KEYCLOAK_ADMIN_PASSWORD`), not
+`--admin-pass`: a command-line argument is visible to every local user in `ps`
+and lands in shell history. The smoke user is created with a first and last
+name because Keycloak 26's user profile requires both. Without them the first
+browser login stops at an "Update your account information" form instead of
+returning to the portal. The full twice-in-a-row smoke procedure, including
+what to check in the browser, is
+[42.2 K5](42-02-keycloak-admin-access-and-smoke-identity.md).
+
