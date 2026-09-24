@@ -23,6 +23,16 @@ Nothing enforces that these four, plus `psapp`'s own git tags, agree with each o
 - **Never reuse or move a tag once pushed.**
 - Every image is anchored to the commit it was built from by a git tag in the application repo: `ps-client/<tag>`, `ps-server/<tag>`.
 
+### Pre-scheme versions
+
+Anchoring starts at `ps-server/3.27` and `ps-client/8.38`. Anything older was released before the scheme existed: it has no git tag, and its image carries no OCI labels, so its source commit can't be identified reliably. Those versions stay **permanently unanchored**. They are not tagged after the fact, because a guessed anchor is worse than none (decided on mihailsgo/psapp-saas#26).
+
+This only matters where an old version is still cited, which today means one capability minimum: `local-eseal` needs `ps-server:3.26`. `psapp/scripts/release-check.sh` keeps these in an explicit `PRE_SCHEME_UNANCHORED` list and reports them as `PRE`, not `DRIFT`. The list is guarded:
+
+- An entry must be older than the earliest `ps-<component>/*` tag, or the checker refuses to run (exit 2). A post-scheme version with a missing anchor gets tagged, not listed.
+- `PRE` applies only to a `capabilities.json` minimum. If the compose pin or the release snapshot names a pre-scheme version, that is still `DRIFT`, because the current release must be anchored.
+- Don't raise the `local-eseal` minimum to `3.27` to make the entry go away. A minimum records the first image that has the capability, and for `local-eseal` that image is `3.26`.
+
 ## Cutting a release
 
 Steps 1-3 happen in the application repo (`psapp`); 4-7 happen here; 8 happens in `psapp` again, as the final check.
@@ -94,7 +104,7 @@ cd ../psapp
 ./scripts/release-check.sh
 ```
 
-It reads this repo's `docker-compose.yml`, `documentation/01-release-snapshot.md`, and `release/capabilities.json`, and cross-checks them against `psapp`'s own `ps-client/*` / `ps-server/*` git tags: does the compose pin match what the snapshot doc says, and does every tag mentioned anywhere (including every capability minimum) actually exist as an anchor commit. It exits non-zero and prints one `DRIFT:` line per disagreement if anything is out of sync - a release is not done until it passes clean. It defaults to finding this repo as a sibling checkout of `psapp`; pass `--deployment-dir <path>` if your layout differs. It is read-only and makes no changes to either repo. It does not check digests at all - only tags.
+It reads this repo's `docker-compose.yml`, `documentation/01-release-snapshot.md`, and `release/capabilities.json`, and cross-checks them against `psapp`'s own `ps-client/*` / `ps-server/*` git tags: does the compose pin match what the snapshot doc says, and does every tag mentioned anywhere (including every capability minimum) actually exist as an anchor commit. The only exception is a pre-scheme capability minimum, which it prints as a `PRE` line (see [Pre-scheme versions](#pre-scheme-versions)). It exits non-zero and prints one `DRIFT:` line per disagreement if anything is out of sync - a release is not done until it passes clean. It defaults to finding this repo as a sibling checkout of `psapp`; pass `--deployment-dir <path>` if your layout differs. It is read-only and makes no changes to either repo. It does not check digests at all - only tags.
 
 Then, back here, check that digests themselves haven't drifted from what's approved:
 
