@@ -97,14 +97,14 @@ matter:
 - Relative paths resolve against the **new checkout**. An absolute path pointing into `$OLD` (other than storage) makes `verify` warn.
 - Never override `mihailsgordijenko/ps-server` / `ps-client` (gate G2).
 - `KEYCLOAK_ADMIN*` differences are first-boot-only. Do not carry them (see 42.2 K6).
-- Gate G1: if the release pins Keycloak 26.7.4, add the host's current Keycloak image here.
+- Gate G1: the Keycloak `image` difference is normally **not** ported. The host moves to the release's Keycloak once 42.2 K4b has added the audience mapper. Record it as OBSOLETE. Port it only if you chose, in G1, to keep the host's current Keycloak for the first cut-over. In that case, add the `keycloak:` entry shown commented out below.
 
 Example, shaped like the rehearsal (values illustrative):
 
 ```yaml
 services:
-  keycloak:
-    image: "quay.io/keycloak/keycloak:26.3.2@sha256:<digest the host runs>"
+  # keycloak:                       # only if G1 chose to keep the host's current Keycloak for now
+  #   image: "quay.io/keycloak/keycloak:26.3.2@sha256:<digest the host runs>"
   dmss-archive-services:
     image: "trustlynx/dmss-archive-services:<host version>@sha256:<digest>"
   cert-renewer:                     # a host-only service, ported as-is

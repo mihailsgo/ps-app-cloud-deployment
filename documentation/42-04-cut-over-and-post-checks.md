@@ -71,6 +71,7 @@ docker compose pull 2>&1 | tail -3                   # pre-pull every image; run
   Every `WARN` under *Effective model vs the running host* is a behaviour
   change the cut-over would introduce. Each one must be ported (42.3 O4) or
   recorded as intentional.
+- **Check gate G1:** `K-log.txt` has `K4b: audience mapper -> present|created` (42.2 K4b). The exception is when G1 chose to keep the host's current Keycloak through the overlay. Without the mapper, the release's Keycloak rejects every portal API call after C4.
 - **Check `validate-config`:** `All checks passed.`
   - It now reads the **effective** compose model (release file + overlay), so the port-binding check covers overlay-published ports too.
   - `Secret hygiene` WARN lines ("still the value shipped in the public repository") are 42.2 K6 work. They don't block the cut-over, but they do block sign-off.
@@ -118,6 +119,8 @@ Then:
 
 1. **Browser smoke test, twice:** 42.2 K5, both runs. It proves real browser
    login, role mapping and API calls (no `401` after login) on the new checkout.
+   `C5-postdeploy.log` must also contain `OK   padsign-client access tokens carry
+   padsign-backend in aud (token introspection)` (gate G1).
 2. **External stamping:** run one signing flow that e-seals (19.2), or at
    least check `C5-monitor-status.log`'s stamping failure count. Also check
    `docker compose logs --since 30m ps-server | grep -ciE 'stamp.*(error|fail)'`, which should be 0.

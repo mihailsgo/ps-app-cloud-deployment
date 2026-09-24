@@ -269,7 +269,8 @@ A host can run as a clean checkout of a release tag plus an overlay directory ou
 
 - never edit tracked files in place, and never run `upgrade.sh` / `rollback.sh` or the wizard's Upgrade there; changes go through a new overlay version (`documentation/42-06`);
 - `overlay.sh verify` fails on any git-visible change the overlay does not declare, on a compose project name that would give Keycloak a new, empty volume, and on storage mounts that are not the existing signed documents;
-- the overlay directory contains real secrets and must never be copied into the repo or into evidence.
+- the overlay directory contains real secrets and must never be copied into the repo or into evidence;
+- because `upgrade.sh` never runs there, its `keycloak-backend-audience` migration never runs either. Before such a host moves to the pinned Keycloak, the `padsign-backend-audience` mapper is checked and added by hand (`documentation/42-02` K4b, gate G1 in `42-01`).
 
 When changing what `configure-host.sh` / `upgrade.sh` rewrite, keep `lib/overlay.py`'s notion of release content vs. environment content (`RELEASE_CONTENT_PREFIXES`) in step.
 

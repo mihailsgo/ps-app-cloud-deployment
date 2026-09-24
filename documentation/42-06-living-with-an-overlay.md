@@ -69,6 +69,41 @@ shred -u "$BACKUP/register_pdf_api_key.new"                               # afte
 `OVERLAY=$NEW_OVERLAY` from here on. Roll back by applying the previous
 overlay with `--force` and restarting ps-server.
 
+## Moving Keycloak to the release's version
+
+This applies only if gate G1 (42.1) kept the host's Keycloak through a
+`keycloak:` image entry in `compose.overlay.yml`. Before you start, 42.2 K4b
+must print `AUDIENCE-MAPPER-PRESENT` from `$NEW`. Without the mapper, every
+portal API call returns `401` on the new Keycloak.
+
+It needs a short window. Keycloak restarts, which took about 15-25 s in the
+rehearsals, and API calls fail during that time. Users stay signed in.
+
+```bash
+NEW_OVERLAY=/etc/padsign/overlay/$(date +%Y%m%d)-keycloak
+cp -a "$OVERLAY" "$NEW_OVERLAY"
+"${EDITOR:-vi}" "$NEW_OVERLAY/compose.overlay.yml"          # delete the keycloak: entry (its image override)
+cd "$NEW"
+./installation-scripts/overlay.sh apply  --overlay "$NEW_OVERLAY" --force   # points COMPOSE_FILE at the new overlay
+./installation-scripts/overlay.sh verify --overlay "$NEW_OVERLAY"
+docker compose config --images | grep keycloak                             # now the release's pinned image
+docker compose pull keycloak
+# --- window starts ---
+docker compose stop keycloak
+TAR_IMG="$(docker compose config --images | grep -m1 '^nginx')"
+docker run --rm -v "$KC_VOLUME":/v:ro -v "$BACKUP":/b "$TAR_IMG" \
+  tar czf "/b/keycloak_data-$(date -u +%Y%m%dT%H%M%SZ).tgz" -C /v .
+sha256sum "$BACKUP"/keycloak_data-*.tgz | tail -n 1 | tee "$EVID/KC-move-backup.sha256"
+docker compose up -d keycloak
+until docker compose exec -T keycloak bash -c 'echo > /dev/tcp/localhost/8080' 2>/dev/null; do sleep 3; done
+ read -rs KEYCLOAK_ADMIN_PASSWORD && export KEYCLOAK_ADMIN_PASSWORD      # from the secret manager
+./installation-scripts/postdeploy-check.sh --host "$HOST" --company-role "$ROLE" 2>&1 | tee "$EVID/KC-move-postdeploy.log"
+```
+
+- **Check:** `postdeploy-check.sh` passes, including `OK   padsign-client access tokens carry padsign-backend in aud (token introspection)`. `docker compose logs keycloak | grep -m1 'Updating database'` shows the in-place database upgrade (42.1 G1). A 42.2 K5 smoke login loads the portal with no `401`.
+- **Rollback:** the previous overlay plus the backup you just took. Stop Keycloak and restore that backup with 42.5 R4, but check it against `KC-move-backup.sha256` rather than the C4 file. Then `overlay.sh apply --overlay "$OVERLAY" --force` and `docker compose up -d keycloak`. Starting the old image on the upgraded database without the restore is not supported (42.1 G1).
+- **Evidence:** the backup checksum, `KC-move-postdeploy.log`, and `OVERLAY=$NEW_OVERLAY` recorded in the ticket.
+
 ## Certificate renewal
 
 `renew-cert.sh` writes `nginx/certs/` in the checkout. On an overlay-managed

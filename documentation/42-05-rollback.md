@@ -18,11 +18,12 @@ Two properties make every rollback here short and data-safe:
 | 42.2 K1 | nothing | none | none |
 | 42.2 K2 | one extra master-realm admin (`temp-admin`) in the Keycloak DB | delete `temp-admin` (42.2 K3). If Keycloak will not start → **R4** | Keycloak restart, ~1 min |
 | 42.2 K3 | admin password changed | set it back from the secret manager's previous version (same `set-password` command) | none |
+| 42.2 K4b | the `padsign-backend-audience` mapper on `padsign-client` | not needed: harmless on every Keycloak version. To remove it anyway, see 42.2 K4b | none |
 | 42.2 K5 | one smoke user at a time | `smoke-user.sh delete` (idempotent) | none |
 | 42.2 K6 | `test` user deleted / secrets rotated | recreate `test` with `keycloak-bootstrap.sh` (**rotates its password**); for rotated secrets, 42.6 with the previous value | none / ps-server restart |
 | 42.4 C1 | files inside `$NEW` only | `rm -rf "$NEW"`, re-clone | none |
 | 42.4 C2 | permission bits on the storage directories | `sudo chmod <mode from C2-storage-modes-before.txt>` | none |
-| 42.4 C4/C5 | containers now run from `$NEW` | **R3** | 1-3 min |
+| 42.4 C4/C5 | containers now run from `$NEW` | **R3**, plus **R4** if the cut-over moved Keycloak to the release's version (gate G1) | 1-3 min |
 | 42.4 C7 | old working tree archived and removed | `sudo tar xzf "$BACKUP/old-deployment-dir.tgz" -C "$OLD"`, then **R3** | 1-3 min |
 
 ## R3: switch back to the old directory
@@ -43,16 +44,23 @@ intact after every switch, and the storage fingerprints were unchanged.
   - `docker inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$(cd "$OLD" && docker compose ps -q keycloak)"` prints `$OLD`;
   - a smoke login works (42.2 K5);
   - the storage-integrity check (42.4 C5) reports 0.
-- **What it does not undo:** Keycloak changes made while the new checkout ran (users, roles, the K3 password). They live in the shared volume, which is what you want. If you must undo those too, use R4.
-- **Keycloak version:** R3 is only this simple because the overlay keeps the
-  host's Keycloak version (gate G1). If you deliberately moved Keycloak to a
-  newer version during the cut-over, its database schema may have been
-  upgraded, and the old Keycloak may refuse it. Then R3 needs **R4**.
+- **What it does not undo:** Keycloak changes made while the new checkout ran (users, roles, the K3 password). They live in the shared volume, which is what you want. If you must undo those too, use R4. After a Keycloak version move, R4 is required anyway (next point), and it undoes them.
+- **Keycloak version:** R3 alone is enough only if the cut-over kept the
+  host's Keycloak version (gate G1). The recommended default moves the host
+  to the release's Keycloak. Its first start upgrades the Keycloak database in
+  place. In the G1 rehearsal, 26.3.2 still started on a volume that 26.7.4 had
+  migrated, but it warned `Possibly incorrect state of migration`, and
+  Keycloak does not support downgrades. So after a Keycloak move, R3 needs
+  **R4** as well. Restore the C4 backup, which was taken before the new
+  Keycloak's first start, before `(cd "$OLD" && docker compose up -d)`.
+  The audience mapper from 42.2 K4b is in that backup too, because K4b ran
+  before C4.
 
 ## R4: restore the Keycloak volume from the C4 backup
 
 Loses every Keycloak change made after the backup (new users, password
-changes, sessions). Use it only when Keycloak cannot start, or its data is wrong.
+changes, sessions). Use it when Keycloak cannot start, when its data is wrong, or
+when R3 follows a cut-over that moved Keycloak to a newer version (gate G1).
 
 ```bash
 DIR="$OLD"      # or "$NEW": whichever directory you are rolling back TO

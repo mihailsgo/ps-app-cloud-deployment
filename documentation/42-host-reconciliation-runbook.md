@@ -39,7 +39,7 @@ documents where they already are.
 
 ```
 42.1  inventory + gates              (read-only, no interruption)
-42.2  K1 try non-disruptive admin recovery   ──► works? ──► K3..K6
+42.2  K1 try non-disruptive admin recovery   ──► works? ──► K3..K6 (K4b: token audience mapper, gate G1)
                          │ no
                          ▼
       K2 break-glass: fold it into the 42.4 cut-over window (one interruption, not two)
@@ -86,4 +86,6 @@ throwaway compose projects with unique names that were torn down afterwards:
 | `bootstrap-admin` with Keycloak stopped, measuring the outage and session survival | Keycloak was unavailable for 57.9 s (stop 2.2 s, recovery 40.7 s, start 15.0 s). Existing SSO sessions survived: a pre-restart refresh token still worked. The original admin and all users were intact, and the recovery password never appeared in output. |
 | Simulated stale, hand-customised host → capture → apply onto a fresh checkout → verify → Keycloak cut-over → rollback → cut forward | The realm and its users survived every switch through the pinned project name. The real ps-server image in the new checkout saw the existing signed documents byte-identical. The host tree was byte-identical before and after capture. No test secret appeared in any report or in the deployment evidence. |
 | Next release changes a file the overlay replaces | `apply` refused. `rebase` merged the release's change under the host's edits into a new overlay, and the old overlay was unchanged. A genuinely conflicting change was reported, and `apply` was blocked until it was resolved. |
+| Existing Keycloak 26.3.2 `start-dev` (H2) volume started on the pinned 26.7.4, then on 26.3.2 again (gate G1; plain `docker run`, no compose project) | Forward: `Updating database`, realm model migrated to 26.4.0, 26.4.3 and 26.6.1; realm and users intact. Back: 26.3.2 started and read the data, but warned `Possibly incorrect state of migration ... already migrated to newer version '26.7.4'`. Keycloak does not support downgrades, so rollback after a Keycloak move restores the C4 backup (R4). |
+| The 42.2 K4b audience-mapper block, on throwaway Keycloak 26.3.2 and 26.7.4 containers | Same result on both versions for each case: no `padsign-client`, wrong admin password, absent, created, present, and a repeated add (no duplicate mapper). No kcadm session file was left behind. |
 | Disaster recovery: containers, volume and checkouts deleted, then rebuilt from the release + the overlay + backups | The realm and users came back, and the signed documents and fallback archive were byte-identical. Zero files were edited by hand. |

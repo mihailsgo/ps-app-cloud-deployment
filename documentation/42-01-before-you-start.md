@@ -88,24 +88,68 @@ minutes, but the log lines stay until the ps-server container is recreated
 
 ## Go / no-go gates
 
-**G1: Keycloak version.** Check which Keycloak the chosen release pins and
-which one the host runs:
+**G1: Keycloak version and the token audience mapper.** Check which Keycloak
+the chosen release pins and which one the host runs:
 
 ```bash
 git -C "$NEW" show "$TAG":docker-compose.yml 2>/dev/null | grep -oE 'keycloak/keycloak:[0-9.]+'   # after 42.3 O2
 grep keycloak "$EVID/00-running-images.txt"
 ```
 
-On 2026-09-23 the repository pinned `quay.io/keycloak/keycloak:26.7.4`. On
-that version Keycloak rejects ps-server's token introspection: a token the
-portal obtains for `padsign-client` comes back `active: false` for
-`padsign-backend`, with the reason `Client 'padsign-backend' is not in the
-token audience`. 26.3.2 returns `active: true` for the identical flow. ps-server
-validates every API call through that introspection, so **do not move the
-host onto 26.7.4** until the release notes say this is fixed. Keep the host's
-current Keycloak image through the overlay (42.3 O4). Keeping the same
-Keycloak version across the cut-over also keeps rollback free of database
-schema migrations.
+The repository pins `quay.io/keycloak/keycloak:26.7.4`. Moving the host onto
+it during the cut-over is fine, **provided the realm has the
+`padsign-backend-audience` mapper first**:
+
+- Keycloak 26.4.12, 26.6.2, 26.7.0 and later answer ps-server's token
+  introspection only when `padsign-backend` is in the token's audience.
+- Without the mapper, the portal login works but every API call returns
+  `401`, and Keycloak logs `Client 'padsign-backend' is not in the token
+  audience`.
+- Current releases handle this automatically. `keycloak-bootstrap.sh` creates
+  the mapper in new realms, and `upgrade.sh`'s `keycloak-backend-audience`
+  migration adds it to existing ones
+  ([14.8](14-08-token-audience-for-introspection.md)).
+- An overlay-managed host never runs `upgrade.sh` for real (42.6), so you add
+  and confirm the mapper by hand in **42.2 K4b**, on the Keycloak the host runs
+  today.
+- Older Keycloak ignores the mapper, so adding it early changes nothing for
+  users.
+
+**Go** when K4b prints `AUDIENCE-MAPPER-PRESENT`. After the cut-over, 42.4 C5
+confirms it again through `verify-keycloak.sh`.
+
+If K1 fails, admin access only comes back through the K2 break-glass inside
+the cut-over window. Then K4b cannot run before the cut-over. In that case,
+keep the host's current Keycloak for this cut-over (see the end of this gate)
+and move Keycloak afterwards as its own change, once K4b is done.
+
+Moving to the pinned Keycloak is the recommended default. Staying on an older
+26.x keeps the host exposed to CVE-2026-37979 and the other CVEs fixed in
+26.6.2 (14.8). The caution that remains is **rollback**. The first start of
+26.7.4 on the host's existing Keycloak database upgrades that database in
+place. A rehearsal on a throwaway `start-dev` (H2) volume created on 26.3.2
+showed:
+
+- **Forward (26.3.2 → 26.7.4):** Keycloak logged `Updating database`, then
+  migrated the realm model to 26.4.0, 26.4.3 and 26.6.1. The realm and its
+  users were intact.
+- **Back (26.7.4 → 26.3.2):** 26.3.2 still started on the migrated volume, and
+  the data was readable. But it warned `Possibly incorrect state of migration.
+  You are trying to run server version '26.3.2' against database, which was
+  already migrated to newer version '26.7.4'`. Keycloak does not support
+  downgrades, so do not rely on that.
+
+That rehearsal used this repository's default H2 database. A host on an
+external database has not been rehearsed (see G3).
+
+So if you move Keycloak in the cut-over, a rollback to the old directory
+(42.5 R3) must also restore the Keycloak volume backup taken in 42.4 C4
+(42.5 R4). That restore loses every Keycloak change made since the backup. The
+C4 backup is taken after the old Keycloak stops and before the new one first
+starts, so it is always a clean pre-upgrade copy. If you want the first
+cut-over to keep R3 as a plain directory switch, keep the host's current
+Keycloak image through the overlay (42.3 O4). Then move Keycloak soon after as
+its own change (42.6), with K4b already done. Record the choice in the ticket.
 
 **G2: application versions.** The migration should change *where the
 configuration lives*, not *what runs*. Compare the ps-server/ps-client
