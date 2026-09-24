@@ -4,7 +4,7 @@ The Keycloak container is defined in `docker-compose.yml`:
 
 ```yaml
 keycloak:
-  image: quay.io/keycloak/keycloak:26.3.2
+  image: quay.io/keycloak/keycloak:26.7.4
   environment:
     - KEYCLOAK_ADMIN=admin
     - KEYCLOAK_ADMIN_PASSWORD=admin

@@ -122,6 +122,109 @@ from memory) and repeat the K1a login. This is the "authorised operator
 authenticates using a managed secret" acceptance check. Record
 `K4: login with secret-manager value -> ok` in `K-log.txt`.
 
+## K4b: token audience mapper for the pinned Keycloak (gate G1)
+
+Do this before the cut-over, on the Keycloak the host runs today, from
+`$OLD`. The admin credential from K4 must still be in
+`KEYCLOAK_ADMIN_PASSWORD`. If admin access only came back through K2 inside
+the cut-over window, gate G1 keeps the host's current Keycloak for that
+cut-over. Run K4b from `$NEW` afterwards, before moving Keycloak
+([42.6](42-06-living-with-an-overlay.md)).
+
+Why: Keycloak 26.4.12, 26.6.2, 26.7.0 and later answer ps-server's token
+introspection only when `padsign-backend` is in the token's audience
+([14.8](14-08-token-audience-for-introspection.md)). Without the
+`padsign-backend-audience` mapper on `padsign-client`, the portal login works
+but every API call returns `401`. On a normal deployment `upgrade.sh`'s
+`keycloak-backend-audience` migration adds the mapper. On this host you do not
+run `upgrade.sh` (42.6), so you add it here instead. The mapper is realm data
+in the Keycloak volume. That means:
+
+- adding it now carries it through the cut-over and any rollback;
+- Keycloak 26.3.x ignores it;
+- no restart is needed;
+- signed-in users pick it up on their next token refresh.
+
+Run this block once as is. It is read-only. After kcadm's `Logging into ...`
+line it prints one result line:
+
+```bash
+ADD=no   # set to yes only for the second run below
+KC_SECRET="$KEYCLOAK_ADMIN_PASSWORD" docker compose exec -T -e KC_SECRET -e ADD="$ADD" keycloak sh -lc '
+  K=/opt/keycloak/bin/kcadm.sh
+  has() { $K get "clients/$CID/protocol-mappers/models" -r padsign | grep -qE "\"included\.client\.audience\" *: *\"padsign-backend\""; }
+  $K config credentials --server http://localhost:8080/auth --realm master --user admin --password "$KC_SECRET" >/dev/null || exit 1
+  CID=$($K get clients -r padsign -q clientId=padsign-client --fields id --format csv --noquotes | tail -n 1 | tr -d "\r")
+  if [ -z "$CID" ] || [ "$CID" = id ]; then echo "NO-PADSIGN-CLIENT in realm padsign"
+  elif has; then echo AUDIENCE-MAPPER-PRESENT
+  elif [ "$ADD" = yes ]; then
+    $K create "clients/$CID/protocol-mappers/models" -r padsign \
+      -s name=padsign-backend-audience -s protocol=openid-connect -s protocolMapper=oidc-audience-mapper \
+      -s "config.\"included.client.audience\"=padsign-backend" -s "config.\"access.token.claim\"=true" \
+      -s "config.\"introspection.token.claim\"=true" -s "config.\"id.token.claim\"=false" >/dev/null \
+      && has && echo AUDIENCE-MAPPER-CREATED
+  else echo AUDIENCE-MAPPER-ABSENT; fi
+  rm -f "$HOME/.keycloak/kcadm.config"'
+```
+
+- `AUDIENCE-MAPPER-PRESENT`: nothing to do. Any mapper that puts
+  `padsign-backend` into the audience counts, including one made by hand.
+- `AUDIENCE-MAPPER-ABSENT`: set `ADD=yes` and run the block again. It prints
+  `Created new model with id '...'` and then `AUDIENCE-MAPPER-CREATED`. A third
+  run with `ADD=no` prints `AUDIENCE-MAPPER-PRESENT`. Running it with `ADD=yes`
+  when the mapper already exists changes nothing and prints
+  `AUDIENCE-MAPPER-PRESENT`. You can also add the mapper in the admin console
+  instead, using the steps in [14.8](14-08-token-audience-for-introspection.md).
+- `Invalid user credentials`: the value in `KEYCLOAK_ADMIN_PASSWORD` is not the
+  current admin password. Go back to K1-K4.
+- `NO-PADSIGN-CLIENT`: this is not the realm the runbook expects. Stop and
+  investigate before the cut-over.
+
+Other ways to confirm the same thing:
+
+- **Admin console:** realm `padsign` → **Clients** → `padsign-client` →
+  **Client scopes** → `padsign-client-dedicated` → **Mappers**. It lists an
+  *Audience* mapper whose *Included Client Audience* is `padsign-backend`.
+- **`upgrade.sh --plan-only`**, run from `$NEW` after 42.3 O2. It writes
+  nothing. Its plan lists the `keycloak-backend-audience` migration as
+  `already applied` or `WILL APPLY`. Pass the K4 value in
+  `KEYCLOAK_ADMIN_PASSWORD`. Without it, the probe uses the password the
+  container was first booted with, which is stale on this host, and the plan
+  says `Could not check right now: could not read realm 'padsign' as Keycloak
+  admin ...`. Caution: this probe still hands the admin password to
+  `docker compose exec` on its command line, so it is briefly visible in the
+  host process list (secret-handling rule 1). The block above does not do that.
+- **After the cut-over:** 42.4 C5's `postdeploy-check.sh --company-role` runs
+  `verify-keycloak.sh`, which prints `OK   padsign-client access tokens carry
+  padsign-backend in aud (token introspection)`. Do not run
+  `verify-keycloak.sh` from `$NEW` *before* the cut-over. It runs
+  `docker compose up -d keycloak`, which from `$NEW` would recreate Keycloak on
+  the release's image outside the maintenance window.
+
+If an `upgrade.sh` run (for example on another, non-overlay host) prints
+`WARNING: could not add padsign-backend to the padsign-client token audience:`,
+the upgrade still finished and exited 0, but the mapper is missing. The next
+line gives the reason:
+
+| Reason printed | Fix |
+|---|---|
+| `could not read realm 'padsign' as Keycloak admin '<user>' (wrong admin password? ...)` | The admin password changed after Keycloak's first boot ([37.5](37-05-known-gaps-keycloak-admin-password-rotation.md)), or nobody knows it any more. Get working admin access with K1-K4 first. Then re-run with ` read -rs KEYCLOAK_ADMIN_PASSWORD && export KEYCLOAK_ADMIN_PASSWORD`, or use the block above. |
+| `the keycloak container is not running` | Start Keycloak and re-run. The migration never starts a container itself. |
+| `client 'padsign-client' not found in realm 'padsign'` | Not a standard PadSign realm. Investigate; do not create the client by hand here. |
+| `could not list padsign-client's protocol mappers` or `creating the protocol mapper failed` | Add the mapper in the admin console ([14.8](14-08-token-audience-for-introspection.md)), then confirm with the block above. |
+
+- **Check:** `AUDIENCE-MAPPER-PRESENT` (on the first run, or after `ADD=yes`).
+- **Rollback:** not normally needed, because the mapper is harmless on every
+  Keycloak version. To remove it anyway: admin console, the same *Mappers*
+  tab, delete `padsign-backend-audience`. Do this only while the host still
+  runs Keycloak 26.3.x.
+- **Evidence:** `echo "K4b: audience mapper -> present|created" >> "$EVID/K-log.txt"`.
+
+Rehearsed against throwaway Keycloak 26.3.2 and 26.7.4 containers. Both
+versions gave the same results for each case: no `padsign-client`, wrong
+admin password, absent, created, present, and a repeated `ADD=yes`. No kcadm
+session file was left in the container.
+
 ## K5: disposable smoke identity, twice in a row
 
 List the company roles to pick the configured one. Never pick
@@ -146,7 +249,7 @@ In a **private browser window**, open `https://$HOST/portal/`, log in with the
 printed username and the password shown on the terminal, and check:
 
 - the browser lands back on the portal (no "Update your account information" form, which was the bug this release fixes);
-- the portal loads its data: no `401` responses in the browser's network panel right after login. A `401` here, after a successful login, is the Keycloak 26.7.4 audience regression from gate G1;
+- the portal loads its data: no `401` responses in the browser's network panel right after login. After the move to the release's Keycloak, a `401` here, after a successful login, means the audience mapper is missing (K4b, gate G1). On Keycloak 26.3.x this check cannot catch a missing mapper, because that version never checks the audience;
 - no admin-only UI is visible;
 - optionally, a signing flow per [19.2](19-02-test-authentication-flow.md).
 

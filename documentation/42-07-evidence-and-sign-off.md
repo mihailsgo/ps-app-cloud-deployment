@@ -61,9 +61,10 @@ anything is found, remove or redact that file, and treat the value as exposed
   - the old tree is decommissioned (42.4 C7).
 - [ ] No deployment file or directory requires mode 777: `C2-storage-modes-after.txt` and `validate-config.sh`'s "not world-writable" lines; `find "$NEW" "$SIGNED" "$DOCS" -perm -0002 ! -type l | wc -l` returns 0.
 - [ ] Upgrade and rollback rehearsed while preserving certificates, routing, external stamping and document storage:
-  - rollback: 42.5 R3 forward → back → forward during the window, with C5's checks after each direction;
+  - rollback: 42.5 R3 forward → back → forward during the window, with C5's checks after each direction. If the cut-over moved Keycloak to the release's version (42.1 G1), the back direction includes R4;
   - upgrade: 42.6 `rebase` to the next tag when it exists.
 - [ ] Configuration checksums and source revision recorded: `C5-deployment-evidence.json`.
+- [ ] Keycloak (gate G1): the host runs the release's Keycloak, and `C5-postdeploy.log` shows `OK   padsign-client access tokens carry padsign-backend in aud`. `K-log.txt` has the 42.2 K4b line. Or the ticket records the decision to keep the host's Keycloak for now, with a date for the 42.6 move.
 
 **Note on "git status is clean".** The release's own scripts rewrite tracked
 files in place (`configure-host.sh` writes the hostname into
