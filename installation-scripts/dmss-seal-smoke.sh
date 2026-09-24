@@ -302,14 +302,15 @@ done
 echo ""
 
 echo "== 3. Signature level stable across seals =="
-# container-signature logs "Signature level from request: <level>" once per
-# seal (DEBUG, which this repo's application.yml enables). If a later seal
+# container-signature logs "Signature level from request: <level>" (24.3.0.x)
+# or "Signature level forwarded on request: <level>" (24.3.3.x) once per seal
+# (DEBUG, which this repo's application.yml enables). If a later seal
 # logs a different level than the first, the image is rewriting the shared
 # profile. This names the cause even if a reachable TSA made the upgraded
 # level succeed.
-levels="$(cs_logs | tr -d '\r' | grep -a -oE 'Signature level from request: [A-Za-z0-9_-]+' | awk '{print $NF}' || true)"
+levels="$(cs_logs | tr -d '\r' | grep -a -oE 'Signature level (from|forwarded on) request: [A-Za-z0-9_-]+' | awk '{print $NF}' || true)"
 if [[ -z "$levels" ]]; then
-  skip "this image does not log 'Signature level from request' - relying on check 2"
+  skip "this image logs no per-seal signature level - relying on check 2"
 elif (( ${#profiles[@]} > 1 )); then
   # Levels are logged per request in order; check each profile's run of seals.
   i=0
