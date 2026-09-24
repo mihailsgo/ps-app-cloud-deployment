@@ -22,11 +22,32 @@ fires only when `KC_HOSTNAME` or the nginx network alias names a different
 host than `nginx/nginx.conf` serves, a mismatch that never works. Details in
 [36.9 Previewing configuration changes](36-09-previewing-configuration-changes.md).
 
+## Before any step: the approved-tag gate
+
+A `--server-tag` / `--client-tag` must be the tag `release/approved-digests.json`
+approves for that image. Any other tag stops the run with exit 2 before step 1,
+so nothing is backed up, edited or pulled. `--plan-only` refuses the same way,
+and so does the deployment wizard's preview, which runs it. `--allow-unapproved`
+lets a hotfix tag through (see [5. Upgrading an Existing Deployment](05-upgrading-an-existing-deployment.md)):
+the plan then lists it under `UNAPPROVED OVERRIDE` (machine format:
+`unapproved_override=<image>:<tag>:<approved tag>`), and a real run prints a
+warning banner and records it in `deployment-evidence.json`.
+
+Then, still **before anything is written or pulled**, the real run verifies the
+**cosign signature** of each requested `ps-server` / `ps-client` image, and its
+signed SBOM and provenance attestations, against `release/cosign.pub` - by the
+approved digest, or (for a tag let through by `--allow-unapproved`) by the
+digest the tag resolves to now. A signature that does not verify stops the
+upgrade before step 1, so no snapshot, backup or edit is left behind. No cosign
+on the host only warns (it refuses under `CI=true` or
+`PADSIGN_REQUIRE_SIGNATURES=1`); `ps-server:3.28` / `ps-client:8.39`, released
+before signing existed, pass with a warning. `--plan-only` does not run this
+check. See [40.2](40-02-post-deploy-validation.md#image-signatures-cosign).
+
 ## The steps
 
 1. **Backs up** `docker-compose.yml` and `config/config.js` (`.bak` files)
-   Then, **before anything is rewritten or pulled, verifies the cosign signature** of each requested `ps-server` / `ps-client` image, and its signed SBOM and provenance attestations, against `release/cosign.pub` - by the approved digest when this checkout approves the tag, otherwise by the digest the tag resolves to now. A signature that does not verify stops the upgrade with `docker-compose.yml` and `config.js` untouched. No cosign on the host only warns (it refuses under `CI=true` or `PADSIGN_REQUIRE_SIGNATURES=1`); `ps-server:3.28` / `ps-client:8.39`, released before signing existed, pass with a warning. See [40.2](40-02-post-deploy-validation.md#image-signatures-cosign)
-2. **Updates image tags** in `docker-compose.yml` - replaces `ps-server:X.XX` and/or `ps-client:X.XX` with the new versions
+2. **Updates image tags** in `docker-compose.yml` - replaces `ps-server:X.XX` and/or `ps-client:X.XX` with the new versions, pinned to the digest `release/approved-digests.json` approves (left unpinned only for a tag let through by `--allow-unapproved`)
 3. **Ensures `DOCUMENT_ROUTING`** config block exists in `config.js` (appends if missing, disabled by default - does not overwrite existing settings)
 4. **Ensures `signed-output` volume mount** exists in `docker-compose.yml` for ps-server
 5. **Creates `signed-output/` (mode 750) and `docs/` (mode 770) if missing, and

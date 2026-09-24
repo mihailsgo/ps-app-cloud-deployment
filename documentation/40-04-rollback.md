@@ -35,6 +35,8 @@ With `--rollback-on-failure`, it runs that command itself. The upgrade still exi
 
 `rollback.sh` now exits `1` (`ROLLBACK APPLIED BUT NOT HEALTHY`) when the restored services do not become healthy, instead of warning after 60 seconds and exiting `0`.
 
+> **Re-running these rehearsals.** `upgrade.sh` now refuses a tag `release/approved-digests.json` does not approve (psapp-saas#11), and the broken-release tags below (`3.97`, `8.97`, `99.99.99`) are never approved. Add `--allow-unapproved` to reproduce them; the run then also records the override in `deployment-evidence.json` as `"unapproved_override"`. `rollback.sh` has no such gate: it restores the pin the snapshot recorded.
+
 ### Rehearsed against a live, isolated copy of this stack (psapp-saas#12)
 
 Run on 2026-09-23 against this repo's `docker-compose.yml` under a separate compose project with renamed containers and remapped ports. The "broken release" was a local-only image tagged `ps-server:3.97` / `ps-client:8.97` built `FROM` the real 3.28 / 8.39 image with a command that exits `1`, so it pulls (with `pull_policy: never` in the test override) and starts, then crash-loops - the case the old script reported as success.

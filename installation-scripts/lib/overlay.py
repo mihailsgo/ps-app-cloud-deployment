@@ -674,6 +674,13 @@ def cmd_capture(args):
                 # instead of regenerating the storage-only starter.
                 shutil.copyfile(carried, os.path.join(out, "compose.overlay.yml"))
                 print(f"  compose.overlay.yml carried over from {carried} (already in effect on the source)")
+                # Its image approvals travel with it: without them the
+                # digest gate (lib/digest_gate.py) fails every image the
+                # overlay adds or replaces.
+                approvals = os.path.join(os.path.dirname(carried), "approved-digests.json")
+                if os.path.isfile(approvals):
+                    shutil.copyfile(approvals, os.path.join(out, "approved-digests.json"))
+                    print(f"  approved-digests.json carried over from {approvals}")
             else:
                 write_compose_starter(out, storage, live_model)
             if base_model is not None:
@@ -1136,7 +1143,7 @@ def cmd_verify(args):
                 r.warn(f"{svc_name} {tgt} is bind-mounted from the OLD deployment directory ({v['source']}) - intended?")
         img = svc.get("image") or ""
         if "@sha256:" not in img:
-            r.warn(f"{svc_name}: image '{img}' is not digest-pinned")
+            r.warn(f"{svc_name}: image '{img}' is not digest-pinned (validate-config.sh FAILs it)")
 
     if args.live:
         print(f"\n== Effective model vs the running host ({args.live}) ==")

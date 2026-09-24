@@ -11,7 +11,7 @@ For that question, read in this order:
 1. `docker-compose.yml` here - what a deployment actually runs. Every image is pinned `tag@sha256:digest`; the tag is for humans, the digest is what Docker actually pulls.
 2. `documentation/01-release-snapshot.md` - what each tag contains and what it implies for deployment.
 3. `release/capabilities.json` - the minimum tag each deployment-relevant capability needs.
-4. `release/approved-digests.json` - the digest approved for each currently-pinned tag. `installation-scripts/validate-config.sh` fails if `docker-compose.yml` disagrees with it; `installation-scripts/check-digest-drift.sh` fails if it disagrees with what the registry serves today.
+4. `release/approved-digests.json` - the digest approved for each currently-pinned tag. `installation-scripts/validate-config.sh` fails if the effective compose model (`docker-compose.yml` plus any `COMPOSE_FILE` overlay) disagrees with it, and `upgrade.sh` refuses a tag it does not approve; `installation-scripts/check-digest-drift.sh` fails if it disagrees with what the registry serves today.
 5. `release/cosign.pub` - the public key every released `ps-server` / `ps-client` image is signed with (see [Signing](#signing)). `validate-config.sh` and `upgrade.sh` verify against it.
 
 Nothing enforces that these five, plus `psapp`'s own git tags, agree with each other - see `psapp/scripts/release-check.sh` in step 8 below (tags/capabilities) and `installation-scripts/check-digest-drift.sh` (digests), which are the automated forms of this cross-check.
@@ -62,13 +62,9 @@ gh run list --repo mihailsgo/psapp-saas --workflow build-and-push.yml --limit 1
 
 With `--push` it refuses unless HEAD is already tagged `ps-<component>/<tag>` (step 1), refuses if the registry already has that tag (so it can't overwrite CI's attested image), and prints the pushed digest. It always refuses to move an existing git tag to a different commit, and stamps the revision `-dirty` if the working tree is not clean. A dirty release is not reproducible; commit first.
 
-**4. Pin the new tag here.** Either edit `docker-compose.yml` directly, or let the upgrade script do it on a target host:
+**4. Pin the new tag here.** Edit `docker-compose.yml` in this repo (on the release branch, not on a target host) and approve it in the same change - step 5. Do not use `upgrade.sh` for this: it refuses a tag `release/approved-digests.json` does not approve yet, before it pulls or edits anything (exit 2, and `--plan-only` refuses the same way). Once the approval is merged, an operator's `upgrade.sh --server-tag 3.30` pins exactly the approved digest and ends digest-pinned.
 
-```bash
-./installation-scripts/upgrade.sh --server-tag 3.30
-```
-
-If the image being replaced was digest-pinned, `upgrade.sh` never carries the old `@sha256:...` forward onto the new tag (the old digest belongs to the old content). It pins a digest only when `release/approved-digests.json` already approves exactly the requested tag - which is what makes an operator's upgrade to the release this checkout ships end digest-pinned. For a brand-new tag that is not approved yet, the reference is unpinned until the next step, and `validate-config.sh` fails until it is pinned and approved.
+`upgrade.sh --allow-unapproved` is the emergency-hotfix exception, not a release step: it lets an unapproved tag through with a warning, leaves it without a digest pin (the old `@sha256:...` is never carried forward onto a new tag, since it belongs to the old content), and records the override in `deployment-evidence.json` as `"unapproved_override"`. `validate-config.sh` keeps failing on that host until the tag is approved and pinned, so a hotfix still has to come back through steps 4-5.
 
 **5. Resolve and pin the digest.** Never skip this - a tag alone is mutable. Ask the registry what the tag resolves to right now:
 
@@ -122,7 +118,9 @@ Then, back here, check that digests themselves haven't drifted from what's appro
 ./installation-scripts/check-digest-drift.sh
 ```
 
-It cross-checks `docker-compose.yml`, `release/approved-digests.json`, and what each registry currently serves for the pinned tags. Also read-only; also exits non-zero with one `DRIFT:` line per disagreement.
+It cross-checks the effective compose model (see below), `release/approved-digests.json`, and what each registry currently serves for the pinned tags. Also read-only; also exits non-zero with one `DRIFT:` line per disagreement.
+
+**What "the compose file" means to these checks.** `validate-config.sh` and `check-digest-drift.sh` both check the *effective* compose model, the one `docker compose up` would run: `docker-compose.yml` plus every file `COMPOSE_FILE` names (shell environment first, then `.env`), with every profile enabled so the profile-gated stamping and wizard services are always covered. Every image in it must be digest-pinned and approved, so an image an environment overlay adds or replaces fails unless it is approved too. They get the model from `docker compose config`, or, where docker is not installed, by reading the same files directly; the first line of the section says which. Both use `installation-scripts/lib/digest_gate.py`, so they cannot disagree. An image a host runs by design but the release does not ship (an overlay's older Keycloak, a host-only service) is approved in the overlay's own `approved-digests.json`, never here - see [42.3](42-03-capturing-the-environment-overlay.md).
 
 ## Verifying provenance
 

@@ -17,6 +17,15 @@
 # CLI arguments a script was invoked with. --admin-pass / --backend-secret /
 # --users must never end up in this file.
 #
+# Also records "unapproved_override": the image tags upgrade.sh deployed
+# with --allow-unapproved (psapp-saas#11). The sourcing script sets
+# $deployment_evidence_unapproved_override to one
+# "<image><TAB><tag><TAB><approved tag or ->" line per tag it let through; an
+# entry from an earlier snapshot is carried forward for as long as
+# docker-compose.yml still pins that same tag and release/approved-digests.json
+# still does not approve it, so a later postdeploy-check.sh run does not
+# quietly drop the record.
+#
 # Expects "$repo_root" to be set by the sourcing script.
 
 # shellcheck source=digests.sh
@@ -112,7 +121,7 @@ write_deployment_evidence() {
   ENV_FILE="${repo_root}/.env" \
   REPO_ROOT="$repo_root" \
   OVERLAY_STAMP="${repo_root}/.overlay-applied.json" \
-  EVIDENCE_FILE="$evidence_file" \
+  EVIDENCE_FILE="$evidence_file"   UNAPPROVED_OVERRIDE="${deployment_evidence_unapproved_override:-}" \
   PREVIOUS_EVIDENCE_FILE="$previous_evidence_file" \
   python3 <<'PY'
 import hashlib
@@ -234,6 +243,46 @@ for svc, count in restart_counts.items():
         # time", genuinely unknown.
         restart_deltas[svc] = None
 
+# --allow-unapproved deployments: this run's, plus any earlier one whose
+# tag is still the one pinned (see the header of this file).
+image_tags = {"ps-server": os.environ.get("SERVER_TAG") or None,
+              "ps-client": os.environ.get("CLIENT_TAG") or None}
+unapproved_override = []
+now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+for line in (os.environ.get("UNAPPROVED_OVERRIDE") or "").splitlines():
+    parts = line.rstrip("\r").split("\t")
+    if len(parts) < 2 or not parts[0]:
+        continue
+    unapproved_override.append({
+        "image": parts[0],
+        "repository": "mihailsgordijenko/" + parts[0],
+        "tag": parts[1],
+        "approved_tag": None if len(parts) < 3 or parts[2] in ("", "-") else parts[2],
+        "flag": "--allow-unapproved",
+        "recorded_by": os.environ["SCRIPT_NAME"],
+        "recorded_at": now,
+    })
+if os.path.isfile(prev_path):
+    try:
+        with open(prev_path, "r", encoding="utf-8") as fh:
+            previous_override = (json.load(fh) or {}).get("unapproved_override") or []
+    except (OSError, json.JSONDecodeError):
+        previous_override = []
+    try:
+        with open(os.path.join(repo_root, "release", "approved-digests.json"), encoding="utf-8") as fh:
+            approved_now = {k: (v or {}).get("tag") for k, v in (json.load(fh).get("images") or {}).items()}
+    except (OSError, ValueError, AttributeError):
+        approved_now = {}
+    seen = {(e["image"], e["tag"]) for e in unapproved_override}
+    for e in previous_override:
+        if not isinstance(e, dict):
+            continue
+        key = (e.get("image"), e.get("tag"))
+        # Still pinned, and still not approved since.
+        if key not in seen and image_tags.get(key[0]) == key[1] and approved_now.get(key[0]) != key[1]:
+            unapproved_override.append(e)
+            seen.add(key)
+
 evidence = {
     "schema_version": 2,
     "generated_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -263,6 +312,7 @@ evidence = {
     "overlay": overlay,
     "restart_counts": restart_counts,
     "restart_deltas": restart_deltas,
+    "unapproved_override": unapproved_override,
     "enabled_features": {
         "document_routing": routing_enabled,
         "demo_mode": demo_enabled,

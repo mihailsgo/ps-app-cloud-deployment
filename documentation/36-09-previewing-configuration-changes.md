@@ -80,6 +80,16 @@ cannot disagree with what an unflagged run would do. A useful property to
 check on any deployment: run a real upgrade, then re-run `--plan-only` — every
 migration should report *already applied*.
 
+## Unapproved image tags
+
+A tag `release/approved-digests.json` does not approve never reaches the
+preview. `upgrade.sh --plan-only` refuses it with exit 2, and the wizard shows
+its first line (`Refusing to upgrade to a tag release/approved-digests.json
+does not approve: ...`) instead of a plan. Because the preview is refused,
+Apply is never offered. The wizard has no override. The emergency-hotfix
+`--allow-unapproved` flag exists only on the command line
+([5. Upgrading an Existing Deployment](05-upgrading-an-existing-deployment.md)).
+
 ## What the preview does not cover
 
 - **Settings changes** (hostname, certificate renewal, feature toggles). Those

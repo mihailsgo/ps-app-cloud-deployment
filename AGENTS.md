@@ -64,8 +64,11 @@ ps-app-cloud-deployment/
 │   │   ├── kcadm.sh                  # Shared Keycloak admin CLI helpers (print_secret(), kc_exec_with_cli_password(), kc_exec_with_secret(), kc_logout)
 │   │   ├── overlay.py                # overlay.sh's implementation (3-way merge via git merge-file, compose-model diffing)
 │   │   ├── redact.py                 # the ONE definition of "secret-bearing key"; everything that prints config lines uses it
+│   │   ├── digests.sh                # approved-digests.json reader + effective-compose-model image helpers
+│   │   ├── digest_gate.py            # the digest gate: effective compose model (COMPOSE_FILE, all profiles) vs. approvals
 │   │   ├── dir-permissions.sh        # signed-output/ and docs/ permission model (no chmod 777)
 │   │   └── deployment-evidence.sh    # Writes deployment-evidence.json (git-ignored)
+│   ├── tests/test-digest-gate.sh     # digest gate + upgrade.sh approved-tag refusal, on a throwaway copy
 │   └── certs/                        # Place PEM certs here for bootstrap
 ├── dmss-archive-services/            # Spring config for document archive
 ├── dmss-archive-services-fallback/   # Spring config for filesystem fallback archive
@@ -112,7 +115,7 @@ This handles everything end-to-end: config rewrites, directory creation, Keycloa
 ./installation-scripts/upgrade.sh --enable-local-eseal
 ```
 
-Backs up config, updates image tags, ensures latest config patterns (DOCUMENT_ROUTING, volume mounts), pulls images, restarts containers. With `--enable-local-eseal`: idempotent Step 4b stages the demo stamping artefacts, appends the gated `dmss-digital-stamping-service` compose service block, patches container-signature's `digital-stamping-service.baseUrl`, pins `SPRING_SECURITY_USER_*` env vars on container-signature, inserts `STAMP_MODE: "local"` + `STAMP_LOCAL` into `config/config.js`, and writes `COMPOSE_PROFILES=local-eseal` to `.env`. Safe to re-run; full operator playbook (incl. demo-cert verification, real-cert swap, and rollback levels) is in `documentation/04-enabling-local-e-sealing.md`.
+Backs up config, updates image tags, ensures latest config patterns (DOCUMENT_ROUTING, volume mounts), pulls images, restarts containers. A `--server-tag`/`--client-tag` must be the tag `release/approved-digests.json` approves: anything else is refused (exit 2) before any pull or edit, `--plan-only` included. `--allow-unapproved` is the emergency-hotfix override: loud warning, no digest pin, recorded in `deployment-evidence.json` as `"unapproved_override"` (carried forward while that tag stays pinned and unapproved), and `validate-config.sh` keeps failing until the tag is approved. With `--enable-local-eseal`: idempotent Step 4b stages the demo stamping artefacts, appends the gated `dmss-digital-stamping-service` compose service block, patches container-signature's `digital-stamping-service.baseUrl`, pins `SPRING_SECURITY_USER_*` env vars on container-signature, inserts `STAMP_MODE: "local"` + `STAMP_LOCAL` into `config/config.js`, and writes `COMPOSE_PROFILES=local-eseal` to `.env`. Safe to re-run; full operator playbook (incl. demo-cert verification, real-cert swap, and rollback levels) is in `documentation/04-enabling-local-e-sealing.md`.
 
 ### Validate configuration
 
@@ -123,6 +126,13 @@ Backs up config, updates image tags, ensures latest config patterns (DOCUMENT_RO
 Includes a port-bindings check: fails if any internal service (Keycloak, the DMSS
 services, ps-server) publishes to a non-loopback host interface without an entry in
 the script's own allow-list (`nginx` and `wizard` are the only two by default).
+
+The image-digest check covers the *effective* compose model: `docker-compose.yml`
+plus every `COMPOSE_FILE` overlay, with every profile enabled (stamping, wizard).
+Every image must be digest-pinned and approved; an overlay image that isn't FAILs.
+The rules live in `installation-scripts/lib/digest_gate.py`, shared with
+`check-digest-drift.sh`; it uses `docker compose config` and falls back to reading
+the files itself where docker is not installed. Test: `installation-scripts/tests/test-digest-gate.sh`.
 
 ### Verify the certificate nginx is actually serving
 
@@ -270,6 +280,7 @@ A host can run as a clean checkout of a release tag plus an overlay directory ou
 
 - never edit tracked files in place, and never run `upgrade.sh` / `rollback.sh` or the wizard's Upgrade there; changes go through a new overlay version (`documentation/42-06`);
 - `overlay.sh verify` fails on any git-visible change the overlay does not declare, on a compose project name that would give Keycloak a new, empty volume, and on storage mounts that are not the existing signed documents;
+- `validate-config.sh` fails on any overlay image (`compose.overlay.yml`) that is not digest-pinned and approved. An image the host runs by design but the release does not ship is approved in the overlay's own `approved-digests.json` (same schema as `release/approved-digests.json`, plus a mandatory `why`; never for `ps-server`/`ps-client`), found via `.overlay-applied.json`'s `overlay_dir` (`documentation/42-03`);
 - the overlay directory contains real secrets and must never be copied into the repo or into evidence;
 - because `upgrade.sh` never runs there, its `keycloak-backend-audience` migration never runs either. Before such a host moves to the pinned Keycloak, the `padsign-backend-audience` mapper is checked and added by hand (`documentation/42-02` K4b, gate G1 in `42-01`).
 

@@ -92,6 +92,7 @@ matter:
 
 - `image:` replaces. Pin by digest. For the image a service runs today:
   `docker image inspect --format '{{index .RepoDigests 0}}' <image:tag>`. `overlay.sh verify` warns about unpinned overlay images.
+- **Approve every image the overlay adds or replaces**, in `$OVERLAY/approved-digests.json`. `validate-config.sh` checks the effective compose model (release compose + this overlay) and FAILs any image that is not digest-pinned and approved, by the release's `release/approved-digests.json` or by this file. It finds this file through the `overlay_dir` that `overlay.sh apply` writes into `.overlay-applied.json`. Same schema as the release file. Each entry needs a `why` (the reviewed reason, ideally the change ticket), and `mihailsgordijenko/ps-server` / `ps-client` can never be approved here (gate G2). The file holds no secrets, so it may go into the evidence bundle. `overlay.sh rebase` and a re-capture both carry it over.
 - `volumes:` merge by container path: a same-target entry replaces the release's. `environment:` merges by variable name.
 - `ports:` and other lists **append**. To replace, use `ports: !override` (Compose ≥ 2.24.4), as the rehearsal did for a non-default Keycloak port.
 - Relative paths resolve against the **new checkout**. An absolute path pointing into `$OLD` (other than storage) makes `verify` warn.
@@ -112,6 +113,32 @@ services:
     volumes:
       - ./nginx/certs:/certs        # now the NEW checkout's certs directory
 ```
+
+and the matching `$OVERLAY/approved-digests.json`:
+
+```json
+{
+  "images": {
+    "dmss-archive-services-host": {
+      "repository": "trustlynx/dmss-archive-services",
+      "tag": "<host version>",
+      "digest": "sha256:<digest>",
+      "why": "DMSS version overlay, see DEVIATIONS.md (CHG-1234)"
+    },
+    "cert-renewer": {
+      "repository": "<image>",
+      "tag": "<tag>",
+      "digest": "sha256:<digest>",
+      "why": "host-only certificate renewer (CHG-1234)"
+    }
+  }
+}
+```
+
+A release image the overlay does not touch needs no entry here. It stays
+approved by the release. If G1 kept the host's current Keycloak, approve that
+image the same way, with a `why` naming the G1 decision. `check-digest-drift.sh`
+also checks these entries against the live registry.
 
 - **Check:** every COMPOSE-DIFFERENCES line is either ported or recorded as OBSOLETE. `verify --live` in 42.4 C3 proves it.
 - **Rollback:** edit again. Nothing live depends on the overlay yet.

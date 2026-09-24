@@ -3,7 +3,8 @@ set -euo pipefail
 
 # ============================================================================
 # PadSign Digest Drift Checker — compares release/approved-digests.json
-# against what docker-compose.yml actually pins, and against what the
+# against what the effective compose model actually pins (docker-compose.yml
+# plus any COMPOSE_FILE overlay, every profile), and against what the
 # registry currently serves for the same tag.
 #
 # Usage:
@@ -28,9 +29,12 @@ usage() {
 Usage:
   ./installation-scripts/check-digest-drift.sh
 
-Checks every image in release/approved-digests.json:
-  - docker-compose.yml pins the digest this file approves
-  - the registry still serves that same digest for the pinned tag today
+Checks:
+  - every image of the effective compose model (docker-compose.yml plus any
+    COMPOSE_FILE overlay, every profile) is digest-pinned and approved, by
+    release/approved-digests.json or, on an overlay host, by the overlay's
+    approved-digests.json - the same rules as validate-config.sh
+  - the registry still serves each approved digest for its tag today
 
 Prints one DRIFT line per disagreement and exits non-zero. Read-only: never
 modifies docker-compose.yml, release/approved-digests.json, or anything
@@ -69,8 +73,19 @@ if [[ ! -f "$digests_json" ]]; then
   echo "ERROR: ${digests_json} not found." >&2
   exit 2
 fi
+if ! compose_images_prime; then
+  echo "ERROR: could not read the effective compose model." >&2
+  exit 2
+fi
 
-total="$(digest_registry_table | wc -l | tr -d ' ')"
+# Every approval to compare against the registry: the release's, plus - on a
+# host run as release baseline + environment overlay - the overlay's own
+# approved-digests.json (documentation/42-03).
+approvals_table="$(
+  digest_registry_table | tr -d '\r' | sed 's/^/release\t/'
+  digest_env_registry_table | sed 's/^/overlay\t/'
+)"
+total=$(( $(grep -c . <<< "$approvals_table") + 1 ))
 
 echo "========================================"
 echo "PadSign Digest Drift Check"
@@ -81,56 +96,57 @@ echo ""
 drift=0
 checked=0
 
-while IFS=$'\t' read -r image_key repository tag approved_digest; do
+# Step 1: the effective compose model (docker-compose.yml plus any
+# COMPOSE_FILE overlay, every profile) against the approvals - the same
+# rules validate-config.sh applies (lib/digest_gate.py), so the two cannot
+# disagree about which images are approved.
+echo "Step 1/${total}: effective compose model vs. approved digests"
+while IFS=$'\t' read -r gate_status gate_message; do
+  case "$gate_status" in
+    FAIL) echo "  DRIFT: ${gate_message}"; drift=1;;
+    OK|INFO) echo "  ${gate_message}";;
+  esac
+done < <(digest_gate_check)
+echo ""
+
+step=1
+while IFS=$'\t' read -r origin image_key repository tag approved_digest; do
   [[ -z "$image_key" ]] && continue
   # Defensive \r strip: this repo's docker-compose.yml is CRLF for unrelated
   # reasons, and a Windows-hosted python3's stdout can add one too (see
-  # lib/digests.sh) — every field gets the same treatment, not just the last.
+  # lib/digests.sh) - every field gets the same treatment, not just the last.
   repository="${repository%$'\r'}"
   tag="${tag%$'\r'}"
   approved_digest="${approved_digest%$'\r'}"
+  step=$((step + 1))
   checked=$((checked + 1))
 
-  echo "Step ${checked}/${total}: ${image_key} (${repository}:${tag})"
-
-  compose_pinned="$(digest_from_compose "$repository")"
-  if [[ -z "$compose_pinned" ]]; then
-    echo "  DRIFT: not referenced in docker-compose.yml at all"
-    drift=1
-  elif [[ "$compose_pinned" != *"@sha256:"* ]]; then
-    echo "  DRIFT: docker-compose.yml pins by tag only (${repository}:${compose_pinned}), no digest"
-    drift=1
-  else
-    compose_digest="${compose_pinned#*@}"
-    if [[ "$compose_digest" != "$approved_digest" ]]; then
-      echo "  DRIFT: docker-compose.yml pins ${compose_digest}, approved-digests.json says ${approved_digest}"
-      drift=1
-    else
-      echo "  docker-compose.yml matches approved-digests.json"
-    fi
-  fi
+  label="${image_key}"
+  [[ "$origin" == overlay ]] && label="${image_key} (overlay approval)"
+  echo "Step ${step}/${total}: ${label} (${repository}:${tag})"
 
   # Best-effort network check: a registry hiccup or auth gap here is
-  # informational, not a drift finding — the compose-vs-registry-file
-  # comparison above already ran and is the part that can't silently no-op.
+  # informational, not a drift finding - the compose-vs-approvals
+  # comparison in step 1 already ran and is the part that can't silently
+  # no-op.
   live_digest="$(digest_live "$repository" "$tag" || true)"
   if [[ -z "$live_digest" ]]; then
     echo "  WARNING: could not query the registry for ${repository}:${tag} (network, auth, or rate limit?)" >&2
   elif [[ "$live_digest" != "$approved_digest" ]]; then
-    echo "  DRIFT: registry now serves ${live_digest} for ${repository}:${tag}, approved-digests.json still says ${approved_digest}"
+    echo "  DRIFT: registry now serves ${live_digest} for ${repository}:${tag}, the approval still says ${approved_digest}"
     drift=1
   else
     echo "  registry still serves the approved digest"
   fi
   echo ""
-done < <(digest_registry_table)
+done <<< "$approvals_table"
 
 echo "========================================"
 if [[ "$drift" -eq 0 ]]; then
-  echo "Clean. All ${checked} images agree across docker-compose.yml, release/approved-digests.json, and the live registry."
+  echo "Clean. All ${checked} approved images agree across the effective compose model, their approvals, and the live registry."
   exit 0
 else
   echo "Drift found. See DRIFT: lines above."
-  echo "Review before re-pinning — see documentation/39-release-procedure.md."
+  echo "Review before re-pinning - see documentation/39-release-procedure.md."
   exit 1
 fi

@@ -60,6 +60,8 @@ If the user gives partial input, ask for the missing required fields in one pass
 
 At least one of `--server-tag` or `--client-tag` is required (exception: `--enable-local-eseal` alone is valid — it opts an existing deployment into local e-sealing without a tag bump). Confirm the target tags exist on Docker Hub before running (current registry: `mihailsgordijenko/ps-server` and `mihailsgordijenko/ps-client`). If the user just says "upgrade", check `git log --oneline -- docker-compose.yml` for the recent bump pattern before guessing. Run `upgrade.sh [same args] --plan-only` first and show the user the pending config migrations — the deployment wizard enforces this preview as a mandatory gate, and CLI runs should match that discipline.
 
+A requested tag must be the one `release/approved-digests.json` approves. Any other tag is refused with exit 2 (`ERROR: Refusing to upgrade to a tag release/approved-digests.json does not approve: ...`) before anything is pulled or modified, and `--plan-only` refuses the same way. Tell the user which tag is approved and point them at documentation/39-release-procedure.md to approve a new one. `--allow-unapproved` is an emergency-hotfix override: it prints a warning banner, leaves the tag without a digest pin, records it in `deployment-evidence.json` as `"unapproved_override"`, and `validate-config.sh`/`postdeploy-check.sh` keep failing until the tag is approved. See safety rule 11.
+
 Every `upgrade.sh` run also applies the `keycloak-backend-audience` migration: it adds an audience mapper to `padsign-client` in the live Keycloak realm, because Keycloak 26.4.12/26.6.2/26.7.0+ otherwise reject ps-server's token introspection and every portal API call 401s. It needs the Keycloak admin credentials, which default to the keycloak container's own `KEYCLOAK_ADMIN_PASSWORD`. If the operator changed that password in the admin console, pass `KEYCLOAK_ADMIN_PASSWORD=...` in the environment. If the run prints `WARNING: could not add padsign-backend...`, surface it to the user, because the upgrade continues regardless (see documentation/14-08-token-audience-for-introspection.md).
 
 ### Image signatures (cosign)
@@ -69,6 +71,8 @@ Every `upgrade.sh` run also applies the `keycloak-backend-audience` migration: i
 ### `validate-config.sh`
 
 `--host` is optional but should be passed whenever known — it's the only check that catches hostname drift between `nginx.conf`, `constants.json`, `config.js`, and compose's keycloak `KC_HOSTNAME` (a mismatch there sends browsers to that other host at login and stamps it into every token's issuer).
+
+Its image-digest section checks the *effective* compose model (`docker-compose.yml` plus any `COMPOSE_FILE` overlay, every profile enabled), not `docker-compose.yml` alone. An image an overlay adds or replaces FAILs unless it is digest-pinned and approved, by `release/approved-digests.json` or, on an overlay host, by the overlay's own `approved-digests.json` (documentation/42-03). Don't "fix" such a FAIL by editing `release/approved-digests.json` on a host; approving an image is a reviewed change.
 
 ## How to run
 
@@ -88,6 +92,7 @@ Bootstrap requires: `docker`, `docker compose` v2, `awk`, `perl`, `python3`, `cu
 8. **Never echo a generated Keycloak password to a stream a caller could capture or retain** (CI output, a redirected file, the deployment wizard's live log). `keycloak-bootstrap.sh` and `smoke-user.sh` both write generated passwords only via `print_secret()` (`installation-scripts/lib/kcadm.sh`), which goes straight to `/dev/tty` and is invisible to stdout/stderr redirection. If you add a script that generates a credential, reuse that helper rather than a plain `echo`.
 9. **Never put a secret on a command line**: not in a script's `docker compose exec` string, not in a suggested command. Argv is readable by every local user (`ps`) and recorded by audit tooling and shell history. Use `kc_exec_with_cli_password` (`lib/kcadm.sh`) for a kcadm login (the password goes in the container's `KC_CLI_PASSWORD`; `kc_exec_with_secret` still leaves it in kcadm's argv inside the container, which the host's `ps` lists too), `--password:env` for `kc.sh bootstrap-admin`, and `read -rs VAR` for operator input. Anything that prints config lines goes through `installation-scripts/lib/redact.py`.
 10. **An overlay-managed checkout (`.overlay-applied.json` exists) is never edited in place.** Changes go through a new overlay version (`documentation/42-06`); `upgrade.sh`, `rollback.sh` and the wizard's Upgrade rewrite tracked files and make `overlay.sh verify` fail. So `upgrade.sh`'s `keycloak-backend-audience` migration never runs there. Before the host moves to the pinned Keycloak, the audience mapper is checked and added with `documentation/42-02` K4b (gate G1 in `42-01`).
+11. **Never add `--allow-unapproved` on your own.** Use it only when the user explicitly asks to deploy an unapproved tag as a hotfix, after showing them the `--plan-only` output with the `UNAPPROVED OVERRIDE` line. Afterwards, tell them the host fails validation until the tag is approved and pinned.
 
 ## Verification after any deploy/upgrade
 
@@ -109,7 +114,7 @@ If any check fails, surface the exact failing command and its output to the user
 | `docker-compose.yml` | `upgrade.sh` (image tags, `compose-hostname` migration) + `configure-host.sh` (volume mount, keycloak `KC_HOSTNAME`, nginx network alias, Keycloak admin creds) — hostname fields via `lib/compose-hostname.sh` | image tags, volumes, network, per-service `healthcheck:`/`depends_on: condition: service_healthy` (see documentation/40-01) |
 | `nginx/certs/<host>.{crt,key}` | `configure-host.sh` copies from `installation-scripts/certs/` | TLS material — git-ignored |
 | `signed-output/`, `docs/` | `bootstrap.sh`/`upgrade.sh` via `lib/dir-permissions.sh` | mode 750/770, never 777 — see that file's header for why |
-| `deployment-evidence.json` | `bootstrap.sh`/`upgrade.sh`/`postdeploy-check.sh` via `lib/deployment-evidence.sh` | git revision, image tags/revisions/digests, config checksums, restart counts — git-ignored |
+| `deployment-evidence.json` | `bootstrap.sh`/`upgrade.sh`/`postdeploy-check.sh` via `lib/deployment-evidence.sh` | git revision, image tags/revisions/digests, config checksums, restart counts, `unapproved_override` (tags deployed with `--allow-unapproved`) - git-ignored |
 
 When the user asks to change something in these files manually, prefer running the appropriate script (with the right flag) over hand-editing — the scripts encode constraints (JSON validation, hostname escaping, redirect placement) that are easy to break.
 

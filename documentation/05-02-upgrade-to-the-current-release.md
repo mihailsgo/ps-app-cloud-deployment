@@ -144,11 +144,12 @@ digest that was approved for the tag you're going back to — either
 `CHANGELOG.md` entry — and pin it explicitly:
 
 ```bash
-./installation-scripts/upgrade.sh --server-tag 3.27 --client-tag 8.37
-# upgrade.sh only pins a digest for the tag this checkout's
-# release/approved-digests.json approves; an older tag is left unpinned (the
-# old digest belongs to the old content, not the tag you're moving to) -
-# resolve and pin the correct one for :3.27 / :8.37:
+./installation-scripts/upgrade.sh --server-tag 3.27 --client-tag 8.37 --allow-unapproved
+# upgrade.sh refuses any tag this checkout's release/approved-digests.json
+# does not approve, and an older release's tag is no longer the approved one,
+# hence --allow-unapproved (recorded in deployment-evidence.json). The tag is
+# left unpinned - pin the digest that was approved for :3.27 / :8.37 (from
+# the git history above), confirming it with:
 #   docker buildx imagetools inspect mihailsgordijenko/ps-server:3.27
 # Edit docker-compose.yml + release/approved-digests.json together, then:
 ./installation-scripts/validate-config.sh
