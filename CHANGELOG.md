@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.0.31
+
+- Docs: [39](documentation/39-release-procedure.md) gains a *Pre-scheme versions* section. Versions released before the `ps-<component>/<tag>` anchoring scheme (older than `ps-server/3.27` / `ps-client/8.38`) stay permanently unanchored instead of being tagged after the fact ([psapp-saas#26](https://github.com/mihailsgo/psapp-saas/issues/26), option b). Today that is only the `local-eseal` minimum, `ps-server:3.26`. `psapp/scripts/release-check.sh` reports it as `PRE` instead of `DRIFT`, so step 8 can finally pass clean. Its allowlist refuses post-scheme entries, and a compose pin or snapshot entry on a pre-scheme version is still `DRIFT`. `release/capabilities.json` is unchanged.
+
 ## v1.0.30
 
 - `keycloak-bootstrap.sh`: the realm and `--users` get-or-create steps now re-verify before treating a failed `create` as fatal. `kc_wait_ready` only proves port 8080 is open, so a `get` right after it could fail spuriously; the `create` then hit a 409 (the object exists) and aborted the bootstrap. A real failure now prints `ERROR: could not create or verify ...`. `--users` usernames and roles are quoted in the kcadm calls. Verified against a throwaway Keycloak 26.7.4 on WSL: fresh run, idempotent rerun, a forced-failing `get` on an existing realm/user (recovers, exit 0), and a genuine failure (exit 1 with the ERROR line).
