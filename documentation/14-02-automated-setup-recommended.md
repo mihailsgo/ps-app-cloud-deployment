@@ -18,12 +18,8 @@ docker compose up -d
 ./installation-scripts/keycloak-bootstrap.sh --host <host> --company-role "YourCompany"
 ```
 
-Keycloak-only (Windows PowerShell):
-
-```powershell
-docker compose up -d
-.\installation-scripts\keycloak-bootstrap.ps1 -PublicHost <host> -CompanyRole "YourCompany"
-```
+On a Windows development machine, run the same `keycloak-bootstrap.sh` from
+Git Bash or WSL. There is no PowerShell version.
 
 The script prints the backend client secret; set it in `config/config.js` under `KEYCLOAK_CONFIG.credentials.secret`.
 

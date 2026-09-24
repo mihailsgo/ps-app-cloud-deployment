@@ -16,9 +16,8 @@ services:
       - KC_HEALTH_ENABLED=true
     command: start-dev
     # Loopback-only: reached externally via nginx (/auth/), by service name, on the
-    # Docker network. Bound to the host at 127.0.0.1 only for keycloak-bootstrap.ps1
-    # (Windows dev convenience, see documentation/14-02) and local `curl localhost:8080`
-    # diagnostics. The Linux bootstrap path never uses the host port (docker compose exec).
+    # Docker network. Bound to the host at 127.0.0.1 only for local `curl localhost:8080`
+    # diagnostics. The bootstrap scripts never use the host port (docker compose exec).
     # See psapp-saas#13.
     ports:
       - "127.0.0.1:8080:8080"

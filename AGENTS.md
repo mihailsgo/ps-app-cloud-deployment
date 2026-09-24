@@ -44,7 +44,6 @@ ps-app-cloud-deployment/
 │   ├── bootstrap.sh                  # One-shot setup: hostname + Keycloak + secrets
 │   ├── configure-host.sh             # Rewrite config files for a new hostname
 │   ├── keycloak-bootstrap.sh         # Idempotent Keycloak realm/client/role/user creation
-│   ├── keycloak-bootstrap.ps1        # Windows PowerShell equivalent
 │   ├── smoke-user.sh                 # Create/delete a disposable, single-purpose Keycloak login
 │   ├── signing-smoke.sh              # Production-safe signing smoke test: device-grant login, demo-path doc, no routing, cleanup (documentation/40-05)
 │   ├── upgrade.sh                    # Version bump + config migrations (--plan-only preview)

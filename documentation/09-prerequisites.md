@@ -2,8 +2,8 @@
 
 **Platform:** the supported deployment target is a **Linux** host (any
 distribution that runs Docker). Windows tooling mentioned in this guide
-(`nginx/mkcert.exe`, `keycloak-bootstrap.ps1`) exists for development
-convenience only.
+(`nginx/mkcert.exe`) exists for development convenience only. On a
+Windows development machine, run the bash scripts from Git Bash or WSL.
 
 Host requirements:
 
