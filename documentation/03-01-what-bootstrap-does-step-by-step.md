@@ -39,6 +39,13 @@
 10. **Records deployment evidence** - writes `deployment-evidence.json`
     (git-ignored) with this repo's git revision/dirty flag, the pinned image
     tags and their OCI revision labels, sha256 checksums of the four
-    per-host-mutated config files, and which optional features are enabled
+    per-host-mutated config files, and which optional features are enabled.
+    It also records, per service, the running image digest, the restart count,
+    the restart delta against the previous `deployment-evidence.json` (kept as
+    `deployment-evidence.json.previous`; `null` on a fresh host), and whether
+    the service is `running`, `absent` (a profile-gated service -
+    `dmss-digital-stamping-service`, `wizard` - whose profile is not active)
+    or `not_running`. Written once per run, so the delta covers everything
+    since the last recorded run.
 11. **Prints summary** - portal URL, Keycloak admin URL, API URL, test user credentials
 

@@ -7,7 +7,9 @@
 # whether docker-compose.yml pins by digest yet), sha256 checksums of the
 # four files configure-host.sh/upgrade.sh mutate per host, per-service
 # container restart counts and their delta since the previous evidence
-# snapshot (surfaces restart-looping between two runs), and a best-effort
+# snapshot (surfaces restart-looping between two runs), per-service
+# running / absent / not_running status (profile-gated services included),
+# and a best-effort
 # read of which optional features are currently enabled. On a checkout run
 # as "release baseline + environment overlay" (installation-scripts/
 # overlay.sh), also which overlay was applied, the compose files actually in
@@ -31,8 +33,11 @@
 # shellcheck source=digests.sh
 . "${repo_root}/installation-scripts/lib/digests.sh"
 
-# List of always-on compose services whose restart count / digest this
-# records. Kept in one place so it stays in sync with docker-compose.yml.
+# Compose services whose restart count / digest this records. Kept in one
+# place so it stays in sync with docker-compose.yml.
+#
+# Always-on: expected to be running on every deployment. One that is not
+# running is recorded as "not_running" in service_status.
 DEPLOYMENT_EVIDENCE_SERVICES=(
   keycloak
   dmss-archive-services
@@ -41,6 +46,14 @@ DEPLOYMENT_EVIDENCE_SERVICES=(
   ps-server
   nginx
   ps-client
+)
+# Profile-gated: dmss-digital-stamping-service (profile local-eseal) and
+# wizard (profile wizard). Recorded when running; otherwise "absent" in
+# service_status with null digest / restart count / delta - an inactive
+# profile is normal, not a failure.
+DEPLOYMENT_EVIDENCE_OPTIONAL_SERVICES=(
+  dmss-digital-stamping-service
+  wizard
 )
 
 # Writes deployment-evidence.json.
@@ -83,29 +96,38 @@ write_deployment_evidence() {
   # against them directly. Not `docker inspect {{.Image}}`, which is the
   # local image ID and, on a classic image store, a config digest that
   # matches nothing in either file.
-  local running_digests_json="{}" restarts_json="{}"
+  local running_digests_json="{}" restarts_json="{}" service_status_json="{}"
   if command -v docker >/dev/null 2>&1; then
     [[ -n "$server_tag" ]] && server_rev="$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "mihailsgordijenko/ps-server:${server_tag}" 2>/dev/null || echo "")"
     [[ -n "$client_tag" ]] && client_rev="$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "mihailsgordijenko/ps-client:${client_tag}" 2>/dev/null || echo "")"
 
-    local svc cid digest restarts digest_parts=() restart_parts=()
-    for svc in "${DEPLOYMENT_EVIDENCE_SERVICES[@]}"; do
+    local svc cid digest restarts status digest_parts=() restart_parts=() status_parts=()
+    for svc in "${DEPLOYMENT_EVIDENCE_SERVICES[@]}" "${DEPLOYMENT_EVIDENCE_OPTIONAL_SERVICES[@]}"; do
       # Resolve via the COMPOSE service name to the real container id -
       # never assume the container is literally named after the service.
       # keycloak has no container_name: override in docker-compose.yml, so
       # `docker inspect keycloak` finds nothing on any real deployment;
-      # `docker compose ps -q` is what actually knows the mapping.
+      # `docker compose ps -q` is what actually knows the mapping. For a
+      # profile-gated service whose profile is not active this prints
+      # nothing (or fails, on older Compose) - both end up as an empty cid.
       cid="$(docker compose ps -q "$svc" 2>/dev/null || echo "")"
       digest=""; restarts=""
       if [[ -n "$cid" ]]; then
+        status="running"
         digest="$(digest_running "$cid")"
         restarts="$(docker inspect --format '{{.RestartCount}}' "$cid" 2>/dev/null || echo "")"
+      elif [[ " ${DEPLOYMENT_EVIDENCE_OPTIONAL_SERVICES[*]} " == *" ${svc} "* ]]; then
+        status="absent"
+      else
+        status="not_running"
       fi
       digest_parts+=("\"${svc}\": $( [[ -n "$digest" ]] && printf '"%s"' "$digest" || printf 'null' )")
       restart_parts+=("\"${svc}\": $( [[ -n "$restarts" ]] && printf '%s' "$restarts" || printf 'null' )")
+      status_parts+=("\"${svc}\": \"${status}\"")
     done
     running_digests_json="{ $(IFS=,; echo "${digest_parts[*]}") }"
     restarts_json="{ $(IFS=,; echo "${restart_parts[*]}") }"
+    service_status_json="{ $(IFS=,; echo "${status_parts[*]}") }"
   fi
 
   SCRIPT_NAME="$script_name" \
@@ -113,6 +135,7 @@ write_deployment_evidence() {
   SERVER_TAG="$server_tag" CLIENT_TAG="$client_tag" \
   SERVER_REV="$server_rev" CLIENT_REV="$client_rev" \
   IMAGE_DIGESTS_JSON="$running_digests_json" \
+  SERVICE_STATUS_JSON="$service_status_json" \
   RESTART_COUNTS_JSON="$restarts_json" \
   CONFIG_JS="${repo_root}/config/config.js" \
   CONSTANTS_JSON="${repo_root}/config/constants.json" \
@@ -220,6 +243,11 @@ except json.JSONDecodeError:
     image_digests = {}
 
 try:
+    service_status = json.loads(os.environ.get("SERVICE_STATUS_JSON") or "{}")
+except json.JSONDecodeError:
+    service_status = {}
+
+try:
     restart_counts = json.loads(os.environ.get("RESTART_COUNTS_JSON") or "{}")
 except json.JSONDecodeError:
     restart_counts = {}
@@ -302,6 +330,7 @@ evidence = {
         "ps-client": os.environ.get("CLIENT_REV") or None,
     },
     "image_digests": image_digests,
+    "service_status": service_status,
     "config_checksums": dict({
         "config/config.js": sha256_of(os.environ["CONFIG_JS"]),
         "config/constants.json": sha256_of(os.environ["CONSTANTS_JSON"]),
