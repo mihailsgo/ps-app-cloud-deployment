@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.0.27
+
+- Fixed the one failing Deployment Wizard unit test on `main` (`npm test` in `deployment-wizard/`, 67/68 → 68/68; reproduced identically on Windows and on Linux under `node:18-bookworm-slim`): `readConfiguredFeatures(): everything on, profile active` expected `localEsealProfileActive` to be `true`, but `readConfiguredFeatures()` (`deployment-wizard/lib/dockerFacts.js`) derives that from `COMPOSE_PROFILES` in the project's `.env`, and the `features-full-fixture` fixture never had a `.env` in git — the root `.gitignore`'s blanket `.env` rule silently excluded it, so the fixture was incomplete on every fresh clone. Wizard code is unchanged; this was a test-fixture packaging bug, not a product bug. Added `deployment-wizard/test/fixtures/features-full-fixture/.env` (`COMPOSE_PROFILES=local-eseal`) and a `!deployment-wizard/test/fixtures/**/.env` negation to `.gitignore`, scoped to exact `.env` files under the wizard's test fixtures only. Verified with `git check-ignore` that a real deployment's root `.env`, `.env.*` variants, and `.env` files anywhere else in the tree (including `deployment-wizard/.env` and `deployment-wizard/test/.env`) are all still ignored. The `features-off-fixture` and `features-partial-fixture` fixtures intentionally stay without a `.env`, because their tests assert the "no `.env` → profile inactive" default.
+
 ## v1.0.26
 
 Operator runbook and supporting tooling for the host-side work in [psapp-saas#6](https://github.com/mihailsgo/psapp-saas/issues/6) and [psapp-saas#7](https://github.com/mihailsgo/psapp-saas/issues/7). Nothing here was run against a live host. Every flow was rehearsed on real Linux against throwaway, uniquely named compose projects that were torn down afterwards.
