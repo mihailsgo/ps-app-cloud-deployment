@@ -29,13 +29,13 @@
     },
     "ps-server": {
       "repository": "mihailsgordijenko/ps-server",
-      "tag": "3.28",
-      "digest": "sha256:98bb0577865a576380796cffcb15c6e68b13c8e8c109192065d65bba26b2bac0"
+      "tag": "3.30",
+      "digest": "sha256:cdcabd7d242176e6229d435c33cc4ec49eaaf38605e92520998682566db3c945"
     },
     "ps-client": {
       "repository": "mihailsgordijenko/ps-client",
-      "tag": "8.39",
-      "digest": "sha256:8722d407215c680e40b0907e51f4e7a279014ea0d56088f9bc83605ddcf6511a"
+      "tag": "8.40",
+      "digest": "sha256:3293190b9c4c478de62b453006982dcd821d683fc987a38c944cb47d02d79b1e"
     },
     "nginx": {
       "repository": "nginx",

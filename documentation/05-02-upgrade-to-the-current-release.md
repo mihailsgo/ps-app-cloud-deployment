@@ -3,7 +3,7 @@
 Use this when an instance is **already deployed on an older tag** and you want to
 move it to the current release: the tags this checkout's `docker-compose.yml`
 pins, described in [1. Release Snapshot](01-release-snapshot.md)
-(`ps-server:3.28` + `ps-client:8.39` at the time of writing). The two features
+(`ps-server:3.30` + `ps-client:8.40` at the time of writing). The two features
 this page walks through arrived in `ps-server:3.27` / `ps-client:8.38` and are
 retained by every later tag.
 
@@ -24,13 +24,29 @@ The receive-back endpoints are **always present** in `:3.27`, but only return
 documents when document routing is switched on (next step). Upgrading the image
 alone is safe and changes no behaviour until you enable routing.
 
+> **Already using receive-back? Read this before moving to `ps-server:3.30`.**
+> From `3.30`, `GET /api/signedPdf?docid=` and `POST /api/signedPdf/ack` only
+> act on a document the caller can prove it owns (psapp-saas#18). Under the
+> legacy shared `REGISTER_PDF_API_KEY` that means sending the matching `email`
+> + `company`, and the current Padsign Manager (v1.2.0) sends only `docid` on
+> those two calls. So on a deployment where routing and the Manager are
+> already live, delivery stops after the upgrade: both calls return `404`,
+> the documents stay pending on the server, nothing is lost. Before
+> upgrading, give each receive-back company its own key in
+> `REGISTER_PDF_API_KEYS` (config only, no Manager change; psapp's
+> `docs/document-routing-spec.md`, *Migrating to per-company keys*; capability
+> `per-company-api-keys`), or roll out a Manager build that sends `email` +
+> `company`. `3.30` also keeps the filesystem archive after ack (it no longer
+> deletes `signed-output/{company}/{email}/...` files), so plan for that
+> directory to grow. See [1. Release Snapshot](01-release-snapshot.md).
+
 ---
 
 ## Step 1 — bump the images
 
 ```bash
 cd /path/to/ps-app-cloud-deployment
-./installation-scripts/upgrade.sh --server-tag 3.28 --client-tag 8.39
+./installation-scripts/upgrade.sh --server-tag 3.30 --client-tag 8.40
 ```
 
 This backs up `docker-compose.yml` + `config/config.js`, rewrites the image tags,
@@ -98,7 +114,7 @@ Full desktop steps + verification: [35. Receive-back deployment runbook](35-rece
 
 ```bash
 docker ps --format '  {{.Names}}: {{.Image}} ({{.Status}})' | grep -E 'ps-server|ps-client'
-#   expect the tags you passed above (ps-server:3.28 and ps-client:8.39)
+#   expect the tags you passed above (ps-server:3.30 and ps-client:8.40)
 ```
 
 Then sign a (non-demo) document for a known `email`+`company`; the Manager should
