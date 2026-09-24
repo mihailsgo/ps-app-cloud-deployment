@@ -46,7 +46,7 @@ checkout's `docker-compose.yml` pins, see
 minimum itself - that way `upgrade.sh` also pins its approved digest:
 
 ```bash
-./installation-scripts/upgrade.sh --server-tag 3.28 --enable-local-eseal
+./installation-scripts/upgrade.sh --server-tag 3.30 --enable-local-eseal
 ```
 
 ps-client is unchanged - the SPA

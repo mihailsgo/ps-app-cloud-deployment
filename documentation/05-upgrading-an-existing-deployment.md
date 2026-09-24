@@ -2,11 +2,11 @@
 
 To move an already-deployed instance to the **current release** (the tags this
 checkout's `docker-compose.yml` pins, described in
-[1. Release Snapshot](01-release-snapshot.md) - `ps-server:3.28`,
-`ps-client:8.39` at the time of writing):
+[1. Release Snapshot](01-release-snapshot.md) - `ps-server:3.30`,
+`ps-client:8.40` at the time of writing):
 
 ```bash
-./installation-scripts/upgrade.sh --server-tag 3.28 --client-tag 8.39
+./installation-scripts/upgrade.sh --server-tag 3.30 --client-tag 8.40
 # Add --enable-local-eseal to also provision the local stamping stack.
 # Any combination is valid; --enable-local-eseal alone is allowed too.
 ```
@@ -17,6 +17,13 @@ When a requested tag is the one `release/approved-digests.json` approves, the
 script pins that approved digest too, so the deployment ends digest-pinned and
 `validate-config.sh` passes; any other tag is left unpinned for you to resolve
 and approve (see [39. Release Procedure](39-release-procedure.md) step 5).
+
+> Coming from `ps-server:3.28` or older? `3.30` runs as a non-root user
+> (uid 1000) on Node 24, and on a deployment that already uses signed-PDF
+> receive-back it stops the current Padsign Manager's downloads and acks
+> under the legacy shared API key until that company gets its own key.
+> Check [1. Release Snapshot](01-release-snapshot.md) and the callout in
+> [5.2](05-02-upgrade-to-the-current-release.md) before upgrading.
 
 > Upgrading across several releases, or enabling local e-sealing at the same
 > time? [4.4 Existing deployment (upgrade an already-deployed instance)](04-04-existing-deployment-upgrade-an-already-deployed-instance.md)

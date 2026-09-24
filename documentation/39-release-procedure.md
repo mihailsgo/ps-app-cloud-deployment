@@ -23,6 +23,16 @@ Nothing enforces that these four, plus `psapp`'s own git tags, agree with each o
 - **Never reuse or move a tag once pushed.**
 - Every image is anchored to the commit it was built from by a git tag in the application repo: `ps-client/<tag>`, `ps-server/<tag>`.
 
+### Pre-scheme versions
+
+Anchoring starts at `ps-server/3.27` and `ps-client/8.38`. Anything older was released before the scheme existed: it has no git tag, and its image carries no OCI labels, so its source commit can't be identified reliably. Those versions stay **permanently unanchored**. They are not tagged after the fact, because a guessed anchor is worse than none (decided on mihailsgo/psapp-saas#26).
+
+This only matters where an old version is still cited, which today means one capability minimum: `local-eseal` needs `ps-server:3.26`. `psapp/scripts/release-check.sh` keeps these in an explicit `PRE_SCHEME_UNANCHORED` list and reports them as `PRE`, not `DRIFT`. The list is guarded:
+
+- An entry must be older than the earliest `ps-<component>/*` tag, or the checker refuses to run (exit 2). A post-scheme version with a missing anchor gets tagged, not listed.
+- `PRE` applies only to a `capabilities.json` minimum. If the compose pin or the release snapshot names a pre-scheme version, that is still `DRIFT`, because the current release must be anchored.
+- Don't raise the `local-eseal` minimum to `3.27` to make the entry go away. A minimum records the first image that has the capability, and for `local-eseal` that image is `3.26`.
+
 ## Cutting a release
 
 Steps 1-3 happen in the application repo (`psapp`); 4-7 happen here; 8 happens in `psapp` again, as the final check.
@@ -94,7 +104,7 @@ cd ../psapp
 ./scripts/release-check.sh
 ```
 
-It reads this repo's `docker-compose.yml`, `documentation/01-release-snapshot.md`, and `release/capabilities.json`, and cross-checks them against `psapp`'s own `ps-client/*` / `ps-server/*` git tags: does the compose pin match what the snapshot doc says, and does every tag mentioned anywhere (including every capability minimum) actually exist as an anchor commit. It exits non-zero and prints one `DRIFT:` line per disagreement if anything is out of sync - a release is not done until it passes clean. It defaults to finding this repo as a sibling checkout of `psapp`; pass `--deployment-dir <path>` if your layout differs. It is read-only and makes no changes to either repo. It does not check digests at all - only tags.
+It reads this repo's `docker-compose.yml`, `documentation/01-release-snapshot.md`, and `release/capabilities.json`, and cross-checks them against `psapp`'s own `ps-client/*` / `ps-server/*` git tags: does the compose pin match what the snapshot doc says, and does every tag mentioned anywhere (including every capability minimum) actually exist as an anchor commit. The only exception is a pre-scheme capability minimum, which it prints as a `PRE` line (see [Pre-scheme versions](#pre-scheme-versions)). It exits non-zero and prints one `DRIFT:` line per disagreement if anything is out of sync - a release is not done until it passes clean. It defaults to finding this repo as a sibling checkout of `psapp`; pass `--deployment-dir <path>` if your layout differs. It is read-only and makes no changes to either repo. It does not check digests at all - only tags.
 
 Then, back here, check that digests themselves haven't drifted from what's approved:
 
@@ -110,7 +120,7 @@ Any running container maps back to its source commit:
 
 ```bash
 docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' \
-  mihailsgordijenko/ps-server:3.28
+  mihailsgordijenko/ps-server:3.30
 ```
 
 A tag shown as `unstamped`, or a revision of `unknown`, means the image was built without the helper and cannot be traced - rebuild it before releasing.
@@ -118,11 +128,11 @@ A tag shown as `unstamped`, or a revision of `unknown`, means the image was buil
 CI (`psapp/.github/workflows/build-and-push.yml`) additionally attaches an SBOM and build-provenance attestation to `ps-client`/`ps-server` images pushed by a tag push, via `docker buildx build --sbom=true --provenance=mode=max`. Verify a specific image carries both:
 
 ```bash
-docker buildx imagetools inspect mihailsgordijenko/ps-server:3.29 --format '{{ json .SBOM }}'
-docker buildx imagetools inspect mihailsgordijenko/ps-server:3.29 --format '{{ json .Provenance }}'
+docker buildx imagetools inspect mihailsgordijenko/ps-server:3.30 --format '{{ json .SBOM }}'
+docker buildx imagetools inspect mihailsgordijenko/ps-server:3.30 --format '{{ json .Provenance }}'
 ```
 
-That workflow requires `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN` repository secrets to actually push - confirmed working end-to-end via a real `ps-server/3.29` tag push (CI-verification only, not a real release): tag-anchor check, Docker Hub login, build, SBOM/provenance attestation, and push all succeeded, and `docker buildx imagetools inspect` independently confirmed a real SPDX SBOM and SLSA provenance document on the pushed image. `build-image.sh`'s fallback path (step 3) does not produce an SBOM, and its provenance is BuildKit's default minimal one (no builder identity) - any tag built that way has no SBOM regardless of whether CI works for other tags. `ps-server:3.28` and `ps-client:8.39` were built that way, before CI existed.
+That workflow requires `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN` repository secrets to actually push - confirmed working end-to-end via a real `ps-server/3.29` tag push (CI-verification only, not a real release): tag-anchor check, Docker Hub login, build, SBOM/provenance attestation, and push all succeeded, and `docker buildx imagetools inspect` independently confirmed a real SPDX SBOM and SLSA provenance document on the pushed image. `build-image.sh`'s fallback path (step 3) does not produce an SBOM, and its provenance is BuildKit's default minimal one (no builder identity) - any tag built that way has no SBOM regardless of whether CI works for other tags. `ps-server:3.28` and `ps-client:8.39` were built that way, before CI existed. `ps-server:3.30` and `ps-client:8.40` are the first releases built by CI: each carries an SPDX SBOM and an SLSA provenance document whose builder id is the GitHub Actions run that built it.
 
 The attestations are stored next to the image in the registry and are not signed: they prove what BuildKit recorded, but anyone with push access to the repository could replace them. Signing them (cosign keyless, or GitHub artifact attestations, which need a public repository or GitHub Enterprise for a private one) is not set up.
 
