@@ -12,8 +12,9 @@ For that question, read in this order:
 2. `documentation/01-release-snapshot.md` - what each tag contains and what it implies for deployment.
 3. `release/capabilities.json` - the minimum tag each deployment-relevant capability needs.
 4. `release/approved-digests.json` - the digest approved for each currently-pinned tag. `installation-scripts/validate-config.sh` fails if `docker-compose.yml` disagrees with it; `installation-scripts/check-digest-drift.sh` fails if it disagrees with what the registry serves today.
+5. `release/cosign.pub` - the public key every released `ps-server` / `ps-client` image is signed with (see [Signing](#signing)). `validate-config.sh` and `upgrade.sh` verify against it.
 
-Nothing enforces that these four, plus `psapp`'s own git tags, agree with each other - see `psapp/scripts/release-check.sh` in step 8 below (tags/capabilities) and `installation-scripts/check-digest-drift.sh` (digests), which are the automated forms of this cross-check.
+Nothing enforces that these five, plus `psapp`'s own git tags, agree with each other - see `psapp/scripts/release-check.sh` in step 8 below (tags/capabilities) and `installation-scripts/check-digest-drift.sh` (digests), which are the automated forms of this cross-check.
 
 ## The tag scheme
 
@@ -47,13 +48,13 @@ git tag ps-server/3.30
 git push origin ps-server/3.30
 ```
 
-**2. Let CI build, attest, and push it.** The tag push in step 1 starts the *Build, SBOM & Provenance* workflow: it stamps the same OCI labels the helper does, attaches an SPDX SBOM and a `mode=max` SLSA provenance attestation, pushes, and prints the pushed `tag@digest` in the run summary for step 5. This is the release path - it is the only one that produces an SBOM and full provenance.
+**2. Let CI build, attest, sign, and push it.** The tag push in step 1 starts the *Build, SBOM & Provenance* workflow: it stamps the same OCI labels the helper does, attaches an SPDX SBOM and a `mode=max` SLSA provenance attestation, pushes, and prints the pushed `tag@digest` in the run summary for step 5. Its `sign` job then signs that digest with cosign and attaches the SBOM and provenance as cosign-signed attestations ([Signing](#signing)). This is the release path - it is the only one that produces an SBOM, full provenance, and a signature. A run whose `sign` job failed is not a release yet: see [Signing](#signing) for how to finish it.
 
 ```bash
 gh run list --repo mihailsgo/psapp-saas --workflow build-and-push.yml --limit 1
 ```
 
-**3. Fallback only: build and push by hand.** If CI cannot run (no Docker Hub secrets, Actions outage), `scripts/build-image.sh` produces the same labels but **no SBOM**, and only BuildKit's minimal default provenance (no builder identity) - record that in the release snapshot. Never use it for a tag CI has already pushed:
+**3. Fallback only: build and push by hand.** If CI cannot run (no Docker Hub secrets, Actions outage), `scripts/build-image.sh` produces the same labels but **no SBOM**, only BuildKit's minimal default provenance (no builder identity), and **no signature** - record that in the release snapshot. Since signing was introduced, `validate-config.sh` fails on such an image and `upgrade.sh` refuses it, and `sign-image.yml` will not sign it (it has no SBOM to attest). So a helper-built image is for a local build or a genuine emergency, not a normal release. Never use it for a tag CI has already pushed:
 
 ```bash
 ./scripts/build-image.sh server 3.30 --push   # or: client 8.40
@@ -82,6 +83,15 @@ Edit `docker-compose.yml`'s image line to `mihailsgordijenko/ps-server:3.30@sha2
 docker pull mihailsgordijenko/ps-server:3.30@sha256:<that digest>
 ```
 
+Then confirm the digest you are approving is signed, with its SBOM and provenance (this is what `validate-config.sh` will check on every host; needs cosign v3+):
+
+```bash
+ref=mihailsgordijenko/ps-server@sha256:<that digest>
+cosign verify --key release/cosign.pub --insecure-ignore-tlog=true "$ref"
+cosign verify-attestation --key release/cosign.pub --insecure-ignore-tlog=true --type spdxjson "$ref"
+cosign verify-attestation --key release/cosign.pub --insecure-ignore-tlog=true --type slsaprovenance1 "$ref"
+```
+
 **Pinning third-party images (Nginx, Keycloak, DMSS).** These don't go through the `ps-client`/`ps-server` tag-anchoring flow above - there's no `psapp` git tag or `build-image.sh` step for them - but they're pinned the same way: pick the tag (for Nginx, use the `stable` line, e.g. `docker buildx imagetools inspect nginx:stable` to find the current stable version - never pin a bare `latest`/`mainline` pull, which tracks whatever the maintainer ships next, not a fixed release), resolve its digest with `docker buildx imagetools inspect`, and update both `docker-compose.yml` and `release/approved-digests.json` together, exactly as above.
 
 **6. Describe the release.** Add the new tag to `documentation/01-release-snapshot.md`: what changed, and what it implies for a deployment. Keep the note about what the tag *retains* from the previous one, so an operator skipping versions can still tell what they are getting. Then update the example `upgrade.sh --server-tag/--client-tag` commands in `05-upgrading-an-existing-deployment.md`, `05-01-what-upgrade-does-step-by-step.md`, and `05-02-upgrade-to-the-current-release.md`, which name the current release so they can be copy-pasted.
@@ -104,7 +114,7 @@ cd ../psapp
 ./scripts/release-check.sh
 ```
 
-It reads this repo's `docker-compose.yml`, `documentation/01-release-snapshot.md`, and `release/capabilities.json`, and cross-checks them against `psapp`'s own `ps-client/*` / `ps-server/*` git tags: does the compose pin match what the snapshot doc says, and does every tag mentioned anywhere (including every capability minimum) actually exist as an anchor commit. The only exception is a pre-scheme capability minimum, which it prints as a `PRE` line (see [Pre-scheme versions](#pre-scheme-versions)). It exits non-zero and prints one `DRIFT:` line per disagreement if anything is out of sync - a release is not done until it passes clean. It defaults to finding this repo as a sibling checkout of `psapp`; pass `--deployment-dir <path>` if your layout differs. It is read-only and makes no changes to either repo. It does not check digests at all - only tags.
+It reads this repo's `docker-compose.yml`, `documentation/01-release-snapshot.md`, and `release/capabilities.json`, and cross-checks them against `psapp`'s own `ps-client/*` / `ps-server/*` git tags: does the compose pin match what the snapshot doc says, and does every tag mentioned anywhere (including every capability minimum) actually exist as an anchor commit. The only exception is a pre-scheme capability minimum, which it prints as a `PRE` line (see [Pre-scheme versions](#pre-scheme-versions)). It exits non-zero and prints one `DRIFT:` line per disagreement if anything is out of sync - a release is not done until it passes clean. It defaults to finding this repo as a sibling checkout of `psapp`; pass `--deployment-dir <path>` if your layout differs. It is read-only and makes no changes to either repo. It does not compare digests with the approved list (that is `check-digest-drift.sh`, below), but it does verify the cosign signature and attestations of the pinned `ps-server` / `ps-client` digests against this repo's `release/cosign.pub`, using this repo's `installation-scripts/lib/signatures.sh`. There, a missing cosign is a hard failure, not a warning: the release gate is where an unsigned release must not slip through.
 
 Then, back here, check that digests themselves haven't drifted from what's approved:
 
@@ -134,7 +144,40 @@ docker buildx imagetools inspect mihailsgordijenko/ps-server:3.30 --format '{{ j
 
 That workflow requires `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN` repository secrets to actually push - confirmed working end-to-end via a real `ps-server/3.29` tag push (CI-verification only, not a real release): tag-anchor check, Docker Hub login, build, SBOM/provenance attestation, and push all succeeded, and `docker buildx imagetools inspect` independently confirmed a real SPDX SBOM and SLSA provenance document on the pushed image. `build-image.sh`'s fallback path (step 3) does not produce an SBOM, and its provenance is BuildKit's default minimal one (no builder identity) - any tag built that way has no SBOM regardless of whether CI works for other tags. `ps-server:3.28` and `ps-client:8.39` were built that way, before CI existed. `ps-server:3.30` and `ps-client:8.40` are the first releases built by CI: each carries an SPDX SBOM and an SLSA provenance document whose builder id is the GitHub Actions run that built it.
 
-The attestations are stored next to the image in the registry and are not signed: they prove what BuildKit recorded, but anyone with push access to the repository could replace them. Signing them (cosign keyless, or GitHub artifact attestations, which need a public repository or GitHub Enterprise for a private one) is not set up.
+The BuildKit attestations are stored next to the image and are not signed, so on their own they only prove what BuildKit recorded. What makes them verifiable is the cosign signature over the image and the cosign-signed copies of the same SBOM and provenance, below.
+
+## Signing
+
+Every `ps-server` / `ps-client` image CI releases is signed with a **cosign key pair**, decided on psapp-saas#11 (2026-09-24):
+
+- The **private key** is the `COSIGN_PRIVATE_KEY` Actions secret on `mihailsgo/psapp-saas`, with its password in `COSIGN_PASSWORD`. Only psapp's `.github/workflows/sign-image.yml` uses it. Nobody needs it on a workstation. Keep an offline backup and no other copy.
+- The **public key** is `release/cosign.pub` in this repo.
+- **No keyless signing, and nothing is uploaded to the public Rekor transparency log.** A keyless signature would publish the private source repository's identity in a public log. `sign-image.yml` signs with a signing config that names no Sigstore service at all, and verification uses `--insecure-ignore-tlog=true`. The key is the only trust anchor.
+
+What gets signed, all bound to the image's index digest (what `docker-compose.yml` pins):
+
+| What | Created with | Verified with |
+|---|---|---|
+| The image | `cosign sign` | `cosign verify` |
+| Its SPDX SBOM, as extracted from the BuildKit attestation | `cosign attest --type spdxjson` | `cosign verify-attestation --type spdxjson` |
+| Its SLSA v1 provenance, same | `cosign attest --type slsaprovenance1` | `cosign verify-attestation --type slsaprovenance1` |
+
+The image signature also covers the BuildKit attestation manifest itself, since the signed index lists it by digest. The two cosign attestations let the SBOM and provenance be checked with the standard cosign commands. The full command set is in step 5 above. What the deployment scripts do with the result is in [40.2](40-02-post-deploy-validation.md#image-signatures-cosign).
+
+Before signing, `sign-image.yml` checks that the tag still resolves to the digest being signed, and that the image's `org.opencontainers.image.revision` label is the commit its `ps-<component>/<tag>` git tag points at. The release build also checks that the key decrypts **before** it builds, because once the push succeeds the tag is burned.
+
+**Finishing a release whose `sign` job failed, or signing an image CI pushed before signing existed.** Dispatch the signing workflow on its own, with the digest from the build run's summary (or `docker buildx imagetools inspect`):
+
+```bash
+gh workflow run sign-image.yml --repo mihailsgo/psapp-saas \
+  -f component=server -f tag=3.30 -f digest=sha256:<index digest>
+```
+
+It refuses an image without a BuildKit SBOM and provenance, so it cannot sign a `build-image.sh` build. Signing the same digest twice is harmless (it adds a second, equally valid signature).
+
+**Images released before signing.** `ps-server:3.28` and `ps-client:8.39` were built before CI existed and have no SBOM, so they cannot be signed. `release/unsigned-legacy-images.json` exempts exactly those two digests, so a deployment on them, or rolled back to them, keeps validating. That list is closed: never add a new release to it.
+
+**Rotating the key.** Generate a new pair, replace both secrets, and re-sign every image a supported deployment can still pin (dispatch `sign-image.yml` for each) before committing the new `release/cosign.pub` here. Signatures made with the old key stop verifying as soon as the new `cosign.pub` is on `main`.
 
 To confirm a digest itself is pinned and approved, rather than just present:
 

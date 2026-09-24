@@ -290,7 +290,10 @@ need_kc_backend_audience() { kc_probe_backend_audience; [[ "$kc_aud_state" != pr
 # and cached, so --plan-only's needed/body calls and a real run's apply all see
 # the same answer. Never writes: kcadm runs with --no-config (inline
 # credentials, no kcadm.config file), and a stopped keycloak container is
-# reported, never started.
+# reported, never started. The admin password is never on a command line:
+# kc_auth has no --password, and every call that uses kc_auth also passes
+# kc_admin_pass, which reaches kcadm as the container's KC_CLI_PASSWORD
+# (kc_exec_with_cli_password in lib/kcadm.sh).
 #
 #   kc_aud_state  = present | absent | unknown
 #   kc_aud_reason = why it is unknown (shown in the plan and in the warning)
@@ -305,6 +308,7 @@ kc_aud_state=""
 kc_aud_reason=""
 kc_frontend_cid=""
 kc_auth=""
+kc_admin_pass=""
 kc_probe_backend_audience() {
   [[ -n "$kc_aud_state" ]] && return 0
   kc_aud_state="unknown"
@@ -319,21 +323,22 @@ kc_probe_backend_audience() {
   [[ -z "$user" ]] && user="$(kc_exec 'printenv KEYCLOAK_ADMIN || printenv KC_BOOTSTRAP_ADMIN_USERNAME' 2>/dev/null | tr -d '\r' | head -1 || true)"
   [[ -z "$pass" ]] && pass="$(kc_exec 'printenv KEYCLOAK_ADMIN_PASSWORD || printenv KC_BOOTSTRAP_ADMIN_PASSWORD' 2>/dev/null | tr -d '\r' | head -1 || true)"
   user="${user:-admin}"
-  kc_auth="--no-config --server http://localhost:8080/auth --realm master --user '${user}' --password '${pass}'"
+  kc_auth="--no-config --server http://localhost:8080/auth --realm master --user '${user}'"
+  kc_admin_pass="$pass"
 
-  if ! kc_exec "/opt/keycloak/bin/kcadm.sh get realms/${kc_realm} --fields realm ${kc_auth}" >/dev/null 2>&1; then
+  if ! kc_exec_with_cli_password "$kc_admin_pass" "/opt/keycloak/bin/kcadm.sh get realms/${kc_realm} --fields realm ${kc_auth}" >/dev/null 2>&1; then
     kc_aud_reason="could not read realm '${kc_realm}' as Keycloak admin '${user}' (wrong admin password? set KEYCLOAK_ADMIN_PASSWORD)"
     return 0
   fi
 
-  kc_frontend_cid="$(kc_client_uuid "$kc_realm" padsign-client "$kc_auth" 2>/dev/null || true)"
+  kc_frontend_cid="$(kc_client_uuid "$kc_realm" padsign-client "$kc_auth" "$kc_admin_pass" 2>/dev/null || true)"
   if [[ -z "$kc_frontend_cid" ]]; then
     kc_aud_reason="client 'padsign-client' not found in realm '${kc_realm}'"
     return 0
   fi
 
   local rc=0
-  kc_backend_audience_present "$kc_realm" "$kc_frontend_cid" padsign-backend "$kc_auth" 2>/dev/null || rc=$?
+  kc_backend_audience_present "$kc_realm" "$kc_frontend_cid" padsign-backend "$kc_auth" "$kc_admin_pass" 2>/dev/null || rc=$?
   case "$rc" in
     0) kc_aud_state="present" ;;
     1) kc_aud_state="absent" ;;
@@ -683,8 +688,8 @@ mig_keycloak_backend_audience_apply() {
     return 0
   fi
   if [[ "$kc_aud_state" == absent ]] \
-      && kc_backend_audience_create "$kc_realm" "$kc_frontend_cid" padsign-backend "$kc_auth" 2>/dev/null \
-      && kc_backend_audience_present "$kc_realm" "$kc_frontend_cid" padsign-backend "$kc_auth" 2>/dev/null; then
+      && kc_backend_audience_create "$kc_realm" "$kc_frontend_cid" padsign-backend "$kc_auth" "$kc_admin_pass" 2>/dev/null \
+      && kc_backend_audience_present "$kc_realm" "$kc_frontend_cid" padsign-backend "$kc_auth" "$kc_admin_pass" 2>/dev/null; then
     echo "  Added '${KC_BACKEND_AUDIENCE_MAPPER}' mapper: padsign-backend is now in the padsign-client access-token audience"
     echo "  (users pick it up on their next token refresh - no logout needed)"
     return 0
@@ -828,6 +833,56 @@ approved_pin() {
   digest_registry_table 2>/dev/null | tr -d '\r' \
     | awk -F'\t' -v k="$1" -v t="$2" '$1 == k && $3 == t && $4 ~ /^sha256:/ { print "@" $4; exit }'
 }
+
+# ── Signature pre-flight: before anything is rewritten or pulled ──
+# Each requested ps-server / ps-client image must carry a cosign signature
+# (plus signed SBOM and provenance attestations) from psapp's CI, checked
+# against release/cosign.pub - by the approved digest when this checkout
+# approves the tag, which is exactly what step 2 then pins and step 5
+# pulls. A signature that does not verify aborts here, with
+# docker-compose.yml and config.js untouched. No cosign on the host only
+# warns (fails under CI=true or PADSIGN_REQUIRE_SIGNATURES=1); see
+# lib/signatures.sh and documentation/40-02-post-deploy-validation.md.
+# shellcheck source=lib/signatures.sh
+. "${scripts_dir}/lib/signatures.sh"
+preflight_signature() {  # <image key> <tag>
+  local key="$1" tag="$2" repository="mihailsgordijenko/$1" pin digest ref
+  pin="$(approved_pin "$key" "$tag")"
+  digest="${pin#@}"
+  # Not approved here (a hotfix, or going back to an older release): check
+  # the digest the tag resolves to right now, so a pre-signing release is
+  # still recognised by its exact digest. Tags are never moved, so this is
+  # the content step 5 pulls.
+  [[ -z "$digest" ]] && digest="$(digest_live "$repository" "$tag" | tr -d '\r')"
+  if [[ -n "$digest" ]]; then ref="${repository}@${digest}"; else ref="${repository}:${tag}"; fi
+  signature_check "$repository" "$ref" "$digest"
+  case "$sig_status" in
+    verified) echo "  ${key}:${tag}: ${sig_message}" ;;
+    exempt) echo "  WARNING: ${key}:${tag}: ${sig_message}" ;;
+    unavailable)
+      if signatures_required; then
+        echo "ERROR: ${key}:${tag}: ${sig_message}. Install cosign v${cosign_min_major}+ to upgrade here." >&2
+        return 1
+      fi
+      echo "  WARNING: ${key}:${tag}: ${sig_message}" ;;
+    *)
+      echo "ERROR: ${key}:${tag} (${ref}): ${sig_message}" >&2
+      return 1 ;;
+  esac
+}
+if [[ -n "$server_tag" || -n "$client_tag" ]]; then
+  echo "Pre-flight: verifying image signatures..."
+  sig_ok=true
+  [[ -n "$server_tag" ]] && { preflight_signature ps-server "$server_tag" || sig_ok=false; }
+  [[ -n "$client_tag" ]] && { preflight_signature ps-client "$client_tag" || sig_ok=false; }
+  if [[ "$sig_ok" != true ]]; then
+    echo "" >&2
+    echo "Upgrade refused before any change: an image signature could not be verified." >&2
+    echo "Nothing was rewritten or pulled; the rollback snapshot written in step 1 is unused." >&2
+    exit 1
+  fi
+fi
+
 echo "Step 2/6: Updating image tags..."
 unpinned_tags=false
 if [[ -n "$server_tag" ]]; then

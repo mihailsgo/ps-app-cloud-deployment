@@ -146,14 +146,17 @@ in the Keycloak volume. That means:
 - signed-in users pick it up on their next token refresh.
 
 Run this block once as is. It is read-only. After kcadm's `Logging into ...`
-line it prints one result line:
+line it prints one result line. The password reaches kcadm only as the
+container's `KC_CLI_PASSWORD`, so it is on no command line, neither
+`docker compose` on the host nor kcadm inside the container (whose processes
+the host's `ps` also lists):
 
 ```bash
 ADD=no   # set to yes only for the second run below
-KC_SECRET="$KEYCLOAK_ADMIN_PASSWORD" docker compose exec -T -e KC_SECRET -e ADD="$ADD" keycloak sh -lc '
+KC_CLI_PASSWORD="$KEYCLOAK_ADMIN_PASSWORD" docker compose exec -T -e KC_CLI_PASSWORD -e ADD="$ADD" keycloak sh -lc '
   K=/opt/keycloak/bin/kcadm.sh
   has() { $K get "clients/$CID/protocol-mappers/models" -r padsign | grep -qE "\"included\.client\.audience\" *: *\"padsign-backend\""; }
-  $K config credentials --server http://localhost:8080/auth --realm master --user admin --password "$KC_SECRET" >/dev/null || exit 1
+  $K config credentials --server http://localhost:8080/auth --realm master --user admin </dev/null >/dev/null || exit 1
   CID=$($K get clients -r padsign -q clientId=padsign-client --fields id --format csv --noquotes | tail -n 1 | tr -d "\r")
   if [ -z "$CID" ] || [ "$CID" = id ]; then echo "NO-PADSIGN-CLIENT in realm padsign"
   elif has; then echo AUDIENCE-MAPPER-PRESENT
@@ -191,9 +194,9 @@ Other ways to confirm the same thing:
   `KEYCLOAK_ADMIN_PASSWORD`. Without it, the probe uses the password the
   container was first booted with, which is stale on this host, and the plan
   says `Could not check right now: could not read realm 'padsign' as Keycloak
-  admin ...`. Caution: this probe still hands the admin password to
-  `docker compose exec` on its command line, so it is briefly visible in the
-  host process list (secret-handling rule 1). The block above does not do that.
+  admin ...`. Like the block above, the probe hands the password to kcadm
+  only as the container's `KC_CLI_PASSWORD` (since v1.0.36), so it never
+  appears in the host process list (secret-handling rule 1).
 - **After the cut-over:** 42.4 C5's `postdeploy-check.sh --company-role` runs
   `verify-keycloak.sh`, which prints `OK   padsign-client access tokens carry
   padsign-backend in aud (token introspection)`. Do not run
