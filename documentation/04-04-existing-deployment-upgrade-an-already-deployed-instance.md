@@ -23,8 +23,10 @@ edit.
 
 Local e-sealing is implemented in the ps-server source (the
 `STAMP_STRATEGIES` dispatch table inside `/api/stamp`). **The ps-server
-image must be `mihailsgordijenko/ps-server:3.26` or newer.** Earlier
-tags (`:3.25` and below) silently ignore the `STAMP_MODE` config field
+image must be at or above the `local-eseal` minimum recorded in
+`release/capabilities.json`** (`python3 -m json.tool release/capabilities.json`;
+`upgrade.sh` reads the same file, so the gate and this page cannot
+disagree). Earlier tags silently ignore the `STAMP_MODE` config field
 and always call the external cloud e-sealing service - meaning local
 mode appears to be installed (the stamping container starts, configs
 look right) but signing still goes to the cloud.
@@ -33,19 +35,21 @@ How to check what your deployment is running:
 
 ```bash
 grep mihailsgordijenko/ps-server docker-compose.yml
-# Expect: image: 'mihailsgordijenko/ps-server:3.26'  (or newer)
+# Expect: a tag at or above the local-eseal minimum in release/capabilities.json
 ```
 
-If the tag is older than `3.26`, you must bump it *together with*
+If the tag is older than that minimum, you must bump it *together with*
 `--enable-local-eseal` so the upgrade script updates both in one
-atomic step. The combined invocation looks like this (substitute the
-newest published tag if there is one):
+atomic step. Bump to the current release (the `ps-server` tag this
+checkout's `docker-compose.yml` pins, see
+[1. Release Snapshot](01-release-snapshot.md)) rather than to the
+minimum itself - that way `upgrade.sh` also pins its approved digest:
 
 ```bash
-./installation-scripts/upgrade.sh --server-tag 3.26 --enable-local-eseal
+./installation-scripts/upgrade.sh --server-tag 3.28 --enable-local-eseal
 ```
 
-ps-client (`mihailsgordijenko/ps-client:8.38`) is unchanged - the SPA
+ps-client is unchanged - the SPA
 calls `/api/stamp` the same way in both modes, so no `--client-tag`
 is needed for local e-sealing.
 
@@ -161,9 +165,11 @@ re-running the upgrade is always safe.
    `.bak` files in place (rollback safety).
 2. **Updated image tags** (Step 2): the pre-flight guard refused to
    continue with `--enable-local-eseal` against a ps-server pin older
-   than `:3.26`, so you passed `--server-tag 3.26` and the script
-   bumped the ps-server tag in `docker-compose.yml`. If your pin was
-   already `:3.26` or newer and you ran `--enable-local-eseal` alone,
+   than the `local-eseal` minimum in `release/capabilities.json`, so you
+   passed `--server-tag` with the current release and the script
+   bumped the ps-server tag in `docker-compose.yml` (pinning its
+   approved digest). If your pin already met the minimum and you ran
+   `--enable-local-eseal` alone,
    Step 2 is a no-op and you'll see no "ps-server: X → Y" line.
    `--client-tag` is not required for local e-sealing - ps-client is
    unchanged.
@@ -215,9 +221,10 @@ docker compose ps
 
 # 2. ps-server is running an image that contains the STAMP_MODE dispatch.
 docker compose images ps-server
-#    Expect: TAG = 3.26 (or newer). If you still see :3.25 here, the
+#    Expect: TAG at or above the local-eseal minimum in
+#            release/capabilities.json. If you still see the old tag, the
 #            tag bump in Step 2 didn't land - re-run the script with
-#            --server-tag 3.26 explicitly.
+#            --server-tag <current release> explicitly.
 
 docker compose exec ps-server grep -c STAMP_STRATEGIES app.js
 #    Expect: a non-zero count (typically 7). If it prints 0 or errors,
@@ -266,8 +273,8 @@ Common mid-run failures:
 
 | Failure | What happened | Recovery |
 |---|---|---|
-| `ERROR: --enable-local-eseal requires mihailsgordijenko/ps-server:3.26 or newer` | The pre-flight guard caught a ps-server pin older than `:3.26` and refused to run, because that image silently ignores the `STAMP_MODE` field | Re-run with the tag bump included in the same invocation: `./installation-scripts/upgrade.sh --server-tag 3.26 --enable-local-eseal`. The script makes no edits when it exits with this error, so nothing is left in a half-applied state. |
-| Docker pull timed out / failed | `Step 5/6` couldn't fetch the stamping image | Verify network, then re-run `./installation-scripts/upgrade.sh --server-tag 3.26 --enable-local-eseal`. The earlier idempotent steps will print "already present" and skip ahead. |
+| `ERROR: --enable-local-eseal requires mihailsgordijenko/ps-server:<min> or newer` | The pre-flight guard caught a ps-server pin older than the `local-eseal` minimum in `release/capabilities.json` and refused to run, because that image silently ignores the `STAMP_MODE` field | Re-run with the tag bump included in the same invocation: `./installation-scripts/upgrade.sh --server-tag <current release> --enable-local-eseal`. The script makes no edits when it exits with this error, so nothing is left in a half-applied state. |
+| Docker pull timed out / failed | `Step 5/6` couldn't fetch the stamping image | Verify network, then re-run the same `./installation-scripts/upgrade.sh ... --enable-local-eseal` command. The earlier idempotent steps will print "already present" and skip ahead. |
 | Host ran out of disk during pull | Look for `no space left on device` | Free space (`docker system prune` is a common first action), then re-run the script. |
 | `Conflict. The container name "..." is already in use` | A stale container from a previous attempt is hanging around | `docker rm -f dmss-digital-stamping-service` (or whatever name is in the error), then re-run. |
 | You SIGINT'd the script during edits | Partial state in `config.js` / compose | The `*.bak` files are still there. Either re-run (idempotent) or `cp docker-compose.yml.bak docker-compose.yml; cp config/config.js.bak config/config.js` and start over. |

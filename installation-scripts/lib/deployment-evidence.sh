@@ -16,6 +16,9 @@
 #
 # Expects "$repo_root" to be set by the sourcing script.
 
+# shellcheck source=digests.sh
+. "${repo_root}/installation-scripts/lib/digests.sh"
+
 # List of always-on compose services whose restart count / digest this
 # records. Kept in one place so it stays in sync with docker-compose.yml.
 DEPLOYMENT_EVIDENCE_SERVICES=(
@@ -61,13 +64,14 @@ write_deployment_evidence() {
   client_tag="$(sed -nE 's|.*mihailsgordijenko/ps-client:([0-9]+\.[0-9]+(\.[0-9]+)?).*|\1|p' "${repo_root}/docker-compose.yml" 2>/dev/null | head -1)"
 
   local server_rev="" client_rev=""
-  # Per-service running container digest (docker inspect .Image, the actual
-  # sha256 the container is running right now) and restart count, gathered
-  # even when docker-compose.yml only pins a mutable tag - this is real
-  # evidence of what's running, not a promise that it can't change on the
-  # next pull (that guarantee needs digest-pinned compose, tracked separately
-  # as psapp-saas#11).
-  local digests_json="{}" restarts_json="{}"
+  # Per-service running container digest and restart count. The digest is
+  # the registry digest of the image the container runs (digest_running in
+  # lib/digests.sh) - the same value docker-compose.yml pins and
+  # release/approved-digests.json approves, so this file can be compared
+  # against them directly. Not `docker inspect {{.Image}}`, which is the
+  # local image ID and, on a classic image store, a config digest that
+  # matches nothing in either file.
+  local running_digests_json="{}" restarts_json="{}"
   if command -v docker >/dev/null 2>&1; then
     [[ -n "$server_tag" ]] && server_rev="$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "mihailsgordijenko/ps-server:${server_tag}" 2>/dev/null || echo "")"
     [[ -n "$client_tag" ]] && client_rev="$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "mihailsgordijenko/ps-client:${client_tag}" 2>/dev/null || echo "")"
@@ -82,13 +86,13 @@ write_deployment_evidence() {
       cid="$(docker compose ps -q "$svc" 2>/dev/null || echo "")"
       digest=""; restarts=""
       if [[ -n "$cid" ]]; then
-        digest="$(docker inspect --format '{{.Image}}' "$cid" 2>/dev/null || echo "")"
+        digest="$(digest_running "$cid")"
         restarts="$(docker inspect --format '{{.RestartCount}}' "$cid" 2>/dev/null || echo "")"
       fi
       digest_parts+=("\"${svc}\": $( [[ -n "$digest" ]] && printf '"%s"' "$digest" || printf 'null' )")
       restart_parts+=("\"${svc}\": $( [[ -n "$restarts" ]] && printf '%s' "$restarts" || printf 'null' )")
     done
-    digests_json="{ $(IFS=,; echo "${digest_parts[*]}") }"
+    running_digests_json="{ $(IFS=,; echo "${digest_parts[*]}") }"
     restarts_json="{ $(IFS=,; echo "${restart_parts[*]}") }"
   fi
 
@@ -96,7 +100,7 @@ write_deployment_evidence() {
   GIT_REV="$git_rev" GIT_BRANCH="$git_branch" GIT_DIRTY="$git_dirty" \
   SERVER_TAG="$server_tag" CLIENT_TAG="$client_tag" \
   SERVER_REV="$server_rev" CLIENT_REV="$client_rev" \
-  IMAGE_DIGESTS_JSON="$digests_json" \
+  IMAGE_DIGESTS_JSON="$running_digests_json" \
   RESTART_COUNTS_JSON="$restarts_json" \
   CONFIG_JS="${repo_root}/config/config.js" \
   CONSTANTS_JSON="${repo_root}/config/constants.json" \

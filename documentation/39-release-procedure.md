@@ -27,54 +27,54 @@ Nothing enforces that these four, plus `psapp`'s own git tags, agree with each o
 
 Steps 1-3 happen in the application repo (`psapp`); 4-7 happen here; 8 happens in `psapp` again, as the final check.
 
-There is no CI and no git hook enforcing this order - it is discipline, checked at the end by step 8. `build-image.sh` enforces step 1 before step 2 itself (it refuses to build from an untagged commit), but nothing stops steps 4-7 from being forgotten; that is what `release-check.sh` (tags/capabilities) and `check-digest-drift.sh` (digests) are for.
+Steps 1-3 are enforced by tooling: pushing the `ps-<component>/<tag>` git tag triggers CI (`psapp/.github/workflows/build-and-push.yml`), which refuses to build unless that tag points at the commit being built and refuses to overwrite a tag already in the registry. Steps 4-7 are discipline, checked at the end by step 8; that is what `release-check.sh` (tags/capabilities) and `check-digest-drift.sh` (digests) are for.
 
-**1. Anchor the commit first.** The tag is what makes the image traceable, so it comes before the image exists, not after:
+**1. Anchor the commit.** The tag is what makes the image traceable, so it comes before the image exists, not after:
 
 ```bash
 cd psapp
-git tag ps-server/3.28
-git push origin ps-server/3.28
+git tag ps-server/3.30
+git push origin ps-server/3.30
 ```
 
-**2. Build the image with provenance.** Use the helper, never a bare `docker build` - it stamps the OCI labels that make the image traceable, and refuses to run at all if HEAD isn't already tagged `ps-<component>/<tag>`:
+**2. Let CI build, attest, and push it.** The tag push in step 1 starts the *Build, SBOM & Provenance* workflow: it stamps the same OCI labels the helper does, attaches an SPDX SBOM and a `mode=max` SLSA provenance attestation, pushes, and prints the pushed `tag@digest` in the run summary for step 5. This is the release path - it is the only one that produces an SBOM and full provenance.
 
 ```bash
-./scripts/build-image.sh server 3.28          # or: client 8.39
+gh run list --repo mihailsgo/psapp-saas --workflow build-and-push.yml --limit 1
 ```
 
-It also refuses to move an existing `ps-<component>/<tag>` git tag to a different commit, and stamps the revision `-dirty` if the working tree is not clean. A dirty release is not reproducible; commit first.
-
-**3. Push the image.**
+**3. Fallback only: build and push by hand.** If CI cannot run (no Docker Hub secrets, Actions outage), `scripts/build-image.sh` produces the same labels but **no SBOM**, and only BuildKit's minimal default provenance (no builder identity) - record that in the release snapshot. Never use it for a tag CI has already pushed:
 
 ```bash
-./scripts/build-image.sh server 3.28 --push
+./scripts/build-image.sh server 3.30 --push   # or: client 8.40
 ```
+
+With `--push` it refuses unless HEAD is already tagged `ps-<component>/<tag>` (step 1), refuses if the registry already has that tag (so it can't overwrite CI's attested image), and prints the pushed digest. It always refuses to move an existing git tag to a different commit, and stamps the revision `-dirty` if the working tree is not clean. A dirty release is not reproducible; commit first.
 
 **4. Pin the new tag here.** Either edit `docker-compose.yml` directly, or let the upgrade script do it on a target host:
 
 ```bash
-./installation-scripts/upgrade.sh --server-tag 3.28
+./installation-scripts/upgrade.sh --server-tag 3.30
 ```
 
-This bumps the tag only. If the image being replaced was digest-pinned, `upgrade.sh` deliberately drops the old `@sha256:...` rather than carry it forward onto the new tag (the old digest belongs to the old content) - the new reference is unpinned until the next step, and `validate-config.sh` will fail until it is pinned again.
+If the image being replaced was digest-pinned, `upgrade.sh` never carries the old `@sha256:...` forward onto the new tag (the old digest belongs to the old content). It pins a digest only when `release/approved-digests.json` already approves exactly the requested tag - which is what makes an operator's upgrade to the release this checkout ships end digest-pinned. For a brand-new tag that is not approved yet, the reference is unpinned until the next step, and `validate-config.sh` fails until it is pinned and approved.
 
 **5. Resolve and pin the digest.** Never skip this - a tag alone is mutable. Ask the registry what the tag resolves to right now:
 
 ```bash
-docker buildx imagetools inspect mihailsgordijenko/ps-server:3.28
+docker buildx imagetools inspect mihailsgordijenko/ps-server:3.30
 # Digest:    sha256:<64 hex chars>
 ```
 
-Edit `docker-compose.yml`'s image line to `mihailsgordijenko/ps-server:3.28@sha256:<that digest>`, and update (or add) the matching entry in `release/approved-digests.json` - `repository`, `tag`, `digest`. These two files are meant to be edited together; `installation-scripts/validate-config.sh` fails if they disagree. Before committing, re-pull the exact `repo:tag@digest` string to confirm it's real:
+Edit `docker-compose.yml`'s image line to `mihailsgordijenko/ps-server:3.30@sha256:<that digest>`, and update (or add) the matching entry in `release/approved-digests.json` - `repository`, `tag`, `digest`. These two files are meant to be edited together; `installation-scripts/validate-config.sh` fails if they disagree. Before committing, re-pull the exact `repo:tag@digest` string to confirm it's real:
 
 ```bash
-docker pull mihailsgordijenko/ps-server:3.28@sha256:<that digest>
+docker pull mihailsgordijenko/ps-server:3.30@sha256:<that digest>
 ```
 
 **Pinning third-party images (Nginx, Keycloak, DMSS).** These don't go through the `ps-client`/`ps-server` tag-anchoring flow above - there's no `psapp` git tag or `build-image.sh` step for them - but they're pinned the same way: pick the tag (for Nginx, use the `stable` line, e.g. `docker buildx imagetools inspect nginx:stable` to find the current stable version - never pin a bare `latest`/`mainline` pull, which tracks whatever the maintainer ships next, not a fixed release), resolve its digest with `docker buildx imagetools inspect`, and update both `docker-compose.yml` and `release/approved-digests.json` together, exactly as above.
 
-**6. Describe the release.** Add the new tag to `documentation/01-release-snapshot.md`: what changed, and what it implies for a deployment. Keep the note about what the tag *retains* from the previous one, so an operator skipping versions can still tell what they are getting.
+**6. Describe the release.** Add the new tag to `documentation/01-release-snapshot.md`: what changed, and what it implies for a deployment. Keep the note about what the tag *retains* from the previous one, so an operator skipping versions can still tell what they are getting. Then update the example `upgrade.sh --server-tag/--client-tag` commands in `05-upgrading-an-existing-deployment.md`, `05-01-what-upgrade-does-step-by-step.md`, and `05-02-upgrade-to-the-current-release.md`, which name the current release so they can be copy-pasted.
 
 **7. Register any new capability.** If the release introduces something a deployment decision depends on - a config flag that older images ignore, a route that can now be closed, an endpoint an external component polls - add it to `release/capabilities.json`:
 
@@ -118,11 +118,13 @@ A tag shown as `unstamped`, or a revision of `unknown`, means the image was buil
 CI (`psapp/.github/workflows/build-and-push.yml`) additionally attaches an SBOM and build-provenance attestation to `ps-client`/`ps-server` images pushed by a tag push, via `docker buildx build --sbom=true --provenance=mode=max`. Verify a specific image carries both:
 
 ```bash
-docker buildx imagetools inspect mihailsgordijenko/ps-server:3.28 --format '{{ json .SBOM }}'
-docker buildx imagetools inspect mihailsgordijenko/ps-server:3.28 --format '{{ json .Provenance }}'
+docker buildx imagetools inspect mihailsgordijenko/ps-server:3.29 --format '{{ json .SBOM }}'
+docker buildx imagetools inspect mihailsgordijenko/ps-server:3.29 --format '{{ json .Provenance }}'
 ```
 
-That workflow requires `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN` repository secrets to actually push - confirmed working end-to-end via a real `ps-server/3.29` tag push (CI-verification only, not a real release): tag-anchor check, Docker Hub login, build, SBOM/provenance attestation, and push all succeeded, and `docker buildx imagetools inspect` independently confirmed a real SPDX SBOM and SLSA provenance document on the pushed image. `build-image.sh`'s manual path (steps 1-3 above) still does not produce attestations - any tag built that way, rather than through CI, has none regardless of whether CI works for other tags.
+That workflow requires `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN` repository secrets to actually push - confirmed working end-to-end via a real `ps-server/3.29` tag push (CI-verification only, not a real release): tag-anchor check, Docker Hub login, build, SBOM/provenance attestation, and push all succeeded, and `docker buildx imagetools inspect` independently confirmed a real SPDX SBOM and SLSA provenance document on the pushed image. `build-image.sh`'s fallback path (step 3) does not produce an SBOM, and its provenance is BuildKit's default minimal one (no builder identity) - any tag built that way has no SBOM regardless of whether CI works for other tags. `ps-server:3.28` and `ps-client:8.39` were built that way, before CI existed.
+
+The attestations are stored next to the image in the registry and are not signed: they prove what BuildKit recorded, but anyone with push access to the repository could replace them. Signing them (cosign keyless, or GitHub artifact attestations, which need a public repository or GitHub Enterprise for a private one) is not set up.
 
 To confirm a digest itself is pinned and approved, rather than just present:
 
@@ -133,7 +135,15 @@ python3 -m json.tool release/approved-digests.json   # what's approved
 
 ## Keeping digests current
 
-Digests are pinned deliberately (step 5) and never auto-updated - `check-digest-drift.sh` only reports drift, for a human to review and re-pin. `renovate.json` at the repository root scaffolds an automated alternative (Renovate's `docker-compose` manager, `pinDigests: true`): once the Renovate GitHub App (or a self-hosted runner) is enabled on this repository, it opens a PR whenever a pinned tag's digest changes upstream, which goes through ordinary code review like any other change. It needs no additional secrets - every image here is public. Nothing in this repository activates it by itself.
+Digests are pinned deliberately (step 5) and never auto-updated - `check-digest-drift.sh` only reports drift, for a human to review and re-pin. Renovate (configured by `renovate.json`, enabled on this repository) proposes updates: every Monday before 06:00 UTC it opens one grouped `chore(digests):` PR for newer third-party tags and changed digests, which goes through ordinary code review like any other change. It never merges on its own.
+
+Renovate edits only `docker-compose.yml`. Before merging one of its PRs, in the same PR:
+
+- update `release/approved-digests.json` to the new `tag` + `digest` for every image it bumped (`validate-config.sh` fails otherwise), re-verifying each digest with `docker buildx imagetools inspect`;
+- update the matching lines of `documentation/01-release-snapshot.md`;
+- drop any bump you are not approving (the first run, PR #12, dropped an nginx mainline bump; `renovate.json` now pins nginx to the 1.30.x stable line).
+
+`ps-server` and `ps-client` tag bumps are excluded from Renovate: a new PadSign tag is a release and goes through the steps above (snapshot entry, capability registry), not a dependency bump. Renovate still reports a changed digest for the *same* PadSign tag - which should never happen, since tags are never moved, so treat such a PR as an incident.
 
 **DMSS images need a boot + seal check, not just a diff review.** A DMSS bump can pass `validate-config.sh` and `check-digest-drift.sh` and still not work with this repo's config. Renovate's first DMSS PR did exactly that: `container-signature-service` 24.3.3.9 did not start without `spring.mail.*` (`application.yml` now carries a placeholder), and every tag from 24.3.0.43 to 24.3.3.9 seals the B_BES `LocalDemo` profile once, then treats it as `PAdES-BASELINE-LT` and fails every later seal on the TSA. So `renovate.json` puts `trustlynx/*` images in their own PR, labelled `needs-seal-smoke`, and it blocks the container-signature tags already known to fail. Before approving a DMSS PR, or moving a DMSS pin by hand, check out the branch and run:
 

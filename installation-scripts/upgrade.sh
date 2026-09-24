@@ -732,21 +732,45 @@ echo "  Backups created"
 # The replacement deliberately also strips any existing "@sha256:..." — that
 # digest was resolved for the OLD tag, and carrying it forward onto the new
 # tag would silently re-pin the new image to the wrong (old) content instead
-# of leaving it correctly unpinned. Pinning the new tag's real digest is a
-# separate, deliberate step (documentation/39-release-procedure.md); this
-# script only ever bumps the tag.
+# of leaving it correctly unpinned.
+#
+# The one digest this script does write is the reviewed one: if
+# release/approved-digests.json approves exactly the requested tag, its
+# approved digest is pinned straight away, so upgrading to the release this
+# checkout ships ends digest-pinned and passes validate-config.sh. Any other
+# tag is left unpinned - resolving and approving a new tag's digest is a
+# separate, deliberate step (documentation/39-release-procedure.md).
+#
+#   approved_pin <approved-digests key> <tag>   -> "@sha256:..." or nothing
+approved_pin() {
+  digest_registry_table 2>/dev/null | tr -d '\r' \
+    | awk -F'\t' -v k="$1" -v t="$2" '$1 == k && $3 == t && $4 ~ /^sha256:/ { print "@" $4; exit }'
+}
 echo "Step 2/6: Updating image tags..."
+unpinned_tags=false
 if [[ -n "$server_tag" ]]; then
   old_server="$(current_tag ps-server)"; old_server="${old_server:-unknown}"
-  sed -i -E "s|mihailsgordijenko/ps-server:[0-9.]*(@sha256:[0-9a-f]+)?|mihailsgordijenko/ps-server:${server_tag}|" "$compose_yml"
-  echo "  ps-server: ${old_server} → ${server_tag}"
+  server_pin="$(approved_pin ps-server "$server_tag")"
+  sed -i -E "s|mihailsgordijenko/ps-server:[0-9.]*(@sha256:[0-9a-f]+)?|mihailsgordijenko/ps-server:${server_tag}${server_pin}|" "$compose_yml"
+  if [[ -n "$server_pin" ]]; then
+    echo "  ps-server: ${old_server} → ${server_tag} (pinned to its approved digest)"
+  else
+    echo "  ps-server: ${old_server} → ${server_tag}"
+    unpinned_tags=true
+  fi
 fi
 if [[ -n "$client_tag" ]]; then
   old_client="$(current_tag ps-client)"; old_client="${old_client:-unknown}"
-  sed -i -E "s|mihailsgordijenko/ps-client:[0-9.]*(@sha256:[0-9a-f]+)?|mihailsgordijenko/ps-client:${client_tag}|" "$compose_yml"
-  echo "  ps-client: ${old_client} → ${client_tag}"
+  client_pin="$(approved_pin ps-client "$client_tag")"
+  sed -i -E "s|mihailsgordijenko/ps-client:[0-9.]*(@sha256:[0-9a-f]+)?|mihailsgordijenko/ps-client:${client_tag}${client_pin}|" "$compose_yml"
+  if [[ -n "$client_pin" ]]; then
+    echo "  ps-client: ${old_client} → ${client_tag} (pinned to its approved digest)"
+  else
+    echo "  ps-client: ${old_client} → ${client_tag}"
+    unpinned_tags=true
+  fi
 fi
-if [[ -n "$server_tag" || -n "$client_tag" ]]; then
+if [[ "$unpinned_tags" == true ]]; then
   echo "  NOTE: the new tag(s) above are not yet digest-pinned. Resolve and pin"
   echo "        the digest before this deployment is considered complete:"
   echo "        see documentation/39-release-procedure.md and"
