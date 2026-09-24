@@ -32,9 +32,11 @@ company_role=""
 realm="padsign"
 admin_user="${KEYCLOAK_ADMIN:-admin}"
 admin_pass="${KEYCLOAK_ADMIN_PASSWORD:-admin}"
-smoke_spec_path="${PADSIGN_SIGNING_SMOKE_SPEC:-${repo_root}/../psapp/client/tests/e2e/authenticated-sign-flow.spec.js}"
 signing_smoke=false
-[[ -n "${PADSIGN_SIGNING_SMOKE_SPEC:-}" ]] && signing_smoke=true
+signing_smoke_seal=false
+# psapp's dev-stack Playwright spec (psapp-saas#9) runs only when its path is
+# given explicitly - it is for a dev/staging stack, not a customer host.
+smoke_spec_path="${PADSIGN_SIGNING_SMOKE_SPEC:-}"
 
 usage() {
   cat <<'EOF'
@@ -42,7 +44,7 @@ Usage:
   ./installation-scripts/postdeploy-check.sh --host example.com
                                   [--company-role "Acme"] [--realm padsign]
                                   [--admin-user admin] [--admin-pass secret]
-                                  [--signing-smoke]
+                                  [--signing-smoke [--signing-smoke-with-seal]]
 
 Runs, in order:
   1. validate-config.sh --host <host>
@@ -51,12 +53,17 @@ Runs, in order:
   4. Portal/runtime config:     served /portal/constants.json matches config/constants.json
   5. Keycloak discovery:        /auth/realms/<realm>/.well-known/openid-configuration
   6. Protected API behavior:    unauthenticated /api/health is rejected, not 200
-  7. Authorized signing smoke test (opt-in: --signing-smoke, or set
-     PADSIGN_SIGNING_SMOKE_SPEC): runs psapp's authenticated-sign-flow Playwright
-     spec (psapp-saas#9) with its own playwright.auth.config.js against
-     https://<host>. Needs a psapp checkout with client/node_modules installed,
-     KEYCLOAK_ADMIN_URL reachable, and local e-sealing - see
-     documentation/40-02-post-deploy-validation.md. SKIPPED otherwise.
+  7. Authorized signing smoke test (opt-in: --signing-smoke): runs
+     signing-smoke.sh, which is safe on a production host - a disposable smoke
+     user approves in the operator's browser, one synthetic document is signed
+     and verified, nothing is routed, everything is cleaned up. Needs an
+     interactive terminal and the Keycloak admin password (the --admin-pass
+     value or KEYCLOAK_ADMIN_PASSWORD, handed over via the environment). The
+     deployment's e-seal is applied only with --signing-smoke-with-seal. See
+     documentation/40-05-production-safe-signing-smoke-test.md.
+     Dev/staging only: PADSIGN_SIGNING_SMOKE_SPEC=<psapp spec path> instead
+     runs psapp's authenticated-sign-flow Playwright spec (psapp-saas#9).
+     SKIPPED otherwise.
   8. TLS:                       verify-served-cert.sh
   9. Deployment evidence written (deployment-evidence.json)
 EOF
@@ -70,6 +77,7 @@ while [[ $# -gt 0 ]]; do
     --admin-user) admin_user="${2:-}"; shift 2;;
     --admin-pass) admin_pass="${2:-}"; shift 2;;
     --signing-smoke) signing_smoke=true; shift;;
+    --signing-smoke-with-seal) signing_smoke=true; signing_smoke_seal=true; shift;;
     -h|--help) usage; exit 0;;
     *) echo "ERROR: Unknown arg: $1" >&2; usage; exit 2;;
   esac
@@ -199,25 +207,37 @@ else
 fi
 echo ""
 
-# ── 7. Authorized signing smoke test (psapp-saas#9) ──
+# ── 7. Authorized signing smoke test ──
 echo "== 7. Authorized signing smoke test =="
-# The spec is excluded from psapp's default playwright.config.js (testIgnore)
-# and only runs under client/playwright.auth.config.js, which reads the target
-# from PADSIGN_STACK_URL - so both have to be passed, from the client/ dir.
-smoke_client_dir="$(cd "$(dirname "$smoke_spec_path")/../.." 2>/dev/null && pwd || true)"
-if [[ "$signing_smoke" != true ]]; then
-  skip "authorized signing smoke test (opt-in: pass --signing-smoke or set PADSIGN_SIGNING_SMOKE_SPEC)"
-elif [[ ! -f "$smoke_spec_path" || ! -f "${smoke_client_dir}/playwright.auth.config.js" ]]; then
-  bad "authorized signing smoke test requested but ${smoke_spec_path} (and its client/playwright.auth.config.js) not found"
-elif ! command -v npx >/dev/null 2>&1; then
-  bad "authorized signing smoke test requested but npx is not installed"
-else
-  echo "  Running ${smoke_spec_path} against https://${host} ..."
-  if (cd "$smoke_client_dir" && PADSIGN_STACK_URL="https://${host}" npx playwright test --config=playwright.auth.config.js --reporter=line); then
-    ok "authenticated signing smoke test passed"
+if [[ "$signing_smoke" == true ]]; then
+  smoke_args=(--host "$host" --realm "$realm" --admin-user "$admin_user")
+  [[ "$signing_smoke_seal" == true ]] && smoke_args+=(--with-seal)
+  # The admin password goes through the environment, never argv.
+  if KEYCLOAK_ADMIN_PASSWORD="$admin_pass" "${scripts_dir}/signing-smoke.sh" "${smoke_args[@]}" 2>&1 | sed 's/^/  /'; [[ "${PIPESTATUS[0]}" -eq 0 ]]; then
+    ok "production-safe signing smoke test passed"
   else
-    bad "authenticated signing smoke test FAILED"
+    bad "production-safe signing smoke test FAILED (see above)"
   fi
+elif [[ -n "$smoke_spec_path" ]]; then
+  # Dev/staging only (documentation/40-02): the spec is excluded from psapp's
+  # default playwright.config.js (testIgnore) and only runs under
+  # client/playwright.auth.config.js, which reads the target from
+  # PADSIGN_STACK_URL - so both have to be passed, from the client/ dir.
+  smoke_client_dir="$(cd "$(dirname "$smoke_spec_path")/../.." 2>/dev/null && pwd || true)"
+  if [[ ! -f "$smoke_spec_path" || ! -f "${smoke_client_dir}/playwright.auth.config.js" ]]; then
+    bad "PADSIGN_SIGNING_SMOKE_SPEC=${smoke_spec_path} (and its client/playwright.auth.config.js) not found"
+  elif ! command -v npx >/dev/null 2>&1; then
+    bad "dev-stack signing spec requested but npx is not installed"
+  else
+    echo "  Running ${smoke_spec_path} against https://${host} (dev/staging spec) ..."
+    if (cd "$smoke_client_dir" && PADSIGN_STACK_URL="https://${host}" npx playwright test --config=playwright.auth.config.js --reporter=line); then
+      ok "dev-stack authenticated signing spec passed"
+    else
+      bad "dev-stack authenticated signing spec FAILED"
+    fi
+  fi
+else
+  skip "authorized signing smoke test (opt-in: pass --signing-smoke; needs an interactive terminal)"
 fi
 echo ""
 
