@@ -55,6 +55,7 @@ ps-app-cloud-deployment/
 │   ├── verify-keycloak.sh            # Verify Keycloak setup
 │   ├── verify-served-cert.sh         # Wire check: cert nginx actually serves
 │   ├── diff-baseline-overlay.sh      # Drift check: live host vs. a clean baseline ref (see documentation/41)
+│   ├── dmss-seal-smoke.sh            # Boot + 3 consecutive local e-seals on the pinned DMSS images, isolated project (see documentation/39)
 │   ├── lib/
 │   │   ├── capabilities.sh           # Shared reader for release/capabilities.json
 │   │   ├── kcadm.sh                  # Shared Keycloak admin CLI helpers (incl. print_secret(), see smoke-user.sh)
@@ -158,6 +159,7 @@ every other file-level check pass throughout that failure. See
 - Backend client: `padsign-backend` (bearer-only, used by Express server)
 - Roles: `padsign-admin`, `psapp-integration`
 - Default admin: `admin/admin` — must change in production
+- `padsign-client` carries an `oidc-audience-mapper` (`padsign-backend-audience`) that puts `padsign-backend` into the access-token `aud`. ps-server validates every API call by introspecting the portal token *as* `padsign-backend`, and Keycloak 26.4.12/26.6.2/26.7.0+ refuse that unless the introspecting client is in `aud` (CVE-2026-37979 fix). Without the mapper, login works but every API call returns 401. `keycloak-bootstrap.sh` creates it for new realms, and `upgrade.sh`'s `keycloak-backend-audience` migration adds it to existing ones. That migration is the one table entry whose predicate probes live Keycloak (read-only, `kcadm --no-config`) instead of grepping a file. Shared helpers are in `installation-scripts/lib/kcadm.sh`. See `documentation/14-08-token-audience-for-introspection.md`.
 
 ## Local e-sealing
 

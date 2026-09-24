@@ -67,6 +67,58 @@ kc_role_exists() {
   kc_exec "/opt/keycloak/bin/kcadm.sh get roles -r ${realm} --fields name --format csv | tr -d '\r\"' | grep -qxF '${name}'"
 }
 
+# ── padsign-backend in the padsign-client access-token audience ────────────
+#
+# ps-server validates every portal API call by introspecting the user's
+# padsign-client access token AS padsign-backend (keycloak-connect's
+# grantManager.validateAccessToken). Keycloak 26.4.12 / 26.6.2 / 26.7.0 and
+# later reject that introspection unless the introspecting client is in the
+# token's `aud` (the fix for CVE-2026-37979) - a stock padsign-client token
+# carries only aud="account", so every authenticated API call 401s. This
+# oidc-audience-mapper on padsign-client adds padsign-backend to `aud`. Harmless
+# on older Keycloak, which does not check.
+#
+# Shared by keycloak-bootstrap.sh (new realms), upgrade.sh's
+# keycloak-backend-audience migration (existing realms) and verify-keycloak.sh.
+# The optional trailing <kcadm-auth> argument is inserted after the kcadm
+# subcommand: empty means "use the kcadm config kc_login() wrote", and
+# upgrade.sh passes `--no-config --server ... --user ... --password ...` so
+# its --plan-only path never writes a kcadm config file.
+KC_BACKEND_AUDIENCE_MAPPER="padsign-backend-audience"
+
+# Prints the internal id of client <clientId>, or nothing if it does not exist.
+kc_client_uuid() {
+  local realm="$1" client_id="$2" auth="${3:-}"
+  local cid
+  cid="$(kc_csv_last "/opt/keycloak/bin/kcadm.sh get clients -r ${realm} -q clientId=${client_id} --fields id --format csv ${auth}")"
+  [[ "$cid" == "id" ]] && cid=""
+  printf '%s' "$cid"
+}
+
+# True (exit 0) when any protocol mapper on client <frontend-uuid> already puts
+# <audience-clientId> into the audience. Matches on the mapper's config, not on
+# our mapper's name, so an equivalent mapper an operator added by hand in the
+# admin console counts too (and is left alone). Returns 2 when the mapper list
+# could not be read at all, so callers can tell "absent" from "unknown".
+kc_backend_audience_present() {
+  local realm="$1" frontend_cid="$2" audience="$3" auth="${4:-}"
+  local mappers
+  mappers="$(kc_exec "/opt/keycloak/bin/kcadm.sh get clients/${frontend_cid}/protocol-mappers/models -r ${realm} ${auth}")" || return 2
+  printf '%s' "$mappers" | tr -d '\r' | grep -qE "\"included\.client\.audience\"[[:space:]]*:[[:space:]]*\"${audience}\""
+}
+
+kc_backend_audience_create() {
+  local realm="$1" frontend_cid="$2" audience="$3" auth="${4:-}"
+  kc_exec "/opt/keycloak/bin/kcadm.sh create clients/${frontend_cid}/protocol-mappers/models -r ${realm} ${auth} \
+    -s name=${KC_BACKEND_AUDIENCE_MAPPER} \
+    -s protocol=openid-connect \
+    -s protocolMapper=oidc-audience-mapper \
+    -s 'config.\"included.client.audience\"=${audience}' \
+    -s 'config.\"access.token.claim\"=true' \
+    -s 'config.\"introspection.token.claim\"=true' \
+    -s 'config.\"id.token.claim\"=false'" >/dev/null
+}
+
 # Prints secret material to the controlling terminal only, bypassing stdout
 # and stderr entirely. bootstrap.sh captures keycloak-bootstrap.sh's whole
 # stdout+stderr into a variable (2>&1) and the deployment wizard streams both
