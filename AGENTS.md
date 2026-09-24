@@ -60,7 +60,7 @@ ps-app-cloud-deployment/
 │   ├── lib/
 │   │   ├── capabilities.sh           # Shared reader for release/capabilities.json
 │   │   ├── compose-hostname.sh       # Read/rewrite compose KC_HOSTNAME + nginx alias (configure-host, upgrade, validate-config)
-│   │   ├── kcadm.sh                  # Shared Keycloak admin CLI helpers (print_secret(), kc_exec_with_cli_password(), kc_exec_with_secret(), kc_logout)
+│   │   ├── kcadm.sh                  # Shared Keycloak admin CLI helpers (print_secret(), kc_exec_with_cli_password(), kc_set_password(), kc_logout)
 │   │   ├── overlay.py                # overlay.sh's implementation (3-way merge via git merge-file, compose-model diffing)
 │   │   ├── redact.py                 # the ONE definition of "secret-bearing key"; everything that prints config lines uses it
 │   │   ├── digests.sh                # approved-digests.json reader + effective-compose-model image helpers
@@ -285,7 +285,7 @@ A host can run as a clean checkout of a release tag plus an overlay directory ou
 
 When changing what `configure-host.sh` / `upgrade.sh` rewrite, keep `lib/overlay.py`'s notion of release content vs. environment content (`RELEASE_CONTENT_PREFIXES`) in step.
 
-Secrets never go on a command line: for a kcadm login use `kc_exec_with_cli_password` (password in the container's `KC_CLI_PASSWORD`, on no argv at all); `kc_exec_with_secret` only keeps a secret off the host-side `docker compose` argv, not off kcadm's own argv inside the container, which the host's `ps` also lists. Use `lib/redact.py` for anything that prints config.
+Secrets never go on a command line, and that includes kcadm's own command line inside the Keycloak container, which the host's `ps` also lists. For a kcadm login use `kc_exec_with_cli_password` (password in the container's `KC_CLI_PASSWORD`); to set a user's password use `kc_set_password` (credential JSON on stdin to `reset-password`; `kcadm set-password` only takes `--new-password` on its command line). Script-to-script and wizard-to-script, the Keycloak admin password travels as `KEYCLOAK_ADMIN_PASSWORD` in the environment (configure-host.sh: `CONFIGURE_HOST_ADMIN_PASS` / `CONFIGURE_HOST_BACKEND_SECRET`), never as `--admin-pass`. Use `lib/redact.py` for anything that prints config.
 
 ## Environment management
 
