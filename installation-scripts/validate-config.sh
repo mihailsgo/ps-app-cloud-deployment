@@ -116,8 +116,16 @@ fi
 
 # Reports whether <dir>'s tree is owned by the uid <repository>'s pinned image
 # runs as. Skipped (not failed) when that can't be determined, e.g. no docker.
+#
+# upgrade.sh (lib/dir-permissions.sh) only creates/re-owns the in-tree
+# ./signed-output and ./docs, so it is only offered as the fix for those - an
+# environment-overlay mount elsewhere has to be fixed at its real path.
+in_tree_store() {  # <dir>
+  [[ "$1" == "${repo_root}/signed-output" || "$1" == "${repo_root}/docs" ]]
+}
+
 check_tree_owner() {  # <dir> <repository> <label>
-  local ref ids uid foreign
+  local ref ids uid foreign fix
   ref="$(pinned_image_ref "$2")"
   if ! ids="$(image_runtime_ids "$ref")"; then
     ok "$3 ownership not checked (could not resolve which uid ${ref:-$2} runs as)"
@@ -129,7 +137,12 @@ check_tree_owner() {  # <dir> <repository> <label>
   elif ! foreign="$(first_foreign_path "$1" "$uid" "$ref")"; then
     bad "$3 could not be inspected (as this user or via ${ref}); it must be owned by ${ids}"
   elif [[ -n "$foreign" ]]; then
-    bad "$3: ${foreign#"${repo_root}/"} is not owned by ${uid}, the user ${ref} runs as, so that container cannot write there. Fix: re-run upgrade.sh (it re-owns the tree), or sudo chown -R ${ids} $1"
+    if in_tree_store "$1"; then
+      fix="re-run upgrade.sh (it re-owns the tree), or sudo chown -R ${ids} $1"
+    else
+      fix="sudo chown -R ${ids} $1 (an environment-overlay mount: upgrade.sh does not re-own it)"
+    fi
+    bad "$3: ${foreign#"${repo_root}/"} is not owned by ${uid}, the user ${ref} runs as, so that container cannot write there. Fix: ${fix}"
   else
     ok "$3 owned by ${ids} (the user ${ref} runs as)"
   fi
@@ -143,24 +156,28 @@ world_writable() {
 if [[ -d "${signed_output_dir}" ]]; then
   ok "signed-output directory exists"
   if world_writable "${signed_output_dir}"; then
-    bad "signed-output directory is world-writable ($(stat -c '%a' "${signed_output_dir}" 2>/dev/null || stat -f '%Lp' "${signed_output_dir}" 2>/dev/null)). ps-server does not need this (it owns the tree, or runs as root); fix: chmod 750 signed-output"
+    bad "signed-output directory is world-writable ($(stat -c '%a' "${signed_output_dir}" 2>/dev/null || stat -f '%Lp' "${signed_output_dir}" 2>/dev/null)). ps-server does not need this (it owns the tree, or runs as root); fix: chmod 750 ${signed_output_dir}"
   else
     ok "signed-output directory is not world-writable"
   fi
   check_tree_owner "${signed_output_dir}" "$ps_server_image_repo" "signed-output directory"
-else
+elif in_tree_store "${signed_output_dir}"; then
   bad "signed-output directory missing (re-run upgrade.sh, which creates it owned by the ps-server image's user, mode 750)"
+else
+  bad "signed-output directory ${signed_output_dir} (environment-overlay mount) is missing - restore or re-point the mount; upgrade.sh does not create it"
 fi
 
 if [[ -d "${docs_dir}" ]]; then
   check_tree_owner "${docs_dir}" "$dmss_fallback_image_repo" "docs directory"
   if world_writable "${docs_dir}"; then
-    bad "docs directory is world-writable ($(stat -c '%a' "${docs_dir}" 2>/dev/null || stat -f '%Lp' "${docs_dir}" 2>/dev/null)). Fix: chmod 770 docs (re-running upgrade.sh does this) - see installation-scripts/lib/dir-permissions.sh"
+    bad "docs directory is world-writable ($(stat -c '%a' "${docs_dir}" 2>/dev/null || stat -f '%Lp' "${docs_dir}" 2>/dev/null)). Fix: chmod 770 ${docs_dir}$(in_tree_store "${docs_dir}" && echo ' (re-running upgrade.sh does this)') - see installation-scripts/lib/dir-permissions.sh"
   else
     ok "docs directory is not world-writable"
   fi
-else
+elif in_tree_store "${docs_dir}"; then
   bad "docs directory missing (create with: mkdir -p docs — then see installation-scripts/lib/dir-permissions.sh for the correct group/mode)"
+else
+  bad "docs directory ${docs_dir} (environment-overlay mount) is missing - restore or re-point the mount"
 fi
 
 # --- Secret hygiene (psapp-saas#6, #7) ---
