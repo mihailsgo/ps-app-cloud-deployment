@@ -7,10 +7,12 @@ set -euo pipefail
 # ============================================================================
 
 host=""
-backend_secret=""
+# The two secrets can also come from the environment, which is how
+# bootstrap.sh passes them: a command line is in the host's process list.
+backend_secret="${CONFIGURE_HOST_BACKEND_SECRET:-}"
 company_role=""
 admin_user=""
-admin_pass=""
+admin_pass="${CONFIGURE_HOST_ADMIN_PASS:-}"
 allow_encrypted_key="false"
 enable_routing="false"
 enable_demo="false"
@@ -43,6 +45,10 @@ Edits in-place (with .bak backup):
     (see below). KC_HOSTNAME and the alias only take effect when the
     keycloak/nginx containers are recreated (docker compose up -d), not on
     a plain restart.
+
+--backend-secret/--admin-pass: can instead be set in the environment as
+  CONFIGURE_HOST_BACKEND_SECRET / CONFIGURE_HOST_ADMIN_PASS, which keeps
+  them out of the process list (a flag on the command line wins).
 
 --disable-routing/--disable-demo/--disable-local-eseal: symmetric complements
   to the --enable-* flags, for turning a feature back off on an
@@ -231,7 +237,9 @@ perl -0777 -i -pe "
 " "$config_js"
 
 if [[ -n "$backend_secret" ]]; then
-  perl -0777 -i -pe "s/(\"secret\"\\s*:\\s*\")[^\"]*(\")/\${1}${backend_secret}\${2}/" "$config_js"
+  # Via the environment, not interpolated into the perl source: perl's
+  # command line is in the host's process list.
+  CFG_BACKEND_SECRET="$backend_secret" perl -0777 -i -pe 's/("secret"\s*:\s*")[^"]*(")/${1}$ENV{CFG_BACKEND_SECRET}${2}/' "$config_js"
 fi
 
 if [[ -n "$company_role" ]]; then

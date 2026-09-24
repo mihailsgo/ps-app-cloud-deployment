@@ -39,11 +39,14 @@ the capability, and the port+token pair is the gate in front of it.
 - **Treat the printed token like a credential** for as long as the
   container has been running — anyone who can read `docker logs` for this
   container can unlock it.
-- **The Keycloak admin password is visible in the wizard container's
-  process listing** for the duration of a bootstrap run — this is not a
-  regression; it's exactly as visible as it already is when you run
-  `bootstrap.sh --admin-pass ...` by hand from a shell.
-- **A finished run's arguments stay in the wizard's memory** so the
+- **The Keycloak admin password is not on any command line.** The wizard
+  hands it to `bootstrap.sh` and `update-hostname.sh` as
+  `KEYCLOAK_ADMIN_PASSWORD` in their environment, the scripts pass it on
+  the same way, and kcadm reads it from `KC_CLI_PASSWORD`. A process's
+  environment is readable only by the same user and root, unlike its
+  command line, which every local user sees in `ps`. (Before v1.0.40 it
+  was on the command line for the whole bootstrap run.)
+- **A finished run's arguments and environment stay in the wizard's memory** so the
   progress screen's **Retry** button can re-run the identical command
   without asking you to re-enter anything. For a bootstrap that includes
   the Keycloak admin password, held in the wizard process (never on disk,

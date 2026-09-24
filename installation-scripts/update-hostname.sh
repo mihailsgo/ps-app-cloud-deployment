@@ -39,7 +39,7 @@ set -euo pipefail
 
 host=""
 admin_user="admin"
-admin_pass=""
+admin_pass="${KEYCLOAK_ADMIN_PASSWORD:-}"
 realm="padsign"
 cert_crt=""
 cert_key=""
@@ -56,7 +56,9 @@ Usage:
 Required:
   --host         New hostname for the deployment
   --admin-pass   The CURRENT Keycloak admin password (used to log in to
-                 Keycloak, not to change it — see documentation/37-05-*)
+                 Keycloak, not to change it — see documentation/37-05-*).
+                 Or set KEYCLOAK_ADMIN_PASSWORD instead, which keeps it out
+                 of the process list.
 
 Optional:
   --cert-crt/--cert-key   New TLS certificate for the new hostname. If
@@ -91,7 +93,7 @@ done
 
 missing=()
 [[ -z "$host" ]] && missing+=("--host")
-[[ -z "$admin_pass" ]] && missing+=("--admin-pass")
+[[ -z "$admin_pass" ]] && missing+=("--admin-pass (or KEYCLOAK_ADMIN_PASSWORD)")
 if [[ ${#missing[@]} -gt 0 ]]; then
   echo "ERROR: Missing required arguments: ${missing[*]}" >&2
   usage
@@ -170,13 +172,15 @@ fi
 # in the operator's terminal scrollback and the wizard's retained run log.
 # Filtered line-by-line rather than captured-then-printed like bootstrap.sh,
 # so the wizard still shows Keycloak's progress live during this step.
+# The admin password goes through the environment (keycloak-bootstrap.sh
+# reads KEYCLOAK_ADMIN_PASSWORD when --admin-pass is absent), never a flag:
+# every process's command line is in the host's process list.
 set +e
-"${scripts_dir}/keycloak-bootstrap.sh" \
+KEYCLOAK_ADMIN_PASSWORD="${admin_pass}" "${scripts_dir}/keycloak-bootstrap.sh" \
   --host "${host}" \
   --company-role "${company_role}" \
   --realm "${realm}" \
   --admin-user "${admin_user}" \
-  --admin-pass "${admin_pass}" \
   --skip-test-user \
   2>&1 | while IFS= read -r line || [[ -n "$line" ]]; do
     [[ "$line" == BACKEND_CLIENT_SECRET=* ]] || printf '%s\n' "$line"

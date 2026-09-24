@@ -58,7 +58,7 @@ One run of `signing-smoke.sh`:
 13. **Prove nothing was routed.** No file under any enabled filesystem strategy's `basePath`/`bufferPath` changed during the run and contains the document id or run id. There is no receive-back buffer entry for the document, and no ps-server `documentRouting` log line names it.
 14. **Clean up, always**, including after a failure or Ctrl-C (C4). It drops the user entry again (idempotent) and deletes the archive document where the archive supports it. It deletes the temporary client and the smoke user (or logs out an existing one's sessions), removes the `padsign-smoke` role if the run created it, removes the kcadm session file, and deletes the temporary directory that held the token.
 
-Secrets (C6): the Keycloak admin password comes from `KEYCLOAK_ADMIN_PASSWORD` or a hidden prompt, never a flag, and reaches kcadm only through `kc_exec_with_secret`. The access token lives in a mode-600 file in a private temporary directory and reaches curl as `-H @file`, so it is never in a process argument list. It is never printed.
+Secrets (C6): the Keycloak admin password comes from `KEYCLOAK_ADMIN_PASSWORD` or a hidden prompt, never a flag, and reaches kcadm only as `KC_CLI_PASSWORD` (`kc_login` in `lib/kcadm.sh`), so it is on no command line, including kcadm's inside the container. The access token lives in a mode-600 file in a private temporary directory and reaches curl as `-H @file`, so it is never in a process argument list. It is never printed.
 
 ## What it does not do
 

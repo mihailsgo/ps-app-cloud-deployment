@@ -111,8 +111,10 @@ echo ""
 # ── 2. Keycloak realm/client checks (needs --company-role) ──
 echo "== 2. Keycloak realm/client checks (verify-keycloak.sh) =="
 if [[ -n "$company_role" ]]; then
-  if "${scripts_dir}/verify-keycloak.sh" --host "$host" --company-role "$company_role" \
-       --realm "$realm" --admin-user "$admin_user" --admin-pass "$admin_pass"; then
+  # Password via the environment, not --admin-pass: command lines are in
+  # the host's process list.
+  if KEYCLOAK_ADMIN_PASSWORD="$admin_pass" "${scripts_dir}/verify-keycloak.sh" --host "$host" \
+       --company-role "$company_role" --realm "$realm" --admin-user "$admin_user"; then
     ok "verify-keycloak.sh passed"
   else
     bad "verify-keycloak.sh reported failures (see above)"

@@ -119,16 +119,16 @@ if [[ "$skip_test_user" != "true" ]]; then
   # Recreate test user to ensure correct role assignment. firstName/lastName
   # are required by Keycloak 26's user profile - without them the first
   # browser login stops at VERIFY_PROFILE (see smoke-user.sh).
-  kc_exec_with_secret "${test_pass}" "
+  kc_exec "
     TEST_UID=\$(/opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username=${test_user} --fields id --format csv | tail -n 1 | tr -d '\r\"')
     if [ -n \"\$TEST_UID\" ] && [ \"\$TEST_UID\" != \"id\" ]; then
       /opt/keycloak/bin/kcadm.sh delete users/\$TEST_UID -r ${realm} >/dev/null
     fi
     /opt/keycloak/bin/kcadm.sh create users -r ${realm} -s username=${test_user} -s enabled=true -s email='${test_email}' -s firstName=Test -s lastName=User >/dev/null
-    TEST_UID=\$(/opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username=${test_user} --fields id --format csv | tail -n 1 | tr -d '\r\"')
-    /opt/keycloak/bin/kcadm.sh set-password -r ${realm} --userid \$TEST_UID --new-password \"\$KC_SECRET\" --temporary=false >/dev/null
-    /opt/keycloak/bin/kcadm.sh add-roles -r ${realm} --uusername ${test_user} --rolename '${company_role}' >/dev/null
   " >/dev/null
+  test_uid="$(kc_csv_last "/opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username=${test_user} --fields id --format csv")"
+  kc_set_password "${realm}" "${test_uid}" "${test_pass}" >/dev/null
+  kc_exec "/opt/keycloak/bin/kcadm.sh add-roles -r ${realm} --uusername ${test_user} --rolename '${company_role}'" >/dev/null
 fi
 
 # --- Frontend client ---
@@ -219,7 +219,7 @@ if [[ -n "$users_csv" ]]; then
       kc_exec "/opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username='${username}' --fields id --format csv | tail -n 1" | tr -d '\r"'
     )"
 
-    kc_exec_with_secret "${password}" "/opt/keycloak/bin/kcadm.sh set-password -r ${realm} --userid ${uid} --new-password \"\$KC_SECRET\" --temporary=false" >/dev/null
+    kc_set_password "${realm}" "${uid}" "${password}" >/dev/null
     if [[ -n "${role:-}" ]]; then
       ensure_role "${role}"
       kc_exec "/opt/keycloak/bin/kcadm.sh add-roles -r ${realm} --uusername '${username}' --rolename '${role}'" >/dev/null

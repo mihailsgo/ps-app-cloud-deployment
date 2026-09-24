@@ -25,9 +25,14 @@ first booted with and may be stale. The issue reports it no longer works.
 ```bash
 cd "$OLD"
  read -rs KEYCLOAK_ADMIN_PASSWORD && export KEYCLOAK_ADMIN_PASSWORD      # paste; nothing is echoed
-KC_SECRET="$KEYCLOAK_ADMIN_PASSWORD" docker compose exec -T -e KC_SECRET keycloak sh -lc \
-  '/opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080/auth --realm master --user admin --password "$KC_SECRET" >/dev/null && echo ADMIN-LOGIN-OK'
+KC_CLI_PASSWORD="$KEYCLOAK_ADMIN_PASSWORD" docker compose exec -T -e KC_CLI_PASSWORD keycloak sh -lc \
+  '/opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080/auth --realm master --user admin </dev/null >/dev/null && echo ADMIN-LOGIN-OK'
 ```
+
+kcadm reads the password from `KC_CLI_PASSWORD` when `--password` is absent.
+Every block in this section passes it that way, so it is on no command line,
+neither `docker compose` on the host nor kcadm inside the container (whose
+processes the host's `ps` also lists).
 
 - **Check:** `ADMIN-LOGIN-OK`. Anything else is `Invalid user credentials`.
   Try each candidate once. Don't loop: if brute-force detection is enabled on
@@ -82,7 +87,7 @@ docker compose up -d keycloak
 until docker compose exec -T keycloak bash -c 'echo > /dev/tcp/localhost/8080' 2>/dev/null; do sleep 3; done
 ```
 
-- **Check:** the output contains `KC-SERVICES0077: Created temporary admin user with username temp-admin`, and Keycloak accepts connections again. Then log in as `temp-admin`, with the same command as K1a but using `--user temp-admin` and `KC_SECRET="$RECOVERY_PW"`.
+- **Check:** the output contains `KC-SERVICES0077: Created temporary admin user with username temp-admin`, and Keycloak accepts connections again. Then log in as `temp-admin`, with the same command as K1a but using `--user temp-admin` and `KC_CLI_PASSWORD="$RECOVERY_PW"`.
 - **Rollback:** if `bootstrap-admin` errors, nothing was written. Run `docker compose up -d keycloak` and you are exactly where you started. If Keycloak will not start afterwards, restore the volume backup taken in 42.4 C4 (42.5 R4).
 - **Evidence:** `K2-bootstrap-admin.txt` holds the log lines, which were verified to contain no password. Also record the outage start and end times.
 
@@ -94,20 +99,24 @@ reaches a command line. The account is always created in the `master` realm.
 ```bash
  read -rs NEW_ADMIN_PW && export NEW_ADMIN_PW   # generate it IN the secret manager and paste it here
 # (still logged in from K1/K2 inside the container)
-KC_SECRET="$NEW_ADMIN_PW" docker compose exec -T -e KC_SECRET keycloak sh -lc \
-  '/opt/keycloak/bin/kcadm.sh set-password -r master --username admin --new-password "$KC_SECRET" && echo PASSWORD-SET'
-KC_SECRET="$NEW_ADMIN_PW" docker compose exec -T -e KC_SECRET keycloak sh -lc \
-  '/opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080/auth --realm master --user admin --password "$KC_SECRET" >/dev/null && echo ADMIN-LOGIN-OK'
+# The new password goes to the admin REST endpoint as JSON on stdin, written by
+# bash's printf builtin (no process, so no command line). kcadm set-password is
+# not used: it only takes the password as --new-password on its command line.
+bs='\' dq='"'; v=${NEW_ADMIN_PW//"$bs"/"$bs$bs"}; v=${v//"$dq"/"$bs$dq"}   # JSON-escape \ and "
+printf '{"type":"password","value":"%s","temporary":false}' "$v" | docker compose exec -T keycloak sh -lc \
+  'K=/opt/keycloak/bin/kcadm.sh; id=$($K get users -r master -q username=admin -q exact=true --fields id --format csv --noquotes </dev/null | tail -n 1 | tr -d "\r"); [ -n "$id" ] && [ "$id" != id ] && $K update users/$id/reset-password -r master -f - -n && echo PASSWORD-SET'
+KC_CLI_PASSWORD="$NEW_ADMIN_PW" docker compose exec -T -e KC_CLI_PASSWORD keycloak sh -lc \
+  '/opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080/auth --realm master --user admin </dev/null >/dev/null && echo ADMIN-LOGIN-OK'
 # remove the temporary break-glass account (K2 only)
 docker compose exec -T keycloak sh -lc \
   'id=$(/opt/keycloak/bin/kcadm.sh get users -r master -q username=temp-admin --fields id --format csv | tail -n 1 | tr -d "\r\""); [ -n "$id" ] && [ "$id" != id ] && /opt/keycloak/bin/kcadm.sh delete users/$id -r master && echo TEMP-ADMIN-DELETED'
 # end the kcadm session: do not leave an admin refresh token in the container
 docker compose exec -T keycloak sh -c 'rm -f "$HOME/.keycloak/kcadm.config"'
-unset RECOVERY_PW NEW_ADMIN_PW
+unset RECOVERY_PW NEW_ADMIN_PW v
 ```
 
 - **Check:** `PASSWORD-SET`, then `ADMIN-LOGIN-OK` with the new value, then `TEMP-ADMIN-DELETED` (K2 only). A browser login to the admin console with the new value also works.
-- **Rollback:** if `set-password` fails, nothing changed and the K1/K2 credential still works.
+- **Rollback:** without `PASSWORD-SET`, nothing changed and the K1/K2 credential still works.
 - **Evidence:** in the ticket, record who, when, the secret-manager entry path, and that the temp admin was deleted. Never record the value.
 
 Then fill in the record [14.7](14-07-break-glass-admin-recovery.md) asks
@@ -234,8 +243,8 @@ List the company roles to pick the configured one. Never pick
 `padsign-admin`; the script refuses it anyway.
 
 ```bash
-KC_SECRET="$KEYCLOAK_ADMIN_PASSWORD" docker compose exec -T -e KC_SECRET keycloak sh -lc \
-  '/opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080/auth --realm master --user admin --password "$KC_SECRET" >/dev/null &&
+KC_CLI_PASSWORD="$KEYCLOAK_ADMIN_PASSWORD" docker compose exec -T -e KC_CLI_PASSWORD keycloak sh -lc \
+  '/opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080/auth --realm master --user admin </dev/null >/dev/null &&
    /opt/keycloak/bin/kcadm.sh get roles -r padsign --fields name --format csv'
 kc_started() { docker inspect -f '{{.State.StartedAt}}' "$(docker compose ps -q keycloak)"; }
 ```

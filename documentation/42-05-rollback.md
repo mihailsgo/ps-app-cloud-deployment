@@ -17,7 +17,7 @@ Two properties make every rollback here short and data-safe:
 | 42.1 Step 0, 42.3 O1-O5 | nothing on the live stack (inventory files, a new checkout, the overlay directory) | `rm -rf "$NEW" "$OVERLAY"` if you abandon the change | none |
 | 42.2 K1 | nothing | none | none |
 | 42.2 K2 | one extra master-realm admin (`temp-admin`) in the Keycloak DB | delete `temp-admin` (42.2 K3). If Keycloak will not start → **R4** | Keycloak restart, ~1 min |
-| 42.2 K3 | admin password changed | set it back from the secret manager's previous version (same `set-password` command) | none |
+| 42.2 K3 | admin password changed | set it back from the secret manager's previous version (same `reset-password` command) | none |
 | 42.2 K4b | the `padsign-backend-audience` mapper on `padsign-client` | not needed: harmless on every Keycloak version. To remove it anyway, see 42.2 K4b | none |
 | 42.2 K5 | one smoke user at a time | `smoke-user.sh delete` (idempotent) | none |
 | 42.2 K6 | `test` user deleted / secrets rotated | recreate `test` with `keycloak-bootstrap.sh` (**rotates its password**); for rotated secrets, 42.6 with the previous value | none / ps-server restart |

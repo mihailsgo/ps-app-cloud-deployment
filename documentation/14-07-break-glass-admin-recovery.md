@@ -81,13 +81,16 @@ realm (e.g. `padsign`) you're actually troubleshooting.
 
 1. Confirm the temporary account works:
    ```bash
-   KC_SECRET="$RECOVERY_PW" docker compose exec -T -e KC_SECRET keycloak sh -lc \
-     '/opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080/auth --realm master --user temp-admin --password "$KC_SECRET"'
+   KC_CLI_PASSWORD="$RECOVERY_PW" docker compose exec -T -e KC_CLI_PASSWORD keycloak sh -lc \
+     '/opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080/auth --realm master --user temp-admin </dev/null'
    ```
+   kcadm reads the password from `KC_CLI_PASSWORD` when `--password` is
+   absent, so it is on no command line, neither `docker compose` on the host
+   nor kcadm inside the container (whose processes the host's `ps` also
+   lists).
 2. Use it to either fix the real admin account's password (via the admin
    console, or [37.5](37-05-known-gaps-keycloak-admin-password-rotation.md)'s
-   `kcadm.sh set-password` steps), and store the new value in your secret
-   manager.
+   kcadm steps), and store the new value in your secret manager.
 3. **Delete the temporary account once you're done with it** — Keycloak's own
    guidance is that it should exist only for as long as necessary:
    ```bash
