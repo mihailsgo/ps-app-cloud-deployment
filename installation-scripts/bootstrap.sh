@@ -114,6 +114,8 @@ scripts_dir="${repo_root}/installation-scripts"
 
 # shellcheck source=lib/dir-permissions.sh
 . "${scripts_dir}/lib/dir-permissions.sh"
+# shellcheck source=lib/health-wait.sh
+. "${scripts_dir}/lib/health-wait.sh"
 # shellcheck source=lib/deployment-evidence.sh
 . "${scripts_dir}/lib/deployment-evidence.sh"
 
@@ -234,6 +236,15 @@ cd "${repo_root}"
 docker compose pull
 docker compose up -d
 echo "  All services started"
+echo "  Waiting for every service to report healthy (up to 600s - first Keycloak boot is slow)..."
+mapfile -t bootstrap_services < <(docker compose config --services | grep -vx wizard)
+if ! wait_for_healthy 600 "${bootstrap_services[@]}"; then
+  docker compose ps >&2 || true
+  write_deployment_evidence "bootstrap.sh (unhealthy)" || true
+  echo "ERROR: The stack did not become healthy. Fix the failing service above and re-run." >&2
+  exit 1
+fi
+echo "  All services healthy"
 
 # ── Step 8: Verify ──
 echo "Step 8/8: Verifying deployment..."

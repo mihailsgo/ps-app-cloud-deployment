@@ -42,6 +42,7 @@ PSDOCS/**
 # configure-host.sh has customized it — never commit these.
 *.bak
 .rollback-snapshots/
+.monitor-state/
 deployment-evidence.json
 deployment-evidence.json.previous
 

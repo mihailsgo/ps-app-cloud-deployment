@@ -30,8 +30,9 @@ set -euo pipefail
 # copy is byte-identical).
 #
 # Exit codes:
-#   0  rollback applied (or already at the target state)
-#   1  rollback failed
+#   0  rollback applied (or already at the target state) and the restored
+#      services are healthy
+#   1  rollback failed, or the restored services did not become healthy
 #   2  argument error / no snapshot found
 # ============================================================================
 
@@ -43,9 +44,12 @@ config_js="${repo_root}/config/config.js"
 . "${scripts_dir}/lib/rollback-snapshot.sh"
 # shellcheck source=lib/deployment-evidence.sh
 . "${scripts_dir}/lib/deployment-evidence.sh"
+# shellcheck source=lib/health-wait.sh
+. "${scripts_dir}/lib/health-wait.sh"
 
 target_ref="latest"
 assume_yes="false"
+health_timeout=300
 
 usage() {
   cat <<'EOF'
@@ -57,6 +61,9 @@ Usage:
           root's .rollback-snapshots/ (gitignored) - list them with:
             ls .rollback-snapshots/
   --yes   Skip the confirmation prompt (for non-interactive use).
+  --health-timeout N
+          Seconds to wait for the restored services to be healthy
+          (default 300). The rollback exits 1 if they are not.
 
 This restores the image tags and config/config.js exactly as they were
 immediately before the chosen upgrade.sh run. It does not touch
@@ -73,6 +80,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --to) target_ref="${2:-}"; shift 2;;
     --yes) assume_yes="true"; shift;;
+    --health-timeout) health_timeout="${2:-}"; shift 2;;
     -h|--help) usage; exit 0;;
     *) echo "ERROR: Unknown arg: $1" >&2; usage; exit 2;;
   esac
@@ -194,24 +202,16 @@ if [[ -n "$services" ]]; then
 fi
 docker compose restart nginx 2>/dev/null || true
 
-echo "  Waiting for rolled-back services to report healthy..."
-for i in $(seq 1 30); do
-  all_healthy=true
-  for svc in $services; do
-    cid="$(docker compose ps -q "$svc" 2>/dev/null || echo "")"
-    [[ -z "$cid" ]] && { all_healthy=false; break; }
-    health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}healthy{{end}}' "$cid" 2>/dev/null || echo "unknown")"
-    [[ "$health" != "healthy" ]] && all_healthy=false
-  done
-  if [[ "$all_healthy" == "true" ]]; then
-    echo "  Rolled-back services are healthy."
-    break
-  fi
-  sleep 2
-  if [[ "$i" == "30" ]]; then
-    echo "  WARNING: rolled-back services did not report healthy within 60s. Check: docker compose ps" >&2
-  fi
-done
+echo "  Waiting for rolled-back services to report healthy (up to ${health_timeout}s)..."
+# shellcheck disable=SC2086 # word-splitting the service list is intended
+if ! wait_for_healthy "$health_timeout" $services nginx; then
+  write_deployment_evidence "rollback.sh (unhealthy)" || true
+  echo "" >&2
+  echo "ROLLBACK APPLIED BUT NOT HEALTHY: the restored configuration is in place," >&2
+  echo "but the services above did not become healthy. Check: docker compose ps" >&2
+  exit 1
+fi
+echo "  Rolled-back services are healthy."
 
 write_deployment_evidence "rollback.sh"
 
