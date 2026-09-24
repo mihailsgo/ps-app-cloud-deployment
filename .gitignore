@@ -46,6 +46,8 @@ PSDOCS/**
 # of config/config.js, which holds this deployment's real secrets once
 # configure-host.sh has customized it — never commit these.
 *.bak
+# stateDetector.test.js reads this fixture by name.
+!deployment-wizard/test/fixtures/**/*.bak
 .rollback-snapshots/
 .monitor-state/
 deployment-evidence.json
