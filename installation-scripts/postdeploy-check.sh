@@ -212,8 +212,12 @@ echo "== 7. Authorized signing smoke test =="
 if [[ "$signing_smoke" == true ]]; then
   smoke_args=(--host "$host" --realm "$realm" --admin-user "$admin_user")
   [[ "$signing_smoke_seal" == true ]] && smoke_args+=(--with-seal)
-  # The admin password goes through the environment, never argv.
-  if KEYCLOAK_ADMIN_PASSWORD="$admin_pass" "${scripts_dir}/signing-smoke.sh" "${smoke_args[@]}" 2>&1 | sed 's/^/  /'; [[ "${PIPESTATUS[0]}" -eq 0 ]]; then
+  # The admin password goes through the environment, never argv. Indent with
+  # a read loop, not sed: sed block-buffers when stdout is a file or a pipe
+  # (`postdeploy-check.sh | tee log`), which would hold back the device URL
+  # and code the operator has to act on until the run had already timed out.
+  if KEYCLOAK_ADMIN_PASSWORD="$admin_pass" "${scripts_dir}/signing-smoke.sh" "${smoke_args[@]}" 2>&1 \
+       | while IFS= read -r line; do printf '  %s\n' "$line"; done; [[ "${PIPESTATUS[0]}" -eq 0 ]]; then
     ok "production-safe signing smoke test passed"
   else
     bad "production-safe signing smoke test FAILED (see above)"
