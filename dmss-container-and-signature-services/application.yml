@@ -3,6 +3,17 @@ server:
   # Server port container and signature service published
   port: 8092
 spring:
+  # container-signature 24.3.3.x constructs EmailOtpSender at startup and exits
+  # without a JavaMailSender bean, which Spring only creates when spring.mail.host
+  # is set. The image's own in-jar application.yml sets it (to an SMTP_HOST
+  # default), but SPRING_CONFIG_LOCATION=/confs/ in docker-compose.yml replaces
+  # that file instead of layering on it, so the value has to be set here. PadSign doesn't use e-mail OTP signing; this placeholder only lets
+  # those images start (24.3.0.29 boots and seals the same with or without it).
+  # Point it at a real SMTP server only if you use e-mail OTP signing. See
+  # management.health.mail below.
+  mail:
+    host: localhost
+    port: 25
   sleuth:
     propagation:
       type: B3
@@ -25,6 +36,11 @@ management:
   health:
     probes:
       enabled: true
+    # With spring.mail.host set, Spring's mail health indicator tries to
+    # connect to it and reports DOWN when it can't. docker-compose.yml's
+    # healthcheck (and so ps-server and nginx) depends on this service being UP.
+    mail:
+      enabled: false
 request:
   correlation:
     # sets the position in the filter chain for the Request Correlation Filter (Ordered.HIGHEST_PRECEDENCE by default)
