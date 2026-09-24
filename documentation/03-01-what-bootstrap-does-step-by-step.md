@@ -6,7 +6,11 @@
    - `nginx/nginx.conf`: sets `server_name`, TLS cert paths, and root→`/portal/` redirect
    - `config/constants.json`: sets Keycloak URL, redirect URIs, download API URL
    - `config/config.js`: sets all service URLs, `ALLOWED_ORIGINS`, Keycloak `auth-server-url`, `DEMO_COMPANY_ROLE`
-   - `docker-compose.yml`: ensures `signed-output` volume mount exists on ps-server
+   - `docker-compose.yml`: ensures `signed-output` volume mount exists on ps-server;
+     sets the keycloak service's `KC_HOSTNAME` and the nginx service's first network
+     alias to the host; syncs `KEYCLOAK_ADMIN`/`KEYCLOAK_ADMIN_PASSWORD`. `KC_HOSTNAME`
+     is Keycloak's fixed frontend hostname: it decides the token issuer and the login
+     form's URLs, so a stale value sends browsers to another host at login
    - Copies TLS certificates to `nginx/certs/` (if provided)
    - Injects `DOCUMENT_ROUTING` config block if missing (disabled by default)
    - Validates JSON syntax of `constants.json` after editing

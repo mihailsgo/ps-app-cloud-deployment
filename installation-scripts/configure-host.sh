@@ -36,9 +36,13 @@ Edits in-place (with .bak backup):
   - nginx/nginx.conf: server_name, cert filenames, root→/portal/ redirect
   - config/constants.json: Keycloak URLs, redirect URIs, download URLs
   - config/config.js: Keycloak URLs, service URLs, ALLOWED_ORIGINS, DEMO_COMPANY_ROLE
-  - docker-compose.yml: ensures signed-output volume mount exists; when
-    --admin-user/--admin-pass are given, syncs the keycloak service's
-    KEYCLOAK_ADMIN/KEYCLOAK_ADMIN_PASSWORD to match (see below)
+  - docker-compose.yml: ensures signed-output volume mount exists; sets the
+    keycloak service's KC_HOSTNAME and the nginx service's first network
+    alias to --host; when --admin-user/--admin-pass are given, syncs the
+    keycloak service's KEYCLOAK_ADMIN/KEYCLOAK_ADMIN_PASSWORD to match
+    (see below). KC_HOSTNAME and the alias only take effect when the
+    keycloak/nginx containers are recreated (docker compose up -d), not on
+    a plain restart.
 
 --disable-routing/--disable-demo/--disable-local-eseal: symmetric complements
   to the --enable-* flags, for turning a feature back off on an
@@ -102,6 +106,8 @@ need_cmd perl
 need_cmd python3
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/compose-hostname.sh
+. "${repo_root}/installation-scripts/lib/compose-hostname.sh"
 
 nginx_conf="${repo_root}/nginx/nginx.conf"
 constants_json="${repo_root}/config/constants.json"
@@ -333,6 +339,25 @@ if [[ -n "$admin_pass" ]]; then
   CFG_ADMIN_PASS="$admin_pass" perl -i -pe 's/^(\s*-\s*KEYCLOAK_ADMIN_PASSWORD=).*/${1}.$ENV{CFG_ADMIN_PASS}/e' "$compose_yml"
   echo "  Synced KEYCLOAK_ADMIN_PASSWORD in docker-compose.yml"
 fi
+
+# --- docker-compose.yml: point Keycloak and the nginx alias at this host ---
+# KC_HOSTNAME is Keycloak's fixed frontend hostname: it decides the token
+# issuer and the login form's action URL, whatever KC_HOSTNAME_STRICT or the
+# forwarded headers say. Left at the shipped value, browsers are sent to
+# that host at login and every token names it as issuer. The
+# nginx alias makes https://<host>/ resolve to nginx inside the Docker
+# network. Unconditional and idempotent. See lib/compose-hostname.sh.
+if compose_set_kc_hostname "$compose_yml" "$host"; then
+  echo "  Synced KC_HOSTNAME in docker-compose.yml"
+else
+  echo "  WARNING: no KC_HOSTNAME on the keycloak service in docker-compose.yml - not added." >&2
+  echo "           Keycloak will derive its issuer from each request's forwarded Host header." >&2
+fi
+alias_result="$(compose_set_nginx_alias "$compose_yml" "$host")"
+case "$alias_result" in
+  changed*) echo "  Synced nginx network alias in docker-compose.yml (was ${alias_result#changed })";;
+  absent)   echo "  INFO: nginx has no network alias in docker-compose.yml - containers reach https://${host}/ via public DNS";;
+esac
 
 # --- Optional: provision local e-sealing (--enable-local-eseal) ---
 # Idempotent: safe to re-run, never overwrites customer artefacts.

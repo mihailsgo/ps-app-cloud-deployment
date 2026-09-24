@@ -52,7 +52,10 @@ Previewing before you commit:
   The plan is generated from the same guards the real run uses, so it cannot
   disagree with what an unflagged run would do. Configuration migrations are
   additive: each one only fires when its target is absent, so a migration
-  reported as 'already applied' will not touch your customised values.
+  reported as 'already applied' will not touch your customised values. The
+  one exception is compose-hostname, which rewrites KC_HOSTNAME / the nginx
+  alias when they name a different host than nginx serves - a mismatch that
+  always breaks login.
 
 What it does:
   1) Backs up docker-compose.yml and config.js
@@ -64,6 +67,9 @@ What it does:
       container-signature baseUrl, flips STAMP_MODE in config.js to "local",
       and sets COMPOSE_PROFILES=local-eseal in .env so subsequent
       `docker compose up -d` calls automatically include the new service.
+  4c) Points docker-compose.yml's Keycloak KC_HOSTNAME and nginx network
+      alias at the hostname nginx/nginx.conf serves, if they name another
+      one (then recreates keycloak/nginx in step 5)
   5) Pulls new images and recreates changed containers
   6) Verifies services are running
 
@@ -116,7 +122,13 @@ stamping_dst="${repo_root}/dmss-digital-stamping-service"
 csig_yml="${repo_root}/dmss-container-and-signature-services/application.yml"
 env_file="${repo_root}/.env"
 # NB: upgrade.sh deliberately never touches nginx/nginx.conf — a hostname
-# change is configure-host.sh's job, not an upgrade's.
+# change is configure-host.sh's job, not an upgrade's. It only READS the
+# hostname nginx serves, to align docker-compose.yml with it (the
+# compose-hostname migration below).
+nginx_conf="${repo_root}/nginx/nginx.conf"
+# shellcheck source=lib/compose-hostname.sh
+. "${scripts_dir}/lib/compose-hostname.sh"
+deploy_host="$(nginx_server_name "$nginx_conf")"
 
 # Single portable tag reader, used by both the pre-flight gate and the
 # "old → new" display lines. sed -E works in all locales; grep -oP (which the
@@ -225,7 +237,7 @@ done
 # assets). Splitting them is how you get a stack that boots and then 401s on
 # every seal, so they are reported and applied as one.
 
-MIGRATION_IDS=(document-routing signed-output local-eseal)
+MIGRATION_IDS=(document-routing signed-output compose-hostname local-eseal)
 
 # ---- per-edit predicates (shared by _needed and _apply) ----
 need_document_routing()  { ! grep -q 'DOCUMENT_ROUTING' "$config_js"; }
@@ -237,6 +249,15 @@ need_eseal_baseurl()     { grep -q '^  baseUrl: http://host.docker.internal:8084
 need_eseal_springsec()   { ! grep -q 'SPRING_SECURITY_USER_NAME' "$compose_yml"; }
 need_eseal_stampmode()   { ! grep -q 'STAMP_MODE: *"local"' "$config_js"; }
 need_eseal_profile()     { ! grep -q '^COMPOSE_PROFILES=.*local-eseal' "$env_file" 2>/dev/null; }
+# compose-hostname: only when nginx.conf names exactly one host to align to,
+# and only rewrites what exists (never adds a KC_HOSTNAME or an alias list).
+need_kc_hostname() {
+  local kc
+  [[ -n "$deploy_host" ]] || return 1
+  kc="$(compose_kc_hostname "$compose_yml")"
+  [[ -n "$kc" && "$(kc_hostname_host "$kc")" != "$deploy_host" ]]
+}
+need_nginx_alias() { [[ -n "$deploy_host" ]] && nginx_alias_needs_update "$compose_yml" "$deploy_host"; }
 
 # ---- literal bodies ----
 # Defined as heredocs rather than inline in the perl/sed so that the plan can
@@ -357,6 +378,50 @@ mig_signed_output_apply() {
     echo "           or this mount predates upgrading past the chmod-777 removal (chgrp needs" >&2
     echo "           ownership or root). Fix:" >&2
     echo "           sudo chgrp ${target_gid:-<dmss-archive-services-fallback spring gid>} ${repo_root}/docs && sudo chmod 770 ${repo_root}/docs" >&2
+  fi
+}
+
+# ---- compose-hostname ----
+# The one migration that changes an existing value rather than adding an
+# absent one. It is safe to: a KC_HOSTNAME naming a different host than
+# nginx serves is never a working configuration — Keycloak uses it as its
+# fixed frontend hostname, so browsers are sent to that other host at login
+# and it is named as every token's issuer. Typically
+# the shipped padsign.trustlynx.com, left behind because configure-host.sh
+# used not to rewrite it. The recreate flags tell Step 5 which
+# containers must be recreated (a restart keeps the old definition).
+compose_hostname_recreate_keycloak=false
+compose_hostname_recreate_nginx=false
+mig_compose_hostname_title() { echo 'Point Keycloak KC_HOSTNAME and the nginx network alias at the hostname nginx serves'; }
+mig_compose_hostname_files() { echo 'docker-compose.yml'; }
+mig_compose_hostname_needed() { need_kc_hostname || need_nginx_alias; }
+mig_compose_hostname_body() {
+  need_kc_hostname && printf 'docker-compose.yml, keycloak environment (was %s):\n      - KC_HOSTNAME=%s\n\n' \
+    "$(compose_kc_hostname "$compose_yml")" "$deploy_host"
+  need_nginx_alias && printf 'docker-compose.yml, nginx network aliases, first entry (was %s):\n          - %s\n\n' \
+    "$(compose_nginx_aliases "$compose_yml" | head -1)" "$deploy_host"
+  need_kc_hostname && printf 'Recreates the keycloak container. Tokens issued for the old hostname stop\nvalidating, so signed-in users sign in again.\n'
+  return 0
+}
+mig_compose_hostname_apply() {
+  if [[ -z "$deploy_host" ]]; then
+    echo "  nginx/nginx.conf does not name exactly one server_name — nothing to align to, skipped"
+    return 0
+  fi
+  if need_kc_hostname; then
+    local old; old="$(compose_kc_hostname "$compose_yml")"
+    compose_set_kc_hostname "$compose_yml" "$deploy_host"
+    compose_hostname_recreate_keycloak=true
+    echo "  KC_HOSTNAME: ${old} → ${deploy_host}"
+  else
+    echo "  KC_HOSTNAME already matches ${deploy_host} (or is not set)"
+  fi
+  if need_nginx_alias; then
+    local result; result="$(compose_set_nginx_alias "$compose_yml" "$deploy_host")"
+    compose_hostname_recreate_nginx=true
+    echo "  nginx network alias: ${result#changed } → ${deploy_host}"
+  else
+    echo "  nginx network alias already matches ${deploy_host} (or none is set)"
   fi
 }
 
@@ -661,6 +726,10 @@ if [[ "$enable_local_eseal" == true ]]; then
   mig_call local-eseal apply
 fi
 
+# ── Step 4c: Align compose hostname with nginx ──
+echo "Step 4c/6: Ensuring KC_HOSTNAME and nginx alias match the served hostname..."
+mig_call compose-hostname apply
+
 # ── Step 5: Pull and restart ──
 echo "Step 5/6: Pulling images and restarting..."
 cd "$repo_root"
@@ -682,8 +751,21 @@ if [[ "$enable_local_eseal" == true ]]; then
   docker compose up -d dmss-container-and-signature-services ps-server
 fi
 
-# Also restart nginx to pick up any config changes
-docker compose restart nginx 2>/dev/null || true
+if [[ "$compose_hostname_recreate_keycloak" == true ]]; then
+  # New KC_HOSTNAME only applies to a recreated container.
+  docker compose up -d keycloak
+  # shellcheck source=lib/kcadm.sh
+  . "${scripts_dir}/lib/kcadm.sh"
+  kc_wait_ready || echo "  WARNING: Keycloak not ready yet after recreate. Check: docker compose logs keycloak" >&2
+fi
+
+# Also restart nginx to pick up any config changes — recreated instead when
+# its network alias changed, since a restart keeps the old definition.
+if [[ "$compose_hostname_recreate_nginx" == true ]]; then
+  docker compose up -d --no-deps --force-recreate nginx
+else
+  docker compose restart nginx 2>/dev/null || true
+fi
 sleep 3
 
 # ── Step 6: Verify ──

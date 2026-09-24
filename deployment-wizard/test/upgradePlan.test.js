@@ -21,19 +21,19 @@ const fixture = (name) => fs.readFileSync(path.join(__dirname, 'fixtures', name)
 test('parses a mixed plan: tag context plus per-migration status', () => {
   const plan = parsePlan(fixture('plan-machine-mixed.txt'));
 
-  assert.equal(plan.items.length, 3);
-  assert.deepEqual(plan.items.map((i) => i.id), ['document-routing', 'signed-output', 'local-eseal']);
+  assert.equal(plan.items.length, 4);
+  assert.deepEqual(plan.items.map((i) => i.id), ['document-routing', 'signed-output', 'compose-hostname', 'local-eseal']);
   assert.equal(plan.pendingCount, 2);
   assert.equal(plan.empty, false);
 
-  assert.equal(plan.tags.server.from, '3.27');
-  assert.equal(plan.tags.server.to, '3.28');
+  assert.equal(plan.tags.server.from, '3.28');
+  assert.equal(plan.tags.server.to, '3.29');
   assert.equal(plan.tags.server.changes, true);
 });
 
 test('an all-already-applied plan is reported as empty', () => {
   const plan = parsePlan(fixture('plan-machine-applied.txt'));
-  assert.equal(plan.items.length, 3);
+  assert.equal(plan.items.length, 4);
   assert.equal(plan.pendingCount, 0);
   assert.equal(plan.empty, true, 'empty means "nothing to review", not "no items"');
   assert.ok(plan.items.every((i) => i.status === 'already-applied'));
@@ -55,6 +55,16 @@ test('bodies survive braces, quotes, slashes and blank lines intact', () => {
   assert.match(eseal.body, /url: "http:\/\/dmss-container-and-signature-services:8092/);
   assert.match(eseal.body, /SPRING_SECURITY_USER_PASSWORD=changeit/);
   assert.ok(eseal.body.includes('\n\n'), 'blank lines between sub-parts are preserved');
+});
+
+test('compose-hostname shows the value it replaces and the host it writes', () => {
+  const plan = parsePlan(fixture('plan-machine-mixed.txt'));
+  const item = plan.items.find((i) => i.id === 'compose-hostname');
+  assert.equal(item.status, 'will-apply');
+  assert.deepEqual(item.files, ['docker-compose.yml']);
+  assert.match(item.body, /\(was padsign\.trustlynx\.com\)/);
+  assert.match(item.body, /- KC_HOSTNAME=padsign2\.e2e\.test/);
+  assert.match(item.body, /sign in again/);
 });
 
 test('files is split into a list', () => {
@@ -80,7 +90,7 @@ test('ignores anything outside the plan markers', () => {
     fixture('plan-machine-mixed.txt') +
     '\ntrailing noise\n'
   );
-  assert.equal(plan.items.length, 3, 'stray key=value lines outside the markers are not items');
+  assert.equal(plan.items.length, 4, 'stray key=value lines outside the markers are not items');
 });
 
 test('empty or truncated input degrades to an empty plan rather than throwing', () => {

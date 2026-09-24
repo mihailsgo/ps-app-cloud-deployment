@@ -165,6 +165,10 @@ LINE_ALLOWLISTS = {
         r"signed-output:/signed-output",
         r"-\s*KEYCLOAK_ADMIN=",
         r"-\s*KEYCLOAK_ADMIN_PASSWORD=",
+        r"-\s*KC_HOSTNAME=",
+        # nginx's network alias (lib/compose-hostname.sh): a bare-hostname
+        # list item. Nothing else in the compose file is one.
+        r"^\s*-\s*[\"']?[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+[\"']?\s*$",
         r"-\s*SPRING_SECURITY_USER_NAME=",
         r"-\s*SPRING_SECURITY_USER_PASSWORD=",
     ],

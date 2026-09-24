@@ -3,7 +3,12 @@
 Review and adjust these files before running:
 
 - `docker-compose.yml`
-  - `KC_HOSTNAME` should match your hostname.
+  - `KC_HOSTNAME` (keycloak service) must match your hostname, and nginx's network
+    alias should. `configure-host.sh` (and so `bootstrap.sh` and
+    `update-hostname.sh`) sets both; `validate-config.sh --host` checks them. It is
+    not cosmetic: Keycloak uses `KC_HOSTNAME` as its fixed frontend hostname, so it
+    decides the token issuer and the login form's URLs. Edited by hand, it only
+    takes effect after `docker compose up -d keycloak` (a restart keeps the old value).
   - Host ports 80/443 must be free. Keycloak (8080) and the DMSS archive/container
     services (86, 84) publish to `127.0.0.1` only, for local operator diagnostics;
     ps-server (3001) and the DMSS fallback service (93) have no host port at all.

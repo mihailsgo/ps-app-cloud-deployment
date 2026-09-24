@@ -19,10 +19,13 @@ while [[ $# -gt 0 ]]; do
 done
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/compose-hostname.sh
+. "${repo_root}/installation-scripts/lib/compose-hostname.sh"
 
 fail=0
-ok()  { printf '  OK   %s\n' "$*"; }
-bad() { printf '  FAIL %s\n' "$*"; fail=1; }
+ok()   { printf '  OK   %s\n' "$*"; }
+bad()  { printf '  FAIL %s\n' "$*"; fail=1; }
+warn() { printf '  WARN %s\n' "$*"; }
 
 echo "PadSign Configuration Validator"
 echo "================================"
@@ -173,6 +176,30 @@ if [[ -n "$host" ]]; then
     ok "config.js auth-server-url matches"
   else
     bad "config.js auth-server-url does not match 'https://${host}/auth'"
+  fi
+
+  # KC_HOSTNAME is Keycloak's fixed frontend hostname — it decides the token
+  # issuer and the login form's action URL. Any other host here sends
+  # browsers to that host at login. Same readers
+  # configure-host.sh and upgrade.sh's compose-hostname migration use.
+  kc_hostname="$(compose_kc_hostname "${repo_root}/docker-compose.yml")"
+  if [[ -z "$kc_hostname" ]]; then
+    warn "docker-compose.yml keycloak service sets no KC_HOSTNAME — Keycloak derives its issuer from each request's forwarded Host header"
+  elif [[ "$(kc_hostname_host "$kc_hostname")" == "${host,,}" ]]; then
+    ok "docker-compose.yml KC_HOSTNAME matches"
+  else
+    bad "docker-compose.yml KC_HOSTNAME is '${kc_hostname}', not '${host}' — Keycloak issues tokens for, and sends logins to, that host. Fix: ./installation-scripts/configure-host.sh --host ${host} (or upgrade.sh's compose-hostname migration), then docker compose up -d keycloak"
+  fi
+
+  # The alias only matters inside the Docker network (ps-server's own calls
+  # to https://<host>/...); with it stale, those go via public DNS instead.
+  nginx_aliases="$(compose_nginx_aliases "${repo_root}/docker-compose.yml" | paste -sd, -)"
+  if [[ -z "$nginx_aliases" ]]; then
+    : # no alias list: nothing to be stale
+  elif nginx_alias_needs_update "${repo_root}/docker-compose.yml" "$host"; then
+    warn "docker-compose.yml nginx network alias (${nginx_aliases}) does not include '${host}' — containers reach https://${host}/ via public DNS instead of directly. Fix: ./installation-scripts/configure-host.sh --host ${host}, then docker compose up -d nginx"
+  else
+    ok "docker-compose.yml nginx network alias matches"
   fi
 fi
 
