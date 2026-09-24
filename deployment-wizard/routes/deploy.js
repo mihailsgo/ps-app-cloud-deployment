@@ -10,7 +10,6 @@ function buildBootstrapArgs(wizard) {
   const args = [
     '--host', wizard.host,
     '--company-role', wizard.companyRole,
-    '--admin-pass', wizard.adminPass,
     '--admin-user', wizard.adminUser,
     '--realm', wizard.realm
     // Deliberately no --cert-crt/--cert-key: certValidator.js already wrote
@@ -53,9 +52,12 @@ router.post('/api/deploy', (req, res) => {
 
   const scriptName = 'bootstrap.sh';
   const args = buildBootstrapArgs(wizard);
+  // Never --admin-pass: bootstrap.sh reads KEYCLOAK_ADMIN_PASSWORD when the
+  // flag is absent, and the environment keeps it out of the process list.
+  const env = { KEYCLOAK_ADMIN_PASSWORD: wizard.adminPass };
 
   try {
-    const runId = startRun({ scriptName, args });
+    const runId = startRun({ scriptName, args, env });
     wizard.lastRunId = runId;
     wizard.furthestStepReached = Math.max(wizard.furthestStepReached, 6);
     res.json({ runId });
@@ -68,10 +70,10 @@ router.post('/api/deploy', (req, res) => {
   }
 });
 
-// Re-run a finished run with the exact same script and arguments. A failed
+// Re-run a finished run with the exact same script, arguments and env. A failed
 // bootstrap/upgrade/settings run used to be a dead end in the UI — the only
 // way out was the topbar, and for bootstrap the operator had to re-enter the
-// admin password. scriptRunner keeps scriptName/args on the run state, so a
+// admin password. scriptRunner keeps scriptName/args/env on the run state, so a
 // retry needs no new input and can't drift from what actually ran.
 router.post('/api/deploy/retry', (req, res) => {
   const wizard = ensureWizardSession(req);
@@ -87,7 +89,7 @@ router.post('/api/deploy/retry', (req, res) => {
   }
 
   try {
-    const runId = startRun({ scriptName: prev.scriptName, args: prev.args });
+    const runId = startRun({ scriptName: prev.scriptName, args: prev.args, env: prev.env });
     wizard.lastRunId = runId;
     res.json({ runId });
   } catch (err) {

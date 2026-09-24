@@ -72,3 +72,17 @@ test('a late subscriber replays buffered events instead of missing them', async 
   assert.ok(events.some((e) => e.event === 'step' && e.data.step === '1'));
   assert.ok(events.some((e) => e.event === 'done'));
 });
+
+test('env reaches the child through its environment, not its argv', async () => {
+  const runId = startRun({
+    scriptName: 'fake-env-echo.sh',
+    args: [],
+    env: { KEYCLOAK_ADMIN_PASSWORD: 'not-on-argv' }
+  });
+  const events = await waitForDone(runId);
+  const lines = events.filter((e) => e.event === 'log').map((e) => e.data.line);
+  assert.ok(lines.includes('argc=0'));
+  assert.ok(lines.includes('env=set'));
+  // kept on the run state so /api/deploy/retry can reuse it
+  assert.equal(getRun(runId).env.KEYCLOAK_ADMIN_PASSWORD, 'not-on-argv');
+});

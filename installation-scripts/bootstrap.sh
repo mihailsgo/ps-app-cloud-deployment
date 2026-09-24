@@ -172,13 +172,15 @@ fi
 
 # ── Step 3: Configure hostname ──
 echo "Step 3/8: Configuring files for hostname '${host}'..."
-configure_args=(--host "${host}" --company-role "${company_role}" --admin-user "${admin_user}" --admin-pass "${admin_pass}")
+configure_args=(--host "${host}" --company-role "${company_role}" --admin-user "${admin_user}")
 [[ -n "$cert_crt" ]] && configure_args+=(--cert-crt "$cert_crt")
 [[ -n "$cert_key" ]] && configure_args+=(--cert-key "$cert_key")
 [[ "$enable_routing" == "true" ]] && configure_args+=(--enable-routing)
 [[ "$enable_demo" == "true" ]] && configure_args+=(--enable-demo)
 [[ "$enable_local_eseal" == "true" ]] && configure_args+=(--enable-local-eseal)
-"${scripts_dir}/configure-host.sh" "${configure_args[@]}"
+# Secrets go to child scripts through the environment, never a flag: every
+# process's command line is in the host's process list.
+CONFIGURE_HOST_ADMIN_PASS="${admin_pass}" "${scripts_dir}/configure-host.sh" "${configure_args[@]}"
 
 # ── Step 4: Create signed-output and docs directories ──
 echo "Step 4/8: Setting up signed-output and docs directories..."
@@ -203,7 +205,6 @@ bootstrap_out="$(
     --company-role "${company_role}" \
     --realm "${realm}" \
     --admin-user "${admin_user}" \
-    --admin-pass "${admin_pass}" \
     ${users_csv:+--users "${users_csv}"} \
   2>&1
 )"
@@ -226,7 +227,7 @@ fi
 
 # ── Step 6: Write backend secret ──
 echo "Step 6/8: Writing backend client secret into config..."
-"${scripts_dir}/configure-host.sh" --host "${host}" --backend-secret "${backend_secret}"
+CONFIGURE_HOST_BACKEND_SECRET="${backend_secret}" "${scripts_dir}/configure-host.sh" --host "${host}"
 
 # ── Step 7: Pull images and start stack ──
 echo "Step 7/8: Pulling Docker images and starting services..."

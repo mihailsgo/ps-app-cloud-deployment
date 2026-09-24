@@ -143,7 +143,7 @@ case "$subcommand" in
       echo "ERROR: created user '${smoke_user}' but could not look it back up." >&2
       exit 1
     }
-    kc_exec_with_secret "${smoke_pass}" "/opt/keycloak/bin/kcadm.sh set-password -r ${realm} --userid ${smoke_uid} --new-password \"\$KC_SECRET\" --temporary=false" >/dev/null
+    kc_set_password "${realm}" "${smoke_uid}" "${smoke_pass}" >/dev/null
     kc_exec "/opt/keycloak/bin/kcadm.sh add-roles -r ${realm} --uusername ${smoke_user} --rolename '${company_role}'" >/dev/null
 
     echo "Smoke-test user created."

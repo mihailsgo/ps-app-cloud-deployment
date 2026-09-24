@@ -14,43 +14,43 @@ kc_exec() {
   docker compose exec -T keycloak sh -lc "$*"
 }
 
-# Like kc_exec, but hands one secret value (a password) to the command via the
-# environment instead of interpolating it into the command line. The command
-# must reference it as "$KC_SECRET" (escaped, so the CONTAINER's shell expands
-# it, not the caller's):
-#
-#   kc_exec_with_secret "$pw" "kcadm.sh ... --new-password \"\$KC_SECRET\""
-#
-# Why: `docker compose exec ... sh -lc "<cmd with the password inlined>"` puts
-# the password in the argv of the host-side `docker compose` process, where
-# any local user can read it with `ps -ef` / /proc/<pid>/cmdline for as long
-# as the call runs, and where host audit tooling (auditd execve rules, EDR
-# agents) records it permanently. `-e KC_SECRET` with no `=value` makes
-# compose read the value from its own environment, so only the variable NAME
-# appears on the host command line. Inside the container the value still
-# reaches kcadm.sh's (and its java process's) argv. Container processes are
-# ordinary host processes, so on a Linux host that argv is in the host's
-# `ps -ww` / /proc/<pid>/cmdline too. kc_exec_with_cli_password below avoids
-# that for kcadm login credentials.
-#
-# Side benefit: a password containing a single quote no longer breaks the
-# quoting of the inline command.
-kc_exec_with_secret() {
-  local secret="$1"; shift
-  KC_SECRET="$secret" docker compose exec -T -e KC_SECRET keycloak sh -lc "$*"
-}
-
-# Like kc_exec, but for a kcadm command that logs in inline (--no-config
-# --server ... --user <u>) WITHOUT --password: the password goes into the
+# Like kc_exec, for a kcadm command that authenticates as <user> WITHOUT
+# --password: `config credentials --server ... --user <u>`, or an inline
+# `--no-config --server ... --user <u>` login. The password goes into the
 # container as KC_CLI_PASSWORD, which kcadm.sh (Keycloak 26.0.0 and later,
-# checked on 26.0.0, 26.3.2 and 26.7.4) reads when --password is absent. The
-# password then appears in no argv at all, neither the host-side
-# `docker compose` nor kcadm.sh / java inside the container. stdin is
-# /dev/null so a kcadm that prompts anyway fails instead of waiting on the
-# operator's terminal.
+# checked on 26.0.0, 26.3.2 and 26.7.4) reads when --password is absent.
+# stdin is /dev/null so a kcadm that prompts anyway fails instead of waiting
+# on the operator's terminal.
+#
+# Why not `--password "$X"` with X handed over through the environment: that
+# keeps the password off the host-side `docker compose` argv, but the
+# container's shell expands it into kcadm.sh's and its java process's argv.
+# Container processes are ordinary host processes, so every local user sees
+# that argv in the host's `ps -ww` / /proc/<pid>/cmdline, and host audit
+# tooling (auditd execve rules, EDR agents) records it. Here the password is
+# on no argv at all. It is in the environment of `docker compose` and of the
+# kcadm process, which /proc lets only the same uid and root read.
 kc_exec_with_cli_password() {
   local password="$1"; shift
   KC_CLI_PASSWORD="$password" docker compose exec -T -e KC_CLI_PASSWORD keycloak sh -lc "$*" </dev/null
+}
+
+# Sets user <uid>'s password in <realm> (non-temporary). kcadm set-password
+# only takes the new password as --new-password on its command line, so this
+# goes through the admin REST endpoint instead (`update .../reset-password`)
+# with the credential JSON on stdin. The JSON is written by the printf
+# builtin, in a forked copy of this shell that execs nothing, so the password
+# reaches no argv and no environment, only the pipe into
+# `docker compose exec -T`. Escapes the two characters JSON requires in a
+# string (backslash and double quote); a password with a control character
+# (tab, newline) is not supported. Uses kc_login()'s kcadm session.
+kc_set_password() {
+  local realm="$1" uid="$2" password="$3"
+  local bs='\' dq='"' value
+  value="${password//"$bs"/"$bs$bs"}"
+  value="${value//"$dq"/"$bs$dq"}"
+  printf '{"type":"password","value":"%s","temporary":false}' "$value" \
+    | docker compose exec -T keycloak sh -lc "/opt/keycloak/bin/kcadm.sh update users/${uid}/reset-password -r ${realm} -f - -n"
 }
 
 kc_csv_last() {
@@ -99,7 +99,7 @@ kc_logout() {
 
 kc_login() {
   local admin_user="$1" admin_pass="$2"
-  kc_exec_with_secret "${admin_pass}" "/opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080/auth --realm master --user '${admin_user}' --password \"\$KC_SECRET\"" >/dev/null
+  kc_exec_with_cli_password "${admin_pass}" "/opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080/auth --realm master --user '${admin_user}'" >/dev/null
 }
 
 # True (exit 0) when role <name> already exists in realm <realm>. Full-list-

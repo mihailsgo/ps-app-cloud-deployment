@@ -62,7 +62,13 @@ function pushEvent(state, event, data) {
   for (const listener of state.listeners) listener(item);
 }
 
-function startRun({ scriptName, args, onEvent }) {
+// `env` holds values that must not go on the child's command line (the
+// Keycloak admin password): argv of every process is readable by any local
+// user via `ps` / /proc/<pid>/cmdline, and the wizard's child processes are
+// ordinary host processes. They are added to the child's environment, which
+// /proc exposes only to the same uid and root, and kept on the run state
+// next to args so a retry can reuse them.
+function startRun({ scriptName, args, env, onEvent }) {
   if (isRunActive()) {
     const err = new Error('A deploy/upgrade run is already in progress.');
     err.code = 'RUN_IN_PROGRESS';
@@ -71,12 +77,16 @@ function startRun({ scriptName, args, onEvent }) {
 
   const scriptPath = projectPath('installation-scripts', scriptName);
   const runId = makeRunId();
-  const proc = spawn('bash', [scriptPath, ...args], { cwd: HOST_PROJECT_DIR });
+  const proc = spawn('bash', [scriptPath, ...args], {
+    cwd: HOST_PROJECT_DIR,
+    env: env ? { ...process.env, ...env } : process.env
+  });
 
   const state = {
     runId,
     scriptName,
     args,
+    env,
     buffer: [],
     listeners: new Set(),
     seq: 0,

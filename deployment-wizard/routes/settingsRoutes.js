@@ -139,11 +139,14 @@ router.post('/api/settings/hostname', async (req, res) => {
     return res.status(400).json({ error: `Upload and validate a certificate for ${newHost} first.` });
   }
 
-  const args = ['--host', newHost, '--admin-pass', adminPass, '--admin-user', adminUser, '--realm', defaults.realm];
+  // The password goes in KEYCLOAK_ADMIN_PASSWORD, never --admin-pass: argv
+  // is in the host's process list (see lib/scriptRunner.js).
+  const args = ['--host', newHost, '--admin-user', adminUser, '--realm', defaults.realm];
   if (allowSelfSigned) args.push('--allow-self-signed');
+  const env = { KEYCLOAK_ADMIN_PASSWORD: String(adminPass) };
 
   try {
-    const runId = startRun({ scriptName: 'update-hostname.sh', args });
+    const runId = startRun({ scriptName: 'update-hostname.sh', args, env });
     res.json({ runId });
   } catch (err) {
     if (err.code === 'RUN_IN_PROGRESS') {
