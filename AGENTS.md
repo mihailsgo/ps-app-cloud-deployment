@@ -68,6 +68,7 @@ ps-app-cloud-deployment/
 │   │   ├── dir-permissions.sh        # signed-output/ and docs/ permission model (no chmod 777)
 │   │   └── deployment-evidence.sh    # Writes deployment-evidence.json (git-ignored)
 │   ├── tests/test-digest-gate.sh     # digest gate + upgrade.sh approved-tag refusal, on a throwaway copy
+│   ├── tests/test-pipefail-and-stdin.sh  # grep -q/SIGPIPE under pipefail + scripts not eating a heredoc caller's stdin (stub docker)
 │   └── certs/                        # Place PEM certs here for bootstrap
 ├── dmss-archive-services/            # Spring config for document archive
 ├── dmss-archive-services-fallback/   # Spring config for filesystem fallback archive
@@ -198,8 +199,12 @@ Single source of truth is the `STAMP_MODE` field in `config/config.js`. The `dms
 ### Existing deployment upgrade
 
 ```bash
-cd /opt/psapp && git pull
-./installation-scripts/upgrade.sh --enable-local-eseal
+cd /opt/psapp
+# bootstrap.sh always leaves config.js, constants.json, docker-compose.yml and
+# nginx.conf modified (hostname + secrets), so a bare `git pull` aborts:
+git stash push -m "padsign host config before pull"
+git pull && git stash pop && git stash list   # expect an empty list; pop conflict: documentation/04-04 Phase 1
+./installation-scripts/upgrade.sh --enable-local-eseal   # straight after the pull, no `docker compose up` in between
 ```
 
 Idempotent. Either of those flag-bearing invocations stages the demo stamping artefacts, edits compose to add the gated stamping service block, patches the container-signature `application.yml`, pins `SPRING_SECURITY_USER_NAME=user` / `SPRING_SECURITY_USER_PASSWORD=changeit` on container-signature (so basic auth between ps-server and container-signature is stable), inserts `STAMP_MODE: "local"` and a `STAMP_LOCAL` block into `config/config.js`, and writes `COMPOSE_PROFILES=local-eseal` to `.env`.
@@ -286,6 +291,8 @@ A host can run as a clean checkout of a release tag plus an overlay directory ou
 When changing what `configure-host.sh` / `upgrade.sh` rewrite, keep `lib/overlay.py`'s notion of release content vs. environment content (`RELEASE_CONTENT_PREFIXES`) in step.
 
 Secrets never go on a command line, and that includes kcadm's own command line inside the Keycloak container, which the host's `ps` also lists. For a kcadm login use `kc_exec_with_cli_password` (password in the container's `KC_CLI_PASSWORD`); to set a user's password use `kc_set_password` (credential JSON on stdin to `reset-password`; `kcadm set-password` only takes `--new-password` on its command line). Script-to-script and wizard-to-script, the Keycloak admin password travels as `KEYCLOAK_ADMIN_PASSWORD` in the environment (configure-host.sh: `CONFIGURE_HOST_ADMIN_PASS` / `CONFIGURE_HOST_BACKEND_SECRET`), never as `--admin-pass`. Use `lib/redact.py` for anything that prints config.
+
+The scripts run under `set -euo pipefail`, often from a `bash -s` heredoc (ssh, CI). Two rules follow. Never pipe a producer that may still be writing (`docker compose logs` / `ps`, `curl`, `buildx`, a large `printf`) into `grep -q` or another reader that stops early (`head`, `awk '...; exit'`) when the result decides an `if`: the producer dies of SIGPIPE and pipefail turns a match into a miss. Use `grep -q PATTERN < <(producer)`, a here-string, or a reader that reads to EOF. And give every `docker compose exec -T` a `</dev/null` (or the pipe it is meant to read): `-T` drops the TTY but still forwards stdin, so the call reads the caller's stdin to EOF and a heredoc caller loses the rest of its script. `installation-scripts/tests/test-pipefail-and-stdin.sh` lints both.
 
 ## Environment management
 

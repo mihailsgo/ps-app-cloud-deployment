@@ -119,8 +119,9 @@ sleep 3
 # match — a customized deployment's nginx container may not literally be
 # named "nginx" (some customer compose files already diverge from the repo
 # baseline in other ways), and `docker compose ps` resolves the right
-# container regardless.
-if docker compose ps nginx --format '{{.State}}' 2>/dev/null | grep -qi "running"; then
+# container regardless. Process substitution, not a pipe: under pipefail a
+# grep -q that stops reading early can fail the check (see verify-keycloak.sh).
+if grep -qi "running" < <(docker compose ps nginx --format '{{.State}}' 2>/dev/null); then
   echo "  nginx: OK"
 else
   echo "  WARNING: nginx does not appear to be running. Check: docker compose logs nginx" >&2

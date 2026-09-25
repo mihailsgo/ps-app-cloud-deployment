@@ -229,8 +229,10 @@ fi
 echo ""
 echo "Service health checks:"
 
-# ps-server
-if docker compose logs ps-server 2>/dev/null | grep -q "PadSign Server listening"; then
+# ps-server. grep reads a process substitution, not a pipe: grep -q exits at
+# the first match, `docker compose logs` is still writing, dies of SIGPIPE,
+# and under pipefail a pipeline would report a running server as down.
+if grep -q "PadSign Server listening" < <(docker compose logs ps-server 2>/dev/null); then
   ok "ps-server is running"
 else
   bad "ps-server does not appear to be running"

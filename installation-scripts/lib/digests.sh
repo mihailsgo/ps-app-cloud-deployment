@@ -99,8 +99,11 @@ digest_from_compose() {
 #   digest_live <repository> <tag>
 digest_live() {
   local repository="$1" tag="$2"
+  # awk reads to EOF instead of `exit`ing at the match: buildx is still
+  # printing the manifest list, and under the callers' pipefail its SIGPIPE
+  # would fail this function (and, via set -e, upgrade.sh's pre-flight).
   docker buildx imagetools inspect "${repository}:${tag}" 2>/dev/null \
-    | awk '/^Digest:/ { print $2; exit }'
+    | awk '/^Digest:/ && !d { d = $2 } END { if (d) print d }'
 }
 
 # Prints every image reference of the effective compose model, one per line.

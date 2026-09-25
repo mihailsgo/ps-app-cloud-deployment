@@ -414,7 +414,7 @@ kc_probe_backend_audience() {
   kc_aud_state="unknown"
   cd "$repo_root"   # kc_exec is `docker compose exec`, resolved from the cwd
 
-  if ! docker compose ps --status running --services 2>/dev/null | tr -d '\r' | grep -qx keycloak; then
+  if ! grep -qx keycloak < <(docker compose ps --status running --services 2>/dev/null | tr -d '\r'); then
     kc_aud_reason="the keycloak container is not running"
     return 0
   fi

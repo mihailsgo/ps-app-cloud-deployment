@@ -212,7 +212,8 @@ docker compose restart ps-server
 # just hadn't printed its startup banner yet).
 ps_server_ok="false"
 for i in $(seq 1 15); do
-  if docker compose logs --since "$restart_at" ps-server 2>/dev/null | grep -q "PadSign Server listening"; then
+  # Process substitution, not a pipe: see verify-keycloak.sh (SIGPIPE + pipefail).
+  if grep -q "PadSign Server listening" < <(docker compose logs --since "$restart_at" ps-server 2>/dev/null); then
     ps_server_ok="true"
     break
   fi

@@ -10,8 +10,13 @@
 # function here is self-contained; unlike lib/capabilities.sh, nothing here
 # expects the caller to have already set a variable like "$repo_root".
 
+# stdin is /dev/null: `docker compose exec -T` drops the TTY but still
+# forwards stdin, so without the redirect every call reads the CALLER's
+# stdin to EOF. When a script runs from a `bash -s` heredoc (ssh, CI,
+# curl | bash), that is the rest of the calling script, which then never
+# runs. kc_set_password below is the one caller that feeds exec a pipe.
 kc_exec() {
-  docker compose exec -T keycloak sh -lc "$*"
+  docker compose exec -T keycloak sh -lc "$*" </dev/null
 }
 
 # Like kc_exec, for a kcadm command that authenticates as <user> WITHOUT
@@ -165,7 +170,10 @@ kc_backend_audience_present() {
   local realm="$1" frontend_cid="$2" audience="$3" auth="${4:-}"
   local mappers
   mappers="$(kc_exec_opt_password "/opt/keycloak/bin/kcadm.sh get clients/${frontend_cid}/protocol-mappers/models -r ${realm} ${auth}" ${5+"$5"})" || return 2
-  printf '%s' "$mappers" | tr -d '\r' | grep -qE "\"included\.client\.audience\"[[:space:]]*:[[:space:]]*\"${audience}\""
+  # A here-string, not `printf | tr | grep -q`: grep -q stops reading at the
+  # first match, and under the callers' pipefail a writer still writing then
+  # dies of SIGPIPE and turns the match into "absent".
+  grep -qE "\"included\.client\.audience\"[[:space:]]*:[[:space:]]*\"${audience}\"" <<<"${mappers//$'\r'/}"
 }
 
 kc_backend_audience_create() {
