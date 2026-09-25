@@ -104,6 +104,9 @@ echo "Step 1/${total}: effective compose model vs. approved digests"
 while IFS=$'\t' read -r gate_status gate_message; do
   case "$gate_status" in
     FAIL) echo "  DRIFT: ${gate_message}"; drift=1;;
+    # A verified rollback to a previously approved release (lib/digest_gate.py):
+    # not drift, but never silent either.
+    WARN) echo "  WARNING: ${gate_message}";;
     OK|INFO) echo "  ${gate_message}";;
   esac
 done < <(digest_gate_check)

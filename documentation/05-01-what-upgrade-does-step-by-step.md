@@ -12,6 +12,21 @@ no container, so it is safe against a live deployment. Add
 `--plan-format machine` for the delimiter-framed form the deployment wizard
 consumes.
 
+**"From" is what is running.** The `ps-server: X → Y` lines (plan and real run)
+take X from the running container, not from `docker-compose.yml`. After the
+`git pull` of [4.4](04-04-existing-deployment-upgrade-an-already-deployed-instance.md)
+Phase 1, `docker-compose.yml` already pins the new release while the old one
+still runs, and the upgrade says so:
+
+```
+    ps-server: 3.28 → 3.30   (approved; pinned to its approved digest)
+      NOTE: docker-compose.yml pins ps-server 3.30 but 3.28 is running - the rollback snapshot records 3.28@sha256:98bb0577..., the running image
+```
+
+In the machine plan, `server_tag_from` / `client_tag_from` are the running tags
+and `server_tag_pinned` / `client_tag_pinned` what `docker-compose.yml` pins.
+Without docker (or with the service stopped) "from" is the pin, as before.
+
 **Steps 3-7 are additive.** Each is guarded by a presence check and only fires
 when its target is absent, so a value you have customised — a document-routing
 path, a real `seal.p12`, a non-default stamping `baseUrl` — is detected and
@@ -46,7 +61,14 @@ check. See [40.2](40-02-post-deploy-validation.md#image-signatures-cosign).
 
 ## The steps
 
-1. **Backs up** `docker-compose.yml` and `config/config.js` (`.bak` files)
+1. **Backs up** `docker-compose.yml` and `config/config.js` (`.bak` files), and
+   writes the rollback snapshot `rollback.sh` restores from
+   (`.rollback-snapshots/<UTC timestamp>/`, mode 700, files 600: it holds a copy
+   of `config.js`). The snapshot's `manifest.json` records the `ps-server` /
+   `ps-client` image that is **running** (tag and registry digest), not the one
+   `docker-compose.yml` pins, plus the pins under `compose_pins`; the two differ
+   after a `git pull`, and step 1 prints a `NOTE` when they do. See
+   [40.4 Rollback](40-04-rollback.md#rollback-restores-what-was-running-not-what-docker-composeyml-pinned)
 2. **Updates image tags** in `docker-compose.yml` - replaces `ps-server:X.XX` and/or `ps-client:X.XX` with the new versions, pinned to the digest `release/approved-digests.json` approves (left unpinned only for a tag let through by `--allow-unapproved`)
 3. **Ensures `DOCUMENT_ROUTING`** config block exists in `config.js` (appends if missing, disabled by default - does not overwrite existing settings)
 4. **Ensures `signed-output` volume mount** exists in `docker-compose.yml` for ps-server
@@ -99,5 +121,9 @@ check. See [40.2](40-02-post-deploy-validation.md#image-signatures-cosign).
     (git-ignored) with this repo's git revision/dirty flag, the pinned image
     tags and their OCI revision labels, sha256 checksums of the four
     per-host-mutated config files, and which optional features are enabled
-14. **Prints rollback command** in case anything goes wrong
+14. **Prints rollback command** in case anything goes wrong. `rollback.sh`
+    restores the running image the step 1 snapshot recorded and exits 1 if the
+    restored containers do not run exactly that digest. After a successful
+    upgrade, entries of an earlier rollback's `.rollback-applied.json` whose
+    pins this run replaced are dropped
 

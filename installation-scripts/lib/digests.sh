@@ -138,24 +138,86 @@ digest_env_registry_table() {
 # not a manifest - pinning `repo:tag@<config digest>` makes `docker pull`
 # fail with "unexpected media type application/octet-stream".
 #
+# A container created from repo:tag@digest was pulled by exactly that
+# digest, so the digest in its own reference comes first: an image pulled
+# under two digests (index and platform manifest, say) lists both in
+# RepoDigests, and only the reference says which one docker-compose.yml
+# pinned. RepoDigests is the fallback for a container created from a bare tag.
+#
 #   digest_running <container-id>
 digest_running() {
   local cid="$1" ref repository image_id found
   ref="$(docker inspect --format '{{.Config.Image}}' "$cid" 2>/dev/null | tr -d '\r')" || return 0
   [[ -z "$ref" ]] && return 0
-  repository="${ref%@*}"
-  # Strip a trailing :tag, but not a registry port (host:5000/repo).
-  [[ "${repository##*:}" != */* ]] && repository="${repository%:*}"
-  image_id="$(docker inspect --format '{{.Image}}' "$cid" 2>/dev/null)" || return 0
+  if [[ "$ref" == *"@sha256:"* ]]; then
+    printf '%s\n' "${ref#*@}"
+    return 0
+  fi
+  repository="$(image_ref_repository "$ref")"
+  image_id="$(docker inspect --format '{{.Image}}' "$cid" 2>/dev/null | tr -d '\r')" || return 0
   found="$(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$image_id" 2>/dev/null \
     | tr -d '\r' \
     | awk -F@ -v repo="$repository" \
         '$1 == repo || $1 == "docker.io/" repo || $1 == "docker.io/library/" repo { print $2; exit }')"
-  # A container created from repo:tag@digest was pulled by exactly that
-  # digest, so the reference itself is authoritative if RepoDigests is empty.
-  if [[ -z "$found" && "$ref" == *"@sha256:"* ]]; then
-    found="${ref#*@}"
-  fi
   [[ -n "$found" ]] && printf '%s\n' "$found"
+  return 0
+}
+
+# Repository part of an image reference: no @digest, no :tag, but a registry
+# port (host:5000/repo) is kept.
+#
+#   image_ref_repository <ref>
+image_ref_repository() {
+  local repository="${1%@*}"
+  [[ "${repository##*:}" != */* && "$repository" == *:* ]] && repository="${repository%:*}"
+  printf '%s' "$repository"
+}
+
+# The release tags this deployment uses for ps-server / ps-client: X.Y or
+# X.Y.Z. Same pattern as upgrade.sh's current_tag() and rollback.sh's sed.
+release_tag_re='^[0-9]+\.[0-9]+(\.[0-9]+)?$'
+
+# Prints "<tag><TAB><how it was found>" for a local image (id or repo@digest):
+# its OCI version label (stamped by psapp's build-image.sh / CI), else its only
+# local release tag of <repository>. Prints nothing when neither says.
+#
+#   image_release_tag <image id or reference> <repository>
+image_release_tag() {
+  local img="$1" repository="$2" label tags
+  label="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$img" 2>/dev/null | tr -d '\r')" || label=""
+  if [[ "$label" =~ $release_tag_re ]]; then
+    printf '%s\t%s\n' "$label" "OCI version label"
+    return 0
+  fi
+  tags="$(docker image inspect --format '{{range .RepoTags}}{{println .}}{{end}}' "$img" 2>/dev/null \
+    | tr -d '\r' \
+    | awk -v repo="$repository" '{ t = $0; sub(/.*:/, "", t); r = substr($0, 1, length($0) - length(t) - 1) }
+        (r == repo || r == "docker.io/" repo) && t ~ /^[0-9]+\.[0-9]+(\.[0-9]+)?$/ { print t }' \
+    | sort -u)"
+  if [[ -n "$tags" && "$(wc -l <<< "$tags")" -eq 1 ]]; then
+    printf '%s\t%s\n' "$tags" "local image tag"
+  fi
+  return 0
+}
+
+# Prints "<tag><TAB><how it was found>" for the image a running container was
+# created from: the tag in the container's own reference (what compose
+# created it from - exact even after docker-compose.yml has moved on, e.g.
+# after a `git pull`), else image_release_tag. Prints nothing if unknown.
+#
+#   running_release_tag <container-id> <repository>
+running_release_tag() {
+  local cid="$1" repository="$2" ref name tag image_id
+  ref="$(docker inspect --format '{{.Config.Image}}' "$cid" 2>/dev/null | tr -d '\r')" || ref=""
+  name="${ref%@*}"
+  if [[ "${name##*/}" == *:* ]]; then
+    tag="${name##*:}"
+    if [[ "$tag" =~ $release_tag_re ]]; then
+      printf '%s\t%s\n' "$tag" "container reference"
+      return 0
+    fi
+  fi
+  image_id="$(docker inspect --format '{{.Image}}' "$cid" 2>/dev/null | tr -d '\r')" || image_id=""
+  [[ -n "$image_id" ]] && image_release_tag "$image_id" "$repository"
   return 0
 }
