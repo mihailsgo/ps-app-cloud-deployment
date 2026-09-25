@@ -46,7 +46,7 @@ checkout's `docker-compose.yml` pins, see
 minimum itself - that way `upgrade.sh` also pins its approved digest:
 
 ```bash
-./installation-scripts/upgrade.sh --server-tag 3.30 --enable-local-eseal
+./installation-scripts/upgrade.sh --server-tag 3.32 --enable-local-eseal
 ```
 
 ps-client is unchanged - the SPA
@@ -126,7 +126,7 @@ the conflicted file contains markers:
 
 ```
 <<<<<<< Updated upstream
-    image: 'mihailsgordijenko/ps-server:3.30@sha256:...'
+    image: 'mihailsgordijenko/ps-server:3.32@sha256:...'
 =======
     image: 'mihailsgordijenko/ps-server:3.29'
 >>>>>>> Stashed changes

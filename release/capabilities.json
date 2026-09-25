@@ -18,8 +18,8 @@
       "why": "REGISTER_PDF_API_KEYS in config/config.js: per-company API keys that scope the receive-back endpoints to the key's company (psapp-saas#18). An older ps-server ignores the field, so only the legacy shared REGISTER_PDF_API_KEY authenticates, the new per-company keys are rejected, and any Manager already switched to one gets 401 on every call."
     },
     "durable-routing-archive": {
-      "min": { "ps-server": "3.30" },
-      "why": "Filesystem routing keeps the archived signed PDF under signed-output/{company}/{email}/... after the Manager acks it, and feeds receive-back from a separate copy under .padsign-buffer/ (psapp-saas#17). An older ps-server registers the archive file itself as the buffer entry and deletes it on ack, and ignores a strategy's bufferOnly flag, so signed-output/ is not a durable archive on a deployment that uses receive-back."
+      "min": { "ps-server": "3.32" },
+      "why": "Filesystem routing keeps the archived signed PDF under signed-output/{company}/{email}/... after the Manager acks it, and feeds receive-back from a separate copy under .padsign-buffer/ (psapp-saas#17). An older ps-server registers the archive file itself as the buffer entry and deletes it on ack, and ignores a strategy's bufferOnly flag, so signed-output/ is not a durable archive on a deployment that uses receive-back. 3.30 and 3.31 still deleted the archived file on ack for a document that was already pending (buffered by 3.28 or older) when the host upgraded; 3.32 keeps it (psapp-saas#58)."
     }
   }
 }

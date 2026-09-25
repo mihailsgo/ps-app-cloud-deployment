@@ -29,8 +29,8 @@
     },
     "ps-server": {
       "repository": "mihailsgordijenko/ps-server",
-      "tag": "3.30",
-      "digest": "sha256:cdcabd7d242176e6229d435c33cc4ec49eaaf38605e92520998682566db3c945"
+      "tag": "3.32",
+      "digest": "sha256:cff423bcfc97f3e62e3076259f7a52962c167fe784efb47d663ae2926b403887"
     },
     "ps-client": {
       "repository": "mihailsgordijenko/ps-client",

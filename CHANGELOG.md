@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.45
+
+- Pinned `ps-server:3.32` (`docker-compose.yml` + `release/approved-digests.json`, index digest `sha256:cff423bc...`), built by CI from the `ps-server/3.32` tag push with an SPDX SBOM, SLSA provenance and a cosign signature over all three (verified against `release/cosign.pub`). The one change over `3.30`: acking a receive-back document that was already pending when the host upgraded from `3.28` or older no longer deletes its durable archive file under `signed-output/` ([psapp-saas#58](https://github.com/mihailsgo/psapp-saas/pull/58), found while migrating the demo host). `3.31` was a CI-verification tag and was never released; `3.30` is superseded.
+- `release/capabilities.json`: `durable-routing-archive` now needs `ps-server` 3.32.
+- Copy-paste upgrade examples in 4.4, 5, 5.1, 5.2 and 36.9 now name `--server-tag 3.32`. The release snapshot describes 3.32 and keeps the 3.30 notes (Node 24, uid 1000, receive-back ownership and the Manager v1.2.0 404 under the legacy key), which still apply to anyone coming from 3.28 or older.
+
 ## v1.0.43
 
 Script-robustness fixes found on a real Ubuntu 24.04 / Docker 28.5.1 / Compose v2.40.0 host ([psapp-saas#12](https://github.com/mihailsgo/psapp-saas/issues/12)).

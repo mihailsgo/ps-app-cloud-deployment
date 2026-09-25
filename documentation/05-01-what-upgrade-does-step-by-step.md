@@ -3,7 +3,7 @@
 ## See it before you run it
 
 ```bash
-./installation-scripts/upgrade.sh --server-tag 3.30 --client-tag 8.40 --plan-only
+./installation-scripts/upgrade.sh --server-tag 3.32 --client-tag 8.40 --plan-only
 ```
 
 `--plan-only` evaluates every configuration migration below and prints exactly

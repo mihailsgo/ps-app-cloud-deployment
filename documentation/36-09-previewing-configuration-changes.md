@@ -68,7 +68,7 @@ is safe to run against a live deployment — it writes nothing, starts nothing,
 and touches no container:
 
 ```bash
-./installation-scripts/upgrade.sh --server-tag 3.30 --client-tag 8.40 --plan-only
+./installation-scripts/upgrade.sh --server-tag 3.32 --client-tag 8.40 --plan-only
 ```
 
 Add `--enable-local-eseal` to see what enabling local e-sealing would change.
