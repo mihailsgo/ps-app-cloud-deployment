@@ -20,6 +20,7 @@ enable_local_eseal="false"
 disable_routing="false"
 disable_demo="false"
 disable_local_eseal="false"
+generate_secrets="false"
 
 usage() {
   cat <<'EOF'
@@ -32,7 +33,8 @@ Usage:
     [--allow-encrypted-key] \
     [--enable-routing | --disable-routing] \
     [--enable-demo | --disable-demo] \
-    [--enable-local-eseal | --disable-local-eseal]
+    [--enable-local-eseal | --disable-local-eseal] \
+    [--generate-secrets]
 
 Edits in-place (with .bak backup):
   - nginx/nginx.conf: server_name, cert filenames, root→/portal/ redirect
@@ -40,15 +42,28 @@ Edits in-place (with .bak backup):
   - config/config.js: Keycloak URLs, service URLs, ALLOWED_ORIGINS, DEMO_COMPANY_ROLE
   - docker-compose.yml: ensures signed-output volume mount exists; sets the
     keycloak service's KC_HOSTNAME and the nginx service's first network
-    alias to --host; when --admin-user/--admin-pass are given, syncs the
-    keycloak service's KEYCLOAK_ADMIN/KEYCLOAK_ADMIN_PASSWORD to match
-    (see below). KC_HOSTNAME and the alias only take effect when the
+    alias to --host; --admin-user syncs the keycloak service's
+    KEYCLOAK_ADMIN. KC_HOSTNAME and the alias only take effect when the
     keycloak/nginx containers are recreated (docker compose up -d), not on
     a plain restart.
+  - .env (git-ignored, created mode 600): --admin-pass is stored there as
+    KEYCLOAK_FIRST_BOOT_ADMIN_PASSWORD, which docker-compose.yml passes to
+    Keycloak. It is never written into the tracked docker-compose.yml; an
+    inline value an older bootstrap left there is replaced by the release's
+    ${KEYCLOAK_FIRST_BOOT_ADMIN_PASSWORD:-admin} reference.
+  - config/config.js is then given the pinned ps-server image's group and
+    mode 640 where that is durable, and checked to still be readable by that
+    image (lib/dir-permissions.sh, secure_config_js).
 
 --backend-secret/--admin-pass: can instead be set in the environment as
   CONFIGURE_HOST_BACKEND_SECRET / CONFIGURE_HOST_ADMIN_PASS, which keeps
   them out of the process list (a flag on the command line wins).
+
+--generate-secrets: replace REGISTER_PDF_API_KEY and SESSION_SECRET in
+  config/config.js with random values if they still hold the values shipped
+  in this public repository. A value already changed is never touched, so
+  re-running is safe. Values are never printed; documentation/18-05 shows
+  how to read the API key for the Virtual Printer. bootstrap.sh passes this.
 
 --disable-routing/--disable-demo/--disable-local-eseal: symmetric complements
   to the --enable-* flags, for turning a feature back off on an
@@ -78,6 +93,7 @@ while [[ $# -gt 0 ]]; do
     --disable-routing) disable_routing="true"; shift 1;;
     --disable-demo) disable_demo="true"; shift 1;;
     --disable-local-eseal) disable_local_eseal="true"; shift 1;;
+    --generate-secrets) generate_secrets="true"; shift 1;;
     -h|--help) usage; exit 0;;
     *) echo "ERROR: Unknown arg: $1" >&2; usage; exit 2;;
   esac
@@ -156,9 +172,13 @@ if [[ -f "$cert_crt" && -f "$cert_key" ]]; then
 fi
 
 # --- Backup helper ---
+# A .bak holds whatever secrets its file holds (config.js: backend secret,
+# REGISTER_PDF_API_KEY, ...), and only the operator restores from it, so it
+# is readable by its owner only - cp alone keeps an existing .bak's old mode.
 backup() {
   local f="$1"
   cp -f "$f" "${f}.bak" 2>/dev/null || true
+  chmod go-rwx "${f}.bak" 2>/dev/null || true
 }
 
 # --- nginx.conf ---
@@ -240,6 +260,24 @@ if [[ -n "$backend_secret" ]]; then
   # Via the environment, not interpolated into the perl source: perl's
   # command line is in the host's process list.
   CFG_BACKEND_SECRET="$backend_secret" perl -0777 -i -pe 's/("secret"\s*:\s*")[^"]*(")/${1}$ENV{CFG_BACKEND_SECRET}${2}/' "$config_js"
+fi
+
+# Values shipped in this PUBLIC repository are known to everyone. Only the two
+# that are ours to choose are generated (the backend secret comes from
+# Keycloak, the stamping credentials from the e-sealing provider), and only
+# while they still hold the shipped value. Never printed.
+if [[ "$generate_secrets" == "true" ]]; then
+  generated="$(python3 "${repo_root}/installation-scripts/lib/secret_hygiene.py" generate "$config_js")"
+  if [[ -n "$generated" ]]; then
+    while IFS= read -r field; do
+      echo "  Generated a random ${field} in config/config.js (the shipped one is public; value not shown)"
+    done <<< "$generated"
+    if grep -qx 'REGISTER_PDF_API_KEY' <<< "$generated"; then
+      echo "    Virtual Printer / API clients need it - read it with the command in documentation/18-05"
+    fi
+  else
+    echo "  REGISTER_PDF_API_KEY / SESSION_SECRET already changed from the shipped values - kept"
+  fi
 fi
 
 if [[ -n "$company_role" ]]; then
@@ -329,23 +367,32 @@ if ! grep -q 'signed-output:/signed-output' "$compose_yml"; then
   echo "  Added signed-output volume mount to docker-compose.yml"
 fi
 
-# --- docker-compose.yml: sync Keycloak admin bootstrap credentials ---
+# --- Keycloak admin bootstrap credentials ---
 # The keycloak service's KEYCLOAK_ADMIN/KEYCLOAK_ADMIN_PASSWORD env vars are
-# what the container actually creates its master-realm admin account with.
-# keycloak-bootstrap.sh's kcadm login uses --admin-user/--admin-pass, so
-# these must always match — otherwise Keycloak bootstrap fails with
-# "Invalid user credentials" for any admin password other than whatever
-# happens to already be in docker-compose.yml. Passed via env vars (not
-# interpolated into the perl source) so arbitrary password characters
-# (/, &, quotes, backslashes) can never be misread as regex/replacement
-# syntax.
+# what the container creates its master-realm admin account with, on its
+# first boot against an empty volume. keycloak-bootstrap.sh's kcadm login
+# uses --admin-user/--admin-pass, so these must match - otherwise Keycloak
+# bootstrap fails with "Invalid user credentials".
+#
+# The user name is not a secret and stays inline in docker-compose.yml. The
+# password never goes into that TRACKED file (it would show in git diff, in
+# the stash objects of a stash/pull/pop upgrade and to every local user):
+# docker-compose.yml reads ${KEYCLOAK_FIRST_BOOT_ADMIN_PASSWORD:-admin}, and
+# the value goes into the git-ignored .env, created mode 600. Both edits get
+# the value through the environment, never a command line, and arbitrary
+# characters survive (lib/secret_hygiene.py quotes them for compose).
 if [[ -n "$admin_user" ]]; then
   CFG_ADMIN_USER="$admin_user" perl -i -pe 's/^(\s*-\s*KEYCLOAK_ADMIN=).*/${1}.$ENV{CFG_ADMIN_USER}/e' "$compose_yml"
   echo "  Synced KEYCLOAK_ADMIN in docker-compose.yml"
 fi
 if [[ -n "$admin_pass" ]]; then
-  CFG_ADMIN_PASS="$admin_pass" perl -i -pe 's/^(\s*-\s*KEYCLOAK_ADMIN_PASSWORD=).*/${1}.$ENV{CFG_ADMIN_PASS}/e' "$compose_yml"
-  echo "  Synced KEYCLOAK_ADMIN_PASSWORD in docker-compose.yml"
+  SECRET_VALUE="$admin_pass" python3 "${repo_root}/installation-scripts/lib/secret_hygiene.py" \
+    env-set "${repo_root}/.env" KEYCLOAK_FIRST_BOOT_ADMIN_PASSWORD >/dev/null
+  echo "  Stored the Keycloak admin password in .env as KEYCLOAK_FIRST_BOOT_ADMIN_PASSWORD (mode $(stat -c '%a' "${repo_root}/.env" 2>/dev/null || echo 600); value not shown)"
+  case "$(python3 "${repo_root}/installation-scripts/lib/secret_hygiene.py" admin-password-placeholder "$compose_yml")" in
+    changed) echo "  docker-compose.yml: replaced the inline KEYCLOAK_ADMIN_PASSWORD with the release's reference to .env";;
+    absent)  echo "  WARNING: no KEYCLOAK_ADMIN_PASSWORD on the keycloak service in docker-compose.yml - Keycloak gets no admin password from .env" >&2;;
+  esac
 fi
 
 # --- docker-compose.yml: point Keycloak and the nginx alias at this host ---
@@ -524,5 +571,12 @@ PY
     echo "  Removed local-eseal from COMPOSE_PROFILES in .env"
   fi
 fi
+
+# --- config/config.js: not world-readable, still readable by ps-server ---
+# Last, after every edit above: perl -i / sed -i rewrote the file as this
+# user. See lib/dir-permissions.sh (secure_config_js) for the model.
+# shellcheck source=lib/dir-permissions.sh
+. "${repo_root}/installation-scripts/lib/dir-permissions.sh"
+secure_config_js
 
 echo "  Configuration complete for ${host}"

@@ -3,7 +3,15 @@ services:
     image: quay.io/keycloak/keycloak:26.7.4@sha256:82a77884f3af238beab1e7afd63b5f530e1b5c0590bd7aa60b40a40463e29b2c
     environment:
       - KEYCLOAK_ADMIN=admin
-      - KEYCLOAK_ADMIN_PASSWORD=admin
+      # Keycloak's master-realm admin password. Keycloak reads it ONLY on its
+      # first boot against an empty keycloak_data volume (documentation/17-01),
+      # and it is never written into this tracked file: bootstrap.sh stores it
+      # as KEYCLOAK_FIRST_BOOT_ADMIN_PASSWORD in the git-ignored, mode-600 .env
+      # next to it. Unset, it falls back to the demo default "admin", which
+      # validate-config.sh warns about. Not named KEYCLOAK_ADMIN_PASSWORD on
+      # purpose: operators export that one for the scripts, and an exported
+      # value would override .env here and recreate this container.
+      - KEYCLOAK_ADMIN_PASSWORD=${KEYCLOAK_FIRST_BOOT_ADMIN_PASSWORD:-admin}
       # Set to the deployment host by configure-host.sh (so bootstrap.sh and
       # update-hostname.sh too). Not cosmetic: Keycloak uses it as its fixed
       # frontend hostname - the token issuer and the login form's URLs.

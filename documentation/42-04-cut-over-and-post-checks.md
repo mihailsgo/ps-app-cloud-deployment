@@ -24,7 +24,7 @@ cd "$NEW"
 git status --short | tee "$EVID/C1-git-status.txt"
 ```
 
-- **Check:** `exit=0`. `git status` lists **only** the files `apply` printed (overlay overrides as `M`, overlay extra files as `??`). `.env`, the certificates and `.overlay-applied.json` are git-ignored and do not appear. `config/config.js` is now mode `0640` or tighter.
+- **Check:** `exit=0`. `git status` lists **only** the files `apply` printed (overlay overrides as `M`, overlay extra files as `??`). `.env`, the certificates and `.overlay-applied.json` are git-ignored and do not appear. `config/config.js` is mode `640` with the group of the uid the new checkout's ps-server image runs as: `apply` prints `OK   config/config.js: group <gid>, mode 640 - readable by <image> (<uid>:<gid>)`. It reads the file from inside that image first, and FAILs rather than leave a file ps-server cannot open (ps-server 3.30 runs as uid 1000; a `root:root` `0770` copy crash-looped it with `EACCES`). Run `apply` as root so it can set that group.
 - If `apply` refuses with `the release changed ... since the overlay was captured`, the tag differs from the checkout you captured against. Re-run 42.3 O3 against this `$NEW`.
 - **Rollback:** `rm -rf "$NEW"` and re-clone (42.3 O2). Nothing live changed.
 - **Evidence:** `C1-apply.log`, `C1-git-status.txt` (paths only).
@@ -34,19 +34,43 @@ git status --short | tee "$EVID/C1-git-status.txt"
 The documents stay where they are. Only permission bits change, never
 content.
 
+Each directory must belong to the uid its **new** container runs as. Read it
+from the image the new checkout's effective compose model (release +
+overlay) pins, never assume it: ps-server is root up to 3.29 and uid 1000
+from 3.30; `dmss-archive-services-fallback` is 999:1000 (`spring`) up to 24.0.5
+and 10001:10001 in 24.1.7.
+
 ```bash
 stat -c '%a %U:%G %n' "$SIGNED" "$DOCS" | tee "$EVID/C2-storage-modes-before.txt"
+img_ids() { docker run --rm --entrypoint sh "$1" -c 'echo "$(id -u):$(id -g)"'; }
+PS_IMG="$(cd "$NEW" && docker compose config --images | grep '/ps-server:')"
 FALLBACK_IMG="$(cd "$NEW" && docker compose config --images | grep dmss-archive-services-fallback)"
-SPRING_GID="$(docker run --rm --entrypoint id "$FALLBACK_IMG" -g spring)"; echo "spring gid=$SPRING_GID"
-sudo chmod 750 "$SIGNED"                       # ps-server runs as root; nobody else needs access
-sudo chgrp "$SPRING_GID" "$DOCS" && sudo chmod 770 "$DOCS"   # fallback archive runs as uid 999 / gid spring
+PS_IDS="$(img_ids "$PS_IMG")"; FB_IDS="$(img_ids "$FALLBACK_IMG")"
+OLD_FB_IDS="$(img_ids "$(docker inspect -f '{{.Config.Image}}' dmss-archive-services-fallback)")"
+echo "new ps-server $PS_IDS, new fallback $FB_IDS, running fallback $OLD_FB_IDS" | tee "$EVID/C2-image-ids.txt"
+[ "${PS_IDS%%:*}" = 0 ] || sudo chown -R "$PS_IDS" "$SIGNED"   # a root ps-server (old stack) still writes here
+sudo chmod 750 "$SIGNED"
+if [ "$FB_IDS" = "$OLD_FB_IDS" ]; then
+  sudo chown -R "$FB_IDS" "$DOCS" && sudo chmod 770 "$DOCS"
+else
+  sudo chgrp "${OLD_FB_IDS##*:}" "$DOCS" && sudo chmod 770 "$DOCS"   # the running one still writes; C4 re-owns
+fi
 sudo find "$SIGNED" "$DOCS" -perm -0002 ! -type l -exec chmod o-w {} +   # no world-writable entries left inside
 stat -c '%a %U:%G %n' "$SIGNED" "$DOCS" | tee "$EVID/C2-storage-modes-after.txt"
 sudo find "$SIGNED" "$DOCS" -perm -0002 ! -type l | wc -l      # 0
 ```
 
-These are the same modes `installation-scripts/lib/dir-permissions.sh` sets on
-new deployments. Its header explains why each is enough.
+These are the ownership and modes `installation-scripts/lib/dir-permissions.sh`
+sets on new deployments (and `validate-config.sh` checks: `signed-output
+directory owned by 1000:1000 ...`). Its header explains why each is enough.
+A `chmod 750` alone leaves a `root:root` tree that ps-server 3.30 cannot
+write, and filesystem routing then fails for every signed document.
+
+If the new fallback image runs as another uid than the running one (moving an
+overlay host from 24.0.5 to the release's 24.1.7), its tree is re-owned in C4,
+once the old container has stopped: changing it now would stop the running
+archive from writing. Rolling back to the old image needs the reverse
+`chown` (42.5 R3).
 
 - **Check:** the old stack keeps writing, since it is still running. Watch for 5 minutes: `cd "$OLD" && docker compose logs --since 5m dmss-archive-services-fallback ps-server 2>&1 | grep -ci 'permission denied'` must print 0.
 - **Rollback:** `sudo chmod <mode from C2-storage-modes-before.txt> "$SIGNED" "$DOCS"`, only if a service really cannot write.
@@ -83,6 +107,10 @@ docker compose pull 2>&1 | tail -3                   # pre-pull every image; run
 ```bash
 date -u +%FT%TZ | tee "$EVID/C4-window-start.txt"
 (cd "$OLD" && docker compose stop)                                   # whole old stack, Keycloak included
+# Storage ownership for the NEW containers (C2): catches files a root ps-server
+# created since C2, and re-owns docs/ when the fallback image's uid changes.
+[ "${PS_IDS%%:*}" = 0 ] || sudo chown -R "$PS_IDS" "$SIGNED"
+[ "$FB_IDS" = "$OLD_FB_IDS" ] || { [ "${FB_IDS%%:*}" = 0 ] || sudo chown -R "$FB_IDS" "$DOCS"; }
 TAR_IMG="$(cd "$NEW" && docker compose config --images | grep -m1 '^nginx')"   # any local image that has tar
 docker run --rm -v "$KC_VOLUME":/v:ro -v "$BACKUP":/b "$TAR_IMG" \
   tar czf "/b/keycloak_data-$(date -u +%Y%m%dT%H%M%SZ).tgz" -C /v .

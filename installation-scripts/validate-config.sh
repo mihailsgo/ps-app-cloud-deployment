@@ -50,6 +50,12 @@ for f in config/config.js config/constants.json nginx/nginx.conf docker-compose.
     bad "$f missing"
   fi
 done
+# config.js is mode 640 with the ps-server image's group once configure-host.sh
+# has restricted it (lib/dir-permissions.sh); another user cannot read it, and
+# every check below that does would report nonsense.
+if [[ -f "${repo_root}/config/config.js" && ! -r "${repo_root}/config/config.js" ]]; then
+  warn "config/config.js is not readable by $(id -un 2>/dev/null || id -u) - run this as root or as a member of its group ($(stat -c '%G, gid %g' "${repo_root}/config/config.js" 2>/dev/null || echo '?')); the checks below that read it are unreliable"
+fi
 
 # --- JSON syntax ---
 echo ""
@@ -197,54 +203,70 @@ else
   ok "API_PROTECT_LOGS_ENABLED is off (no bearer tokens in ps-server logs)"
 fi
 
-# Values shipped in this PUBLIC repository are known to everyone. Compared
-# against the release's own committed config.js (what this checkout was cut
-# from), so this script never has to carry a copy of the values itself.
-known_default_fields() {
-  BASELINE_JS="$(git -C "$repo_root" show HEAD:config/config.js)" python3 -c '
-import os, re, sys
-FIELDS = [
-    ("backend client secret (KEYCLOAK_CONFIG.credentials.secret)", r"\"secret\"\s*:\s*\"([^\"]*)\""),
-    ("REGISTER_PDF_API_KEY", r"REGISTER_PDF_API_KEY\s*:\s*[\"\x27]([^\"\x27]*)[\"\x27]"),
-    ("SESSION_SECRET", r"SESSION_SECRET\s*:\s*[\"\x27]([^\"\x27]*)[\"\x27]"),
-    ("STAMP_API_KEY", r"STAMP_API_KEY\s*:\s*[\"\x27]([^\"\x27]*)[\"\x27]"),
-    ("STAMP_COMPANY_SECRET", r"STAMP_COMPANY_SECRET\s*:\s*[\"\x27]([^\"\x27]*)[\"\x27]"),
-]
-live = open(sys.argv[1], encoding="utf-8", errors="replace").read()
-base = os.environ["BASELINE_JS"]
-for label, rx in FIELDS:
-    ml, mb = re.search(rx, live), re.search(rx, base)
-    if ml and mb and ml.group(1) and ml.group(1) == mb.group(1):
-        print(label)
-' "$config_js" 2>/dev/null | tr -d '\r'
-}
-if git -C "$repo_root" cat-file -e HEAD:config/config.js 2>/dev/null; then
-  known_default_report="$(known_default_fields || true)"
-  if [[ -z "$known_default_report" ]]; then
-    ok "no config.js credential still equals the value shipped in the repository"
-  else
-    while IFS= read -r field; do
-      [[ -z "$field" ]] && continue
-      warn "${field} is still the value shipped in the public repository - rotate it (value not shown)"
-    done <<< "$known_default_report"
-  fi
-else
-  warn "cannot compare config.js credentials to the shipped defaults (not a git checkout)"
+# Values shipped in this PUBLIC repository are known to everyone. Which
+# values those are is defined once, in lib/secret_hygiene.py (by sha256, not
+# by comparing with git HEAD: a host that committed its own config.js would
+# otherwise have its real values reported as the shipped ones). bootstrap.sh
+# generates the two that are ours to choose (configure-host.sh
+# --generate-secrets); the stamping credentials come from the provider.
+overlay_host=""; [[ -f "${repo_root}/.overlay-applied.json" ]] && overlay_host=1
+shipped_report="$(PADSIGN_HOST_HINT="$host" PADSIGN_OVERLAY_HOST="$overlay_host" python3 "${repo_root}/installation-scripts/lib/secret_hygiene.py" shipped "$config_js" 2>/dev/null | tr -d '\r' || true)"
+if [[ -z "$shipped_report" ]]; then
+  warn "could not compare config.js credentials with the values shipped in the repository (config/config.js unreadable?)"
 fi
-if grep -Eq '^[[:space:]]*-[[:space:]]*KEYCLOAK_ADMIN_PASSWORD=admin[[:space:]]*$' "${repo_root}/docker-compose.yml"; then
-  warn "docker-compose.yml still carries KEYCLOAK_ADMIN_PASSWORD=admin (used only on Keycloak's first boot against an empty volume - see documentation/14-07)"
-fi
+while IFS=$'\t' read -r gate_status gate_message; do
+  case "$gate_status" in
+    OK)   ok "$gate_message";;
+    WARN) warn "$gate_message";;
+  esac
+done <<< "$shipped_report"
+
+# Keycloak's bootstrap admin password is read only on Keycloak's first boot
+# against an empty volume (documentation/14-07). A real value in the TRACKED
+# docker-compose.yml still leaks: into `git diff`, into the stash objects of
+# a stash/pull/pop upgrade, and to every local user (the file is 644). The
+# release reads it from .env (KEYCLOAK_FIRST_BOOT_ADMIN_PASSWORD) instead.
+admin_state="$(python3 "${repo_root}/installation-scripts/lib/secret_hygiene.py" admin-password "${repo_root}/docker-compose.yml" "${repo_root}/.env" 2>/dev/null | tr -d '\r' || true)"
+admin_var="$(awk '{print $2}' <<< "$admin_state")"
+case "$admin_state" in
+  inline)
+    warn "docker-compose.yml, a tracked file, carries the Keycloak admin password inline (value not shown) - it shows in git diff, in git stash objects and to every local user. Move it to .env: documentation/17-01" ;;
+  inline-default)
+    warn "docker-compose.yml still carries KEYCLOAK_ADMIN_PASSWORD=admin (used only on Keycloak's first boot against an empty volume - see documentation/14-07)" ;;
+  "placeholder "*" default")
+    warn "Keycloak's first-boot admin password falls back to the demo default admin: ${admin_var} is not set in .env (used only on Keycloak's first boot against an empty volume - see documentation/14-07; bootstrap.sh sets it)" ;;
+  "placeholder "*" empty")
+    warn "Keycloak's first-boot admin password is empty: ${admin_var} is not set in .env (see documentation/17-01)" ;;
+  "placeholder "*" set")
+    ok "Keycloak's first-boot admin password is read from ${admin_var} (.env), not stored in the tracked docker-compose.yml" ;;
+  absent)
+    ok "docker-compose.yml sets no Keycloak bootstrap admin password" ;;
+  *)
+    warn "could not tell how docker-compose.yml sets the Keycloak admin password" ;;
+esac
+
+# config/config.js: kept from other users, but readable by ps-server. The
+# advice depends on the uid:gid the pinned image runs as - `chmod o-rwx`
+# alone crash-loops ps-server 3.30+ (uid 1000) on a root-owned file. Same
+# check overlay.sh verify runs, and the model configure-host.sh applies
+# (lib/dir-permissions.sh).
+while IFS=$'\t' read -r gate_status gate_message; do
+  case "$gate_status" in
+    OK)   ok "$gate_message";;
+    WARN) warn "$gate_message";;
+    FAIL) bad "$gate_message";;
+  esac
+done < <(config_js_access_report | tr -d '\r')
 
 file_mode_of() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1" 2>/dev/null; }
 world_readable() { find "$1" -maxdepth 0 -perm -004 2>/dev/null | grep -q .; }
-for f in config/config.js .env; do
-  [[ -f "${repo_root}/${f}" ]] || continue
-  if world_readable "${repo_root}/${f}"; then
-    warn "${f} is world-readable (mode $(file_mode_of "${repo_root}/${f}")) and holds credentials - chmod o-rwx ${f} (ps-server runs as root and still reads it)"
+if [[ -f "${repo_root}/.env" ]]; then
+  if world_readable "${repo_root}/.env"; then
+    warn ".env is world-readable (mode $(file_mode_of "${repo_root}/.env")) and can hold credentials (the Keycloak first-boot admin password, ALERT_WEBHOOK_URL) - chmod 600 .env (only docker compose reads it, as the user who runs it; no container does)"
   else
-    ok "${f} is not world-readable"
+    ok ".env is not world-readable"
   fi
-done
+fi
 for f in "${repo_root}"/nginx/certs/*.key; do
   [[ -f "$f" ]] || continue
   if world_readable "$f"; then

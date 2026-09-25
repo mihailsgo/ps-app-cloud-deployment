@@ -63,12 +63,14 @@ ps-app-cloud-deployment/
 │   │   ├── kcadm.sh                  # Shared Keycloak admin CLI helpers (print_secret(), kc_exec_with_cli_password(), kc_set_password(), kc_logout)
 │   │   ├── overlay.py                # overlay.sh's implementation (3-way merge via git merge-file, compose-model diffing)
 │   │   ├── redact.py                 # the ONE definition of "secret-bearing key"; everything that prints config lines uses it
+│   │   ├── secret_hygiene.py         # the ONE definition of "value shipped in this public repo" (by sha256); generates REGISTER_PDF_API_KEY/SESSION_SECRET; .env writer
 │   │   ├── digests.sh                # approved-digests.json reader + effective-compose-model image helpers
 │   │   ├── digest_gate.py            # the digest gate: effective compose model (COMPOSE_FILE, all profiles) vs. approvals
 │   │   ├── dir-permissions.sh        # signed-output/ and docs/ permission model (no chmod 777)
 │   │   └── deployment-evidence.sh    # Writes deployment-evidence.json (git-ignored)
 │   ├── tests/test-digest-gate.sh     # digest gate + upgrade.sh approved-tag refusal, on a throwaway copy
 │   ├── tests/test-pipefail-and-stdin.sh  # grep -q/SIGPIPE under pipefail + scripts not eating a heredoc caller's stdin (stub docker)
+│   ├── tests/test-secret-hygiene.sh  # generated secrets, .env admin password, config.js mode, overlay apply/verify (stubbed docker run)
 │   └── certs/                        # Place PEM certs here for bootstrap
 ├── dmss-archive-services/            # Spring config for document archive
 ├── dmss-archive-services-fallback/   # Spring config for filesystem fallback archive
@@ -84,9 +86,9 @@ ps-app-cloud-deployment/
 │   ├── lib/                          # scriptRunner, outputParser, cert/config validators, state detection
 │   ├── routes/ , views/ , public/     # Express routes, EJS templates, static assets
 │   └── Dockerfile                    # node:18-bookworm-slim (NOT alpine — scripts need grep -oP)
-├── .env                              # contains COMPOSE_PROFILES=local-eseal when local mode is active
+├── .env                              # git-ignored, mode 600: KEYCLOAK_FIRST_BOOT_ADMIN_PASSWORD (bootstrap), COMPOSE_PROFILES=local-eseal when local mode is active
 ├── deployment-evidence.json          # git-ignored; written by bootstrap.sh/upgrade.sh/postdeploy-check.sh (see documentation/41)
-├── signed-output/                    # Signed PDFs written by ps-server (git-ignored; mode 750, ps-server runs as root)
+├── signed-output/                    # Signed PDFs written by ps-server (git-ignored; mode 750, owned by the uid the ps-server image runs as: 1000 from 3.30)
 └── docs/                             # Signed documents output (fallback archive; git-ignored; mode 770, group spring)
 ```
 
@@ -165,7 +167,7 @@ every other file-level check pass throughout that failure. See
 | `dmss-container-and-signature-services/documentsigningprofiles.json` | dmss-signing | Profile catalog. Pre-existing `TrustLynx` / `TrustLynxLV` / `TrustLynxLV_ASICE` plus the new `LocalDemo` (B_BES, anchored to demo cert). |
 | `dmss-digital-stamping-service/application.yml` | dmss-digital-stamping-service | `stamping.companies` mapping company name → keystore (when local e-sealing is active). |
 | `dmss-digital-stamping-service/seal/seal.p12` | dmss-digital-stamping-service | The demo PKCS12 keystore (DEMO ONLY — replace before production). |
-| `.env` | docker compose | Holds `COMPOSE_PROFILES=local-eseal` to make `docker compose up -d` auto-include the stamping service. |
+| `.env` | docker compose | Git-ignored, mode 600. Holds `KEYCLOAK_FIRST_BOOT_ADMIN_PASSWORD` (the Keycloak admin password, which `docker-compose.yml` only references; written by `configure-host.sh --admin-pass`, so by bootstrap) and `COMPOSE_PROFILES=local-eseal` to make `docker compose up -d` auto-include the stamping service. |
 
 ## Authentication
 
@@ -173,7 +175,7 @@ every other file-level check pass throughout that failure. See
 - Public client: `padsign-client` (used by React SPA)
 - Backend client: `padsign-backend` (bearer-only, used by Express server)
 - Roles: `padsign-admin`, `psapp-integration`
-- Default admin: `admin/admin` — must change in production
+- Default admin: `admin/admin` - must change in production. The password comes from `.env` (`KEYCLOAK_FIRST_BOOT_ADMIN_PASSWORD`, set by bootstrap), never from the tracked `docker-compose.yml`, and only on Keycloak's first boot (documentation/17-01)
 - `padsign-client` carries an `oidc-audience-mapper` (`padsign-backend-audience`) that puts `padsign-backend` into the access-token `aud`. ps-server validates every API call by introspecting the portal token *as* `padsign-backend`, and Keycloak 26.4.12/26.6.2/26.7.0+ refuse that unless the introspecting client is in `aud` (CVE-2026-37979 fix). Without the mapper, login works but every API call returns 401. `keycloak-bootstrap.sh` creates it for new realms, and `upgrade.sh`'s `keycloak-backend-audience` migration adds it to existing ones. That migration is the one table entry whose predicate probes live Keycloak (read-only, `kcadm --no-config`) instead of grepping a file. Shared helpers are in `installation-scripts/lib/kcadm.sh`. See `documentation/14-08-token-audience-for-introspection.md`.
 
 ## Local e-sealing
@@ -293,6 +295,8 @@ When changing what `configure-host.sh` / `upgrade.sh` rewrite, keep `lib/overlay
 Secrets never go on a command line, and that includes kcadm's own command line inside the Keycloak container, which the host's `ps` also lists. For a kcadm login use `kc_exec_with_cli_password` (password in the container's `KC_CLI_PASSWORD`); to set a user's password use `kc_set_password` (credential JSON on stdin to `reset-password`; `kcadm set-password` only takes `--new-password` on its command line). Script-to-script and wizard-to-script, the Keycloak admin password travels as `KEYCLOAK_ADMIN_PASSWORD` in the environment (configure-host.sh: `CONFIGURE_HOST_ADMIN_PASS` / `CONFIGURE_HOST_BACKEND_SECRET`), never as `--admin-pass`. Use `lib/redact.py` for anything that prints config.
 
 The scripts run under `set -euo pipefail`, often from a `bash -s` heredoc (ssh, CI). Two rules follow. Never pipe a producer that may still be writing (`docker compose logs` / `ps`, `curl`, `buildx`, a large `printf`) into `grep -q` or another reader that stops early (`head`, `awk '...; exit'`) when the result decides an `if`: the producer dies of SIGPIPE and pipefail turns a match into a miss. Use `grep -q PATTERN < <(producer)`, a here-string, or a reader that reads to EOF. And give every `docker compose exec -T` a `</dev/null` (or the pipe it is meant to read): `-T` drops the TTY but still forwards stdin, so the call reads the caller's stdin to EOF and a heredoc caller loses the rest of its script. `installation-scripts/tests/test-pipefail-and-stdin.sh` lints both.
+
+No secret goes into a tracked file either. `docker-compose.yml` only references the Keycloak admin password (`${KEYCLOAK_FIRST_BOOT_ADMIN_PASSWORD:-admin}`); its value goes into `.env` via `lib/secret_hygiene.py env-set` (value in `SECRET_VALUE`, never argv). "Still the value shipped in this public repo" is defined once, by sha256, in `lib/secret_hygiene.py`; `configure-host.sh --generate-secrets` (bootstrap) replaces `REGISTER_PDF_API_KEY` / `SESSION_SECRET` only while they hold it, and never prints them. `config/config.js` must stay readable by the uid the ps-server image of the effective compose model runs as (1000 from 3.30): never recommend or run a plain `chmod o-rwx` on it. The model (group = image gid, mode 640, checked by reading it from inside the image) is `secure_config_js` / `config_js_access_report` in `lib/dir-permissions.sh`, shared by configure-host.sh, validate-config.sh and overlay.sh apply/verify; `pinned_image_ref` there reads the effective compose model (COMPOSE_FILE overlay included).
 
 ## Environment management
 

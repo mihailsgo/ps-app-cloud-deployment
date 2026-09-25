@@ -8,9 +8,11 @@ set -euo pipefail
 # splits every difference into two buckets:
 #   - EXPECTED OVERLAY: matches a known field configure-host.sh / upgrade.sh
 #     document that they rewrite per deployment (hostname, cert paths,
-#     backend secret, DEMO_COMPANY_ROLE, DOCUMENT_ROUTING, STAMP_MODE, image
-#     tags, the signed-output mount, Keycloak admin creds, the local-eseal
-#     service block).
+#     backend secret, the REGISTER_PDF_API_KEY / SESSION_SECRET that
+#     bootstrap.sh generates, DEMO_COMPANY_ROLE, DOCUMENT_ROUTING, STAMP_MODE,
+#     image tags, the signed-output mount, Keycloak admin creds (inline on
+#     deployments bootstrapped before v1.0.42), the local-eseal service
+#     block).
 #   - UNEXPECTED DRIFT: anything else — a hand edit that isn't one of those,
 #     which is exactly what issue #7 is about being unable to tell apart from
 #     a clean checkout today.
@@ -167,6 +169,9 @@ LINE_ALLOWLISTS = {
         r"https://[^/\"']+/container/api/",
         r"'https://[^']+'",
         r'"secret"\s*:\s*"',
+        # configure-host.sh --generate-secrets (bootstrap.sh, v1.0.42+)
+        r"REGISTER_PDF_API_KEY\s*:\s*[\"']",
+        r"SESSION_SECRET\s*:\s*[\"']",
         r"DEMO_COMPANY_ROLE\s*:\s*\"",
         r"STAMP_MODE\s*:\s*\"",
     ],

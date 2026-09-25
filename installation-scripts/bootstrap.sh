@@ -15,7 +15,10 @@ set -euo pipefail
 # What it does (end-to-end):
 #   1) Backs up config files
 #   2) Pre-flight TLS cert validation (chain, key match, expiry, hostname)
-#   3) Rewrites all config/nginx for the hostname
+#   3) Rewrites all config/nginx for the hostname; replaces the public
+#      shipped REGISTER_PDF_API_KEY / SESSION_SECRET with random values and
+#      stores the Keycloak admin password in .env (mode 600), never in the
+#      tracked docker-compose.yml
 #   4) Creates signed-output and docs directories
 #   5) Starts Keycloak, bootstraps realm/clients/roles/users
 #   6) Writes backend client secret into config
@@ -153,9 +156,11 @@ echo "Step 1/8: Backing up config files..."
 for f in "${repo_root}/config/config.js" "${repo_root}/config/constants.json" "${repo_root}/nginx/nginx.conf" "${repo_root}/docker-compose.yml"; do
   if [[ -f "$f" ]]; then
     cp -f "$f" "${f}.bak"
+    # On a re-run config.js.bak holds this deployment's real secrets.
+    chmod go-rwx "${f}.bak" 2>/dev/null || true
   fi
 done
-echo "  Backups created (*.bak)"
+echo "  Backups created (*.bak, owner-only)"
 
 # ── Step 2: Pre-flight TLS validation ──
 echo "Step 2/8: Validating TLS certificate..."
@@ -172,7 +177,7 @@ fi
 
 # ── Step 3: Configure hostname ──
 echo "Step 3/8: Configuring files for hostname '${host}'..."
-configure_args=(--host "${host}" --company-role "${company_role}" --admin-user "${admin_user}")
+configure_args=(--host "${host}" --company-role "${company_role}" --admin-user "${admin_user}" --generate-secrets)
 [[ -n "$cert_crt" ]] && configure_args+=(--cert-crt "$cert_crt")
 [[ -n "$cert_key" ]] && configure_args+=(--cert-key "$cert_key")
 [[ "$enable_routing" == "true" ]] && configure_args+=(--enable-routing)
@@ -294,7 +299,11 @@ echo "  Portal:    https://${host}/portal/"
 echo "  Keycloak:  https://${host}/auth/admin/"
 echo "  API:       https://${host}/api/"
 echo ""
-echo "  Admin user: ${admin_user}"
+echo "  Admin user: ${admin_user} (password: the one you passed; Keycloak only reads it on its first"
+echo "              boot. It is stored in .env, mode 600, never in docker-compose.yml)"
+echo "  API key:    REGISTER_PDF_API_KEY (for the Virtual Printer / Manager) is not shown. Read it"
+echo "              when you configure a client (documentation/18-05):"
+echo "                docker compose exec -T ps-server node -p 'require(\"/usr/src/app/config.js\").REGISTER_PDF_API_KEY' </dev/null"
 echo "  Test user:  test (password shown above if this ran at an interactive terminal;"
 echo "              otherwise use smoke-user.sh for a retrievable disposable credential)"
 echo "  WARNING: Delete 'test' user before production use!"

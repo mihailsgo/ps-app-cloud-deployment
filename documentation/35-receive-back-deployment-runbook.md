@@ -123,7 +123,9 @@ The receive-back client lives in the Manager/Listener (`virtual printer` repo, *
    `powershell -ExecutionPolicy Bypass -File scripts/create-setup.ps1` (from `virtual printer`), ship `out/installer/Padsign-Setup.cmd`. Confirm the Manager window title reads `Padsign Manager v1.2.0` (or later) after install.
 2. In the Manager Setup tab set: `Signed Output Folder` (e.g. `C:\PadSign\SignedDocs`),
    plus the existing `Company` (e.g. `Acme` or `Acme-Branch`), `Email`, API URL
-   (`https://<host>/api/registerPDF`) and the `REGISTER_PDF_API_KEY` bearer.
+   (`https://<host>/api/registerPDF`) and the `REGISTER_PDF_API_KEY` bearer
+   (a fresh bootstrap generates it and never prints it: read it with the
+   command in [18.5](18-05-cloud-flow-apiregisterpdf.md#reading-the-api-key)).
 3. Save → installs/updates config at `%LOCALAPPDATA%\Padsign\padsign.json`
    (`ReceiveBackEnabled`, `ReceiveBackPollSeconds`=5, `ReceiveBackTimeoutMinutes`=30 default).
 4. Start the listener.

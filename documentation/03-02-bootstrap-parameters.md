@@ -4,7 +4,7 @@
 |---|---|---|
 | `--host` | Yes | Hostname for the deployment (e.g., `padsign.client.com`) |
 | `--company-role` | Yes | Company name / Keycloak realm role (e.g., `"Acme"`) |
-| `--admin-pass` | Yes | Keycloak admin password (must be strong for production) |
+| `--admin-pass` | Yes | Keycloak admin password (must be strong for production). Prefer exporting `KEYCLOAK_ADMIN_PASSWORD` instead: a flag is in the process list. Stored in `.env` (mode 600) as `KEYCLOAK_FIRST_BOOT_ADMIN_PASSWORD`, never in the tracked `docker-compose.yml` ([17.1](17-01-keycloak-container-environment-variables.md)) |
 | `--cert-crt` / `--cert-key` | No | TLS certificate files (or place in `installation-scripts/certs/`) |
 | `--realm` | No | Keycloak realm name (default: `padsign`) |
 | `--admin-user` | No | Keycloak admin username (default: `admin`) |

@@ -12,13 +12,14 @@ Once you've recovered a working admin session with the steps below, finish the
 job using [37.5](37-05-known-gaps-keycloak-admin-password-rotation.md)'s
 existing kcadm workflow to set the password you actually intend to keep.
 
-## Why "just reset it in docker-compose.yml" doesn't work here
+## Why "just reset it in docker-compose.yml or .env" doesn't work here
 
-`docker-compose.yml`'s `KEYCLOAK_ADMIN`/`KEYCLOAK_ADMIN_PASSWORD` env vars are
-only consumed by Keycloak the first time it boots against an **empty** data
-volume (see [17.1](17-01-keycloak-container-environment-variables.md)).
+The keycloak service's `KEYCLOAK_ADMIN`/`KEYCLOAK_ADMIN_PASSWORD` env vars
+(the password comes from `KEYCLOAK_FIRST_BOOT_ADMIN_PASSWORD` in `.env`, see
+[17.1](17-01-keycloak-container-environment-variables.md)) are only consumed
+by Keycloak the first time it boots against an **empty** data volume.
 Editing them and restarting an already-initialized Keycloak changes nothing on
-the live instance — it would silently look like it worked while doing nothing.
+the live instance - it would silently look like it worked while doing nothing.
 The only way to reset the volume and have those env vars take effect again is
 to delete it, which destroys the realm, every client, and every user. That is
 a last resort, not a break-glass step, and this repo has no script that does

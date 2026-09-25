@@ -15,6 +15,58 @@
 - NGINX hardening: If DMSS endpoints should not be directly reachable from the internet, remove or restrict the `/container/api` and `/archive/api` locations, or protect them with allowlists or client certificates.
 - Keycloak admin: Limit admin console access (IP allowlist/VPN) and change the default admin password immediately.
 
+## Secrets on the host
+
+- **`docker-compose.yml` is tracked and world-readable: no secret belongs in
+  it.** Anything in it shows up in `git diff` and in the git objects of every
+  `git stash` an upgrade takes. The Keycloak admin password therefore lives in
+  `.env` as `KEYCLOAK_FIRST_BOOT_ADMIN_PASSWORD`, which compose passes to
+  Keycloak ([17.1](17-01-keycloak-container-environment-variables.md), with
+  the move for deployments bootstrapped before v1.0.42).
+- **`.env`** is git-ignored and mode 600. Only `docker compose` reads it, as
+  the user who runs it; no container does. When bootstrap runs as root, the
+  file is given to the owner of the deployment directory, so that user can
+  still run `docker compose`.
+- **Values shipped in this public repository.** A fresh `bootstrap.sh`
+  replaces `REGISTER_PDF_API_KEY` and `SESSION_SECRET` with random values,
+  once: a value anyone already changed is kept. The backend client secret
+  comes from Keycloak. The demo e-sealing `STAMP_API_KEY` /
+  `STAMP_COMPANY_SECRET` come from your provider and cannot be generated;
+  `validate-config.sh` keeps warning until they are yours (or `STAMP_MODE` is
+  `"local"`). Reading the API key for the Virtual Printer:
+  [18.5](18-05-cloud-flow-apiregisterpdf.md#reading-the-api-key).
+- **`config/config.js`** holds the backend client secret, the API key, the
+  session secret and the e-sealing credentials, so other users should not
+  read it. ps-server must: from 3.30 it runs as uid 1000 (`node`), not root.
+  The model (`installation-scripts/lib/dir-permissions.sh`): the file keeps
+  its owner, gets the gid the pinned ps-server image runs as, and mode 640.
+  `configure-host.sh` (so also `bootstrap.sh`, `update-hostname.sh`,
+  `renew-cert.sh`, `toggle-features.sh`) applies it at the end of every run
+  and then reads the file from inside the image to prove ps-server still can.
+  `overlay.sh apply` does the same and fails rather than widen the mode.
+  `validate-config.sh` and `overlay.sh verify` check it.
+  - Never `chmod o-rwx config/config.js` alone on a root-owned file. With
+    ps-server 3.30 that crash-loops it with `EACCES: permission denied, open
+    '/usr/src/app/config.js'`, and nginx never starts, because it waits for a
+    healthy ps-server. The fix `validate-config.sh` prints is
+    `sudo chgrp 1000 config/config.js && sudo chmod 640 config/config.js`
+    (1000 being the gid it read from the image).
+  - Run the installation scripts as root, as that uid, or as a member of that
+    group. `perl -i` / `sed -i` write a new file as the user running them and
+    keep the group only if that user may set it. For anyone else,
+    `configure-host.sh` leaves the file readable instead of locking ps-server
+    out, and says so. `upgrade.sh` rewrites `config.js` only for a config
+    migration (for example `--enable-local-eseal`) and does not re-apply the
+    model: run `validate-config.sh` after it.
+- **Backups** (`*.bak`) that `bootstrap.sh` and `configure-host.sh` write are
+  readable by their owner only: `config/config.js.bak` holds the same secrets
+  as `config/config.js`.
+- `config/config.js` itself is still a tracked file, so its secrets are in
+  `git diff` and in upgrade stashes. Keep the checkout's `.git` as private as
+  the file, or run the host as release baseline + overlay
+  ([42](42-host-reconciliation-runbook.md)), where they live outside the
+  checkout.
+
 ## Protecting `/archive/api` and `/container/api` with an Authorization header
 
 The recommended pattern needs no application changes and is enforced entirely at nginx:

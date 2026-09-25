@@ -6,14 +6,32 @@
    - `nginx/nginx.conf`: sets `server_name`, TLS cert paths, and root→`/portal/` redirect
    - `config/constants.json`: sets Keycloak URL, redirect URIs, download API URL
    - `config/config.js`: sets all service URLs, `ALLOWED_ORIGINS`, Keycloak `auth-server-url`, `DEMO_COMPANY_ROLE`
+   - `config/config.js`: replaces `REGISTER_PDF_API_KEY` and `SESSION_SECRET` with
+     random values (`--generate-secrets`) if they still hold the values shipped in
+     this public repository. A value already changed is kept, so a re-run changes
+     nothing. Neither is printed; the Virtual Printer / Manager needs the API key,
+     read it as in [18.5](18-05-cloud-flow-apiregisterpdf.md#reading-the-api-key)
+   - `.env` (git-ignored, created mode 600): the Keycloak admin password, as
+     `KEYCLOAK_FIRST_BOOT_ADMIN_PASSWORD`. It is never written into the tracked
+     `docker-compose.yml`, which only references it; an inline value left by an
+     older bootstrap is replaced by that reference
+     ([17.1](17-01-keycloak-container-environment-variables.md))
    - `docker-compose.yml`: ensures `signed-output` volume mount exists on ps-server;
      sets the keycloak service's `KC_HOSTNAME` and the nginx service's first network
-     alias to the host; syncs `KEYCLOAK_ADMIN`/`KEYCLOAK_ADMIN_PASSWORD`. `KC_HOSTNAME`
+     alias to the host; syncs `KEYCLOAK_ADMIN` (the user name). `KC_HOSTNAME`
      is Keycloak's fixed frontend hostname: it decides the token issuer and the login
      form's URLs, so a stale value sends browsers to another host at login
    - Copies TLS certificates to `nginx/certs/` (if provided)
    - Injects `DOCUMENT_ROUTING` config block if missing (disabled by default)
    - Validates JSON syntax of `constants.json` after editing
+   - Gives `config/config.js` the group of the uid the pinned ps-server image runs
+     as (1000 from 3.30) and mode 640, then reads it from inside that image to prove
+     ps-server still can. Done only when you run bootstrap as root, as that uid or
+     as a member of that group, because otherwise a later script edit would drop the
+     group and lock ps-server out; the file is then left readable and
+     `validate-config.sh` says what to run. See
+     [22](22-security-and-route-protection.md#secrets-on-the-host)
+   - Backups (`*.bak`) are made readable by their owner only
 4. **Creates `signed-output/` (mode 750) and `docs/` (mode 770), each owned by
    the uid its container image actually runs as** (read from the pinned image:
    uid 1000 for the Node 24 ps-server image, root for older ones; 10001 for
@@ -47,5 +65,7 @@
     `dmss-digital-stamping-service`, `wizard` - whose profile is not active)
     or `not_running`. Written once per run, so the delta covers everything
     since the last recorded run.
-11. **Prints summary** - portal URL, Keycloak admin URL, API URL, test user credentials
+11. **Prints summary** - portal URL, Keycloak admin URL, API URL, where the admin
+    password is stored, the command that shows `REGISTER_PDF_API_KEY` (never the
+    key itself), and the test user (its password only at an interactive terminal)
 

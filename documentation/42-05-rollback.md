@@ -31,6 +31,8 @@ Two properties make every rollback here short and data-safe:
 ```bash
 date -u +%FT%TZ | tee "$EVID/R3-start.txt"
 (cd "$NEW" && docker compose stop)
+# Only if C4 re-owned docs/ for a fallback image with another uid (42.4 C2):
+[ "$FB_IDS" = "$OLD_FB_IDS" ] || sudo chown -R "$OLD_FB_IDS" "$DOCS"
 (cd "$OLD" && docker compose up -d)
 (cd "$OLD" && docker compose ps --format '{{.Service}} {{.Status}} {{.Health}}') | tee "$EVID/R3-compose-ps.txt"
 date -u +%FT%TZ | tee "$EVID/R3-end.txt"
