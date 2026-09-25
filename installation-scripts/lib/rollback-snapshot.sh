@@ -71,6 +71,14 @@ component_state() {
     elif [[ -n "$cs_running_digest" && "$cs_running_digest" == "$cs_pinned_digest" ]]; then
       cs_running_tag="$cs_pinned_tag"
       cs_tag_source="docker-compose.yml, which pins the running digest"
+    elif [[ -n "$cs_running_digest" ]]; then
+      # A container created from a bare repo@digest of an unlabelled image:
+      # the release files (and their git history) may still know the digest.
+      line="$(python3 "$digest_gate_py" release-tag "$repo_root" "$digests_json" "mihailsgordijenko/${c}" "$cs_running_digest" 2>/dev/null | tr -d '\r' | head -1)" || line=""
+      if [[ -n "$line" ]]; then
+        cs_running_tag="${line%%$'\t'*}"
+        cs_tag_source="${line#*$'\t'}"
+      fi
     fi
   fi
   if [[ -n "${cs_running_digest}${cs_running_tag}" ]]; then
@@ -263,9 +271,13 @@ marker = {
     "restored_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     "images": images,
 }
-with open(os.environ["MARKER_FILE"], "w", encoding="utf-8") as fh:
+# Replace, not rewrite in place: works whoever owned the previous marker
+# (rollback.sh run as root once, as the operator the next time).
+path = os.environ["MARKER_FILE"]
+with open(path + ".tmp", "w", encoding="utf-8") as fh:
     json.dump(marker, fh, indent=2)
     fh.write("\n")
+os.replace(path + ".tmp", path)
 PY
 }
 
@@ -294,11 +306,14 @@ except (OSError, ValueError):
     sys.exit(0)
 images = {c: e for c, e in (marker.get("images") or {}).items()
           if pinned.get(c) == (e.get("tag"), e.get("digest"))}
+if images == (marker.get("images") or {}):
+    sys.exit(0)
 if images:
     marker["images"] = images
-    with open(path, "w", encoding="utf-8") as fh:
+    with open(path + ".tmp", "w", encoding="utf-8") as fh:
         json.dump(marker, fh, indent=2)
         fh.write("\n")
+    os.replace(path + ".tmp", path)
 else:
     os.remove(path)
 PY
