@@ -127,8 +127,22 @@ date -u +%FT%TZ | tee "$EVID/C4-window-end.txt"
 
 - **Check:**
   - Every service with a health check reports `healthy`.
-  - `docker inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$(docker compose ps -q keycloak)"` prints `$NEW`.
+  - `docker inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$(docker compose ps -q ps-server)"` prints `$NEW`.
   - `docker volume ls | grep keycloak_data` shows **only** `$KC_VOLUME`: no second, empty volume was created.
+
+  Check ps-server, not Keycloak. Compose recreates a container only when its
+  definition changes, and the `working_dir` label is not part of that
+  definition. ps-server bind-mounts `./config/config.js`, whose absolute path
+  names the checkout, so starting from `$NEW` always recreates it, and its
+  label then names `$NEW`. Keycloak mounts nothing from the checkout, only
+  the named volume. When its image and settings are the same in both
+  checkouts (a 42.6 release update, or a cut-over that keeps the host's
+  Keycloak through the overlay), compose just starts the stopped container
+  again. Its label keeps naming the directory it was first created from,
+  although it now runs from `$NEW`. That happened on the demo host: every
+  service that bind-mounts from the checkout was recreated from the new
+  directory, and Keycloak's label kept naming the previous one. A Keycloak
+  label that names the old directory is expected, not a failed cut-over.
 - **Rollback:** 42.5 R3. Stop from `$NEW` and start from `$OLD`. That needs the same project, volume and storage, so it takes minutes.
 - **Evidence:** window start/end, backup checksum (the tarball stays in `$BACKUP`: it contains the realm, the client secrets and password hashes), `C4-compose-ps.txt`.
 

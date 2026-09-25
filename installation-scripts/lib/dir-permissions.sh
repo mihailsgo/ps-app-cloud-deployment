@@ -7,6 +7,9 @@
 #   docs/           bind-mounted into dmss-archive-services-fallback
 #                   (its document store)
 #
+# (or wherever the effective compose model mounts them from: see
+# storage_mount below; only the in-checkout ones are created or re-owned here)
+#
 # and for config/config.js, which ps-server only reads (see the section at
 # the end of this file).
 #
@@ -179,12 +182,114 @@ resolve_dmss_fallback_gid() {
   fi
 }
 
+# ── Where the two stores are: the effective compose model's mounts ─────────
+#
+# Normally ./signed-output and ./docs in the checkout. An environment overlay
+# (overlay.sh, documentation/42) or a docker-compose.override.yml can mount
+# them from somewhere else instead - where the documents already are - and
+# then ${repo_root}/signed-output is a directory nothing mounts. Checking or
+# creating that one reported "signed-output/ missing" on every overlay host
+# (upgrade.sh --plan-only's [WILL APPLY] signed-output).
+#
+# Prints the effective model's mounts, "<service>\t<target>\t<type>\t<source>\t<in_tree>\t<relpath>"
+# per line after a "#source" line (lib/digest_gate.py mounts), or nothing
+# when they cannot be read (no python3). Rendered fresh on every call, like
+# pinned_image_ref: upgrade.sh edits docker-compose.yml between calls.
+effective_mounts() {
+  command -v python3 >/dev/null 2>&1 || return 0
+  [[ -f "${repo_root}/installation-scripts/lib/digest_gate.py" ]] || return 0
+  python3 "${repo_root}/installation-scripts/lib/digest_gate.py" mounts "$repo_root" 2>/dev/null | tr -d '\r' || true
+}
+
+# Looks up the host side of <service>'s mount at <container target> and sets:
+#   storage_how      bind | volume (a named volume, no host directory) |
+#                    none (the model has no such mount) | unknown (the model
+#                    could not be read)
+#   storage_path     the bind source: "${repo_root}/<relpath>" inside the
+#                    checkout, else as compose names it (Git Bash: as a
+#                    /c/... path); for none/unknown the in-tree <default>
+#   storage_in_tree  true when storage_path is inside the checkout
+# [mounts] is effective_mounts output to reuse instead of rendering again.
+storage_mount() {  # <service> <target> <default dir> [mounts]
+  local mounts="${4-}" s t type src in_tree rel
+  [[ $# -ge 4 ]] || mounts="$(effective_mounts)"
+  storage_how=unknown; storage_path="$3"; storage_in_tree=true
+  grep -q '^#source' <<< "$mounts" || return 0
+  storage_how=none
+  while IFS=$'\t' read -r s t type src in_tree rel; do
+    [[ "$s" == "$1" && "$t" == "$2" ]] || continue
+    if [[ "$type" == bind && -n "$src" ]]; then
+      storage_how=bind
+      if [[ "$in_tree" == 1 ]]; then
+        storage_in_tree=true
+        storage_path="$repo_root"
+        if [[ -n "$rel" && "$rel" != . ]]; then storage_path="${repo_root}/${rel}"; fi
+      else
+        storage_in_tree=false
+        command -v cygpath >/dev/null 2>&1 && src="$(cygpath -u "$src")"
+        storage_path="$src"
+      fi
+    else
+      storage_how=volume; storage_path=""; storage_in_tree=false
+    fi
+    break
+  done <<< "$mounts"
+}
+
+signed_output_mount() { storage_mount ps-server /signed-output "${repo_root}/signed-output" "$@"; }
+docs_mount()          { storage_mount dmss-archive-services-fallback /docs "${repo_root}/docs" "$@"; }
+
+# True when the store is (or, once the mount is added, will be) a directory
+# inside the checkout that does not exist yet: the only kind upgrade.sh and
+# bootstrap.sh create. A store the effective model mounts from outside the
+# checkout is the documents' existing home. Creating an empty one there would
+# hide missing data, so it is never created here. validate-config.sh and
+# overlay.sh verify FAIL it when it is missing.
+in_tree_store_missing() {  # after signed_output_mount / docs_mount
+  [[ "$storage_how" != volume && "$storage_in_tree" == true && ! -d "$storage_path" ]]
+}
+
+# ensure_dir_for_image on wherever the effective model mounts the store: the
+# in-tree directory is created and re-owned as before. A named volume has no
+# host directory. A directory outside the checkout (overlay storage) is left
+# exactly as it is: its ownership is part of the overlay procedure
+# (documentation/42-04 C2), and validate-config.sh checks it.
+ensure_store_for_image() {  # <repository> <mode> <label>, after signed_output_mount / docs_mount
+  case "$storage_how" in
+    volume)
+      echo "  ${3}/: the effective compose model mounts a named volume there - no host directory to prepare"
+      return 0 ;;
+  esac
+  if [[ "$storage_in_tree" != true ]]; then
+    echo "  ${3}/: mounted from ${storage_path} (outside the checkout, e.g. an environment overlay) - left as it is; validate-config.sh checks its ownership"
+    return 0
+  fi
+  ensure_dir_for_image "$storage_path" "$1" "$2" "$3"
+}
+
 fix_signed_output_permissions() {
-  ensure_dir_for_image "${repo_root}/signed-output" "$ps_server_image_repo" 750 signed-output
+  signed_output_mount
+  ensure_store_for_image "$ps_server_image_repo" 750 signed-output
 }
 
 fix_docs_permissions() {
-  ensure_dir_for_image "${repo_root}/docs" "$dmss_fallback_image_repo" 770 docs
+  docs_mount
+  ensure_store_for_image "$dmss_fallback_image_repo" 770 docs
+}
+
+# ── *.bak copies ────────────────────────────────────────────────────────────
+#
+# Copies <file> to <file>.bak readable by its owner only (0600). A .bak of
+# config.js holds every secret config.js holds, and only the operator ever
+# restores from one. Never at a wider mode, not even for a moment: an
+# existing .bak is narrowed before cp writes into it (cp -f keeps an existing
+# file's mode), and a new one is created under umask 077.
+backup_owner_only() {  # <file>
+  local f="$1" b="$1.bak"
+  [[ -f "$f" ]] || return 0
+  if [[ -e "$b" ]]; then chmod 600 "$b" 2>/dev/null || true; fi
+  (umask 077 && cp -f "$f" "$b") || return 1
+  chmod 600 "$b" 2>/dev/null || true
 }
 
 # ── config/config.js: a file ps-server only READS ──────────────────────────
@@ -244,6 +349,7 @@ user_in_group() {  # <gid>
 }
 
 file_mode() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1" 2>/dev/null; }
+file_owner_mode() { stat -c '%U:%G (%u:%g), mode %a' "$1" 2>/dev/null || stat -f '%Su:%Sg (%u:%g), mode %Lp' "$1" 2>/dev/null; }
 
 other_can_read() {  # <file>: the "other" read bit is set
   local m
@@ -324,6 +430,45 @@ secure_config_js() {  # [--strict]
   else
     echo "  config/config.js: mode $(file_mode "$f"), readable by ${ref} (${ids})"
   fi
+}
+
+# Pre-flight for a script about to (re)start ps-server on <image-ref> - for
+# upgrade.sh, the ps-server image it upgrades TO: can that image's uid read
+# config/config.js as the file is right now? Moving from a root image (<= 3.29)
+# to 3.30 (uid 1000) with a root:root 640 config.js crash-loops ps-server
+# with EACCES, and nginx, which waits for a healthy ps-server, never starts.
+# Checks the bits first and asks the image only when they say no.
+# Returns 0 readable, 1 not readable (the exact fix is on stderr), 2 could
+# not tell which uid the image runs as (a WARNING; validate-config.sh checks
+# again afterwards).
+config_js_preflight() {  # <image-ref>
+  local f="${repo_root}/config/config.js" ref="$1" ids uid gid rc
+  [[ -f "$f" ]] || return 0
+  if ! ids="$(image_runtime_ids "$ref")"; then
+    echo "  WARNING: could not determine which uid ${ref:-the ps-server image} runs as, so it was not" >&2
+    echo "           checked that it can read config/config.js. validate-config.sh checks it afterwards." >&2
+    return 2
+  fi
+  uid="${ids%%:*}"; gid="${ids##*:}"
+  rc=0
+  ids_can_read "$uid" "$gid" "$f" || rc=1
+  if [[ "$rc" != 0 ]]; then
+    rc=0
+    file_readable_by_image "$f" "$ref" || rc=$?
+    # Could not ask the image: the bits already said no.
+    [[ "$rc" == 2 ]] && rc=1
+  fi
+  if [[ "$rc" == 0 ]]; then
+    echo "  config/config.js: readable by ${ref} (runs as ${ids})"
+    return 0
+  fi
+  {
+    echo "ERROR: ${ref} runs as ${ids} and cannot read config/config.js"
+    echo "       ($(file_owner_mode "$f")). ps-server would crash-loop with EACCES after the"
+    echo "       restart, and nginx would never start. Fix, then re-run:"
+    echo "         sudo chgrp ${gid} config/config.js && sudo chmod 640 config/config.js"
+  } >&2
+  return 1
 }
 
 # Prints one "<OK|WARN|FAIL><TAB><message>" line: can the ps-server image of

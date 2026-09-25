@@ -123,6 +123,9 @@ answer into a deployment model:
 - **`verify`** proves every git-visible change is declared in the overlay,
   and that Keycloak data and document storage will be reused.
 - **`rebase`** carries the overlay onto the next release.
+- **`drop`** removes a captured file that the review marked OBSOLETE, with its
+  checksum record, and notes it in `DEVIATIONS.md`. **`rehash`** re-records
+  checksums after a deliberate edit.
 
 The operator procedure, which was rehearsed end-to-end on throwaway stacks,
 is [42. Host reconciliation runbook](42-host-reconciliation-runbook.md).

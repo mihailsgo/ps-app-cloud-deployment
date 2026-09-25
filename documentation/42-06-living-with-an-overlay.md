@@ -30,15 +30,39 @@ git clone --branch "$NEXT_TAG" <repo-url> "$NEXT" && cd "$NEXT"
   `$NEW_OVERLAY/files/...` and run `overlay.sh rehash --overlay "$NEW_OVERLAY"`.
 - `verify --live` should show only the release's intended changes, typically
   the ps-server/ps-client image bump.
-- Then cut over exactly as 42.4 C4-C5. Roll back with 42.5 R3, pointed at
-  the previous release directory.
+- Then cut over with 42.4 C2-C5, the previous release directory being the
+  old one: `OLD="$NEW"; NEW="$NEXT"; OVERLAY="$NEW_OVERLAY"`, and the 42.4
+  variables (`PROJECT`, `SIGNED`, `DOCS`, ...) set from that overlay. Run C2
+  even when the storage modes are already right. It sets `PS_IDS`, `FB_IDS`
+  and `OLD_FB_IDS`, and C4 uses them to re-own the storage when an image of
+  the new release runs as another uid. Without them C4's `chown` lines fail
+  or are skipped. In C4, `ps-server`'s `working_dir` label must name the new
+  directory. Keycloak's usually keeps naming the previous one: its
+  definition is the same in both releases, so compose does not recreate it
+  (42.4 C4).
+- Roll back with 42.5 R3, pointed at the previous release directory.
 - Do **not** use `upgrade.sh` (without `--plan-only`), `rollback.sh` or the
   deployment wizard's *Upgrade* on an overlay-managed checkout. They rewrite
   tracked files in place. The previous directory is the rollback.
 
 If `--plan-only` lists a pending migration, the overlay's copy of
 `config.js` is missing something the release's scripts expect. Take it to
-the release owner rather than hand-editing.
+the release owner rather than hand-editing. Two entries are not that:
+
+- `signed-output`: since v1.0.44 the check reads the storage mounts of the
+  effective compose model, which on this host come from `compose.overlay.yml`
+  (outside the checkout). Before v1.0.44 it looked for `signed-output/` and
+  `docs/` inside the checkout and reported `[WILL APPLY] signed-output` on
+  every overlay host. From v1.0.44 on, a pending `signed-output` means the
+  release's `docker-compose.yml` and the overlay both lack the ps-server
+  mount, or a store mounted from inside the checkout is missing. Take that to
+  the release owner.
+- `keycloak-backend-audience` with *Could not check right now*: the probe
+  could not log in to Keycloak (by default it uses the container's
+  first-boot password, which the overlay does not carry), so nothing is
+  known to be pending. Run the plan again with the admin password in the
+  environment (`read -rs KEYCLOAK_ADMIN_PASSWORD && export KEYCLOAK_ADMIN_PASSWORD`),
+  or check the mapper with 42.2 K4b.
 
 ## Changing a value in the overlay (rotate a secret, flip a flag)
 
@@ -103,6 +127,52 @@ until docker compose exec -T keycloak bash -c 'echo > /dev/tcp/localhost/8080' 2
 - **Check:** `postdeploy-check.sh` passes, including `OK   padsign-client access tokens carry padsign-backend in aud (token introspection)`. `docker compose logs keycloak | grep -m1 'Updating database'` shows the in-place database upgrade (42.1 G1). A 42.2 K5 smoke login loads the portal with no `401`.
 - **Rollback:** the previous overlay plus the backup you just took. Stop Keycloak and restore that backup with 42.5 R4, but check it against `KC-move-backup.sha256` rather than the C4 file. Then `overlay.sh apply --overlay "$OVERLAY" --force` and `docker compose up -d keycloak`. Starting the old image on the upgraded database without the restore is not supported (42.1 G1).
 - **Evidence:** the backup checksum, `KC-move-postdeploy.log`, and `OVERLAY=$NEW_OVERLAY` recorded in the ticket.
+
+## Moving the DMSS fallback archive to the release's version
+
+This applies if `compose.overlay.yml` kept the host's older
+`dmss-archive-services-fallback` image, for example 24.0.5, and the host now
+moves to the release's (24.1.7). The two run as different users: 24.0.5 as
+999:1000 (`spring`), 24.1.7 as 10001:10001. The archive under `$DOCS`
+belongs to the old uid, so 24.1.7 cannot write into it, and every document
+that falls back to it fails. Re-own the tree before 24.1.7 starts, and not
+earlier: a re-own while 24.0.5 still runs stops that one from writing.
+
+When the move comes with a cut-over to a new checkout, 42.4 C2 and C4 already
+do this (C4 re-owns `$DOCS` once the old stack has stopped), and 42.5 R3 has
+the reverse. This section is for moving later, as an overlay change on the
+checkout that is running. It needs a short window: the fallback archive is
+down from the `stop` until the new container reports healthy.
+
+```bash
+NEW_OVERLAY=/etc/padsign/overlay/$(date +%Y%m%d)-dmss-fallback
+cp -a "$OVERLAY" "$NEW_OVERLAY"
+"${EDITOR:-vi}" "$NEW_OVERLAY/compose.overlay.yml"     # delete dmss-archive-services-fallback's image: line; KEEP its /docs volume
+"${EDITOR:-vi}" "$NEW_OVERLAY/approved-digests.json"   # delete that image's entry, now unused
+cd "$NEW"
+DOCS="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["storage"]["/docs"]["source"])' "$NEW_OVERLAY/MANIFEST.json")"
+img_ids() { docker run --rm --entrypoint sh "$1" -c 'echo "$(id -u):$(id -g)"'; }
+OLD_FB_IDS="$(img_ids "$(docker inspect -f '{{.Config.Image}}' dmss-archive-services-fallback)")"   # the running (old) one
+./installation-scripts/overlay.sh apply  --overlay "$NEW_OVERLAY" --force
+./installation-scripts/overlay.sh verify --overlay "$NEW_OVERLAY"
+FB_IMG="$(docker compose config --images | grep dmss-archive-services-fallback)"   # now the release's pinned image
+docker compose pull dmss-archive-services-fallback
+FB_IDS="$(img_ids "$FB_IMG")"
+echo "running $OLD_FB_IDS, release's $FB_IDS" | tee "$EVID/DMSS-move-ids.txt"
+stat -c '%a %u:%g %n' "$DOCS" | tee "$EVID/DMSS-move-docs-before.txt"
+# --- window starts: the fallback archive is down ---
+docker compose stop dmss-archive-services-fallback
+[ "$FB_IDS" = "$OLD_FB_IDS" ] || sudo chown -R "$FB_IDS" "$DOCS"
+sudo chmod 770 "$DOCS"
+docker compose up -d dmss-archive-services-fallback
+until [ "$(docker inspect -f '{{.State.Health.Status}}' dmss-archive-services-fallback)" = healthy ]; do sleep 5; done
+# --- window ends ---
+stat -c '%a %u:%g %n' "$DOCS" | tee "$EVID/DMSS-move-docs-after.txt"
+```
+
+- **Check:** `DMSS-move-docs-after.txt` shows `770 10001:10001` (or whatever `FB_IDS` says). `./installation-scripts/validate-config.sh --host "$HOST"` prints `OK   docs directory owned by 10001:10001 (the user trustlynx/dmss-archive-services-fallback:24.1.7@sha256:... runs as)`. `docker compose logs --since 10m dmss-archive-services-fallback 2>&1 | grep -ci 'permission denied'` prints 0. The C5 storage-integrity check (42.4) still reports 0.
+- **Rollback:** stop the fallback, give the tree back to the old uid, and start the previous overlay's image: `docker compose stop dmss-archive-services-fallback && sudo chown -R "$OLD_FB_IDS" "$DOCS"`, then `overlay.sh apply --overlay "$OVERLAY" --force` and `docker compose up -d dmss-archive-services-fallback`. This re-owns what 24.1.7 wrote in the meantime too. Whether 24.0.5 reads documents 24.1.7 wrote has not been rehearsed.
+- **Evidence:** the three `DMSS-move-*` files, and `OVERLAY=$NEW_OVERLAY` recorded in the ticket.
 
 ## Certificate renewal
 

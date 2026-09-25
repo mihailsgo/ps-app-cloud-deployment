@@ -56,11 +56,16 @@
     keep the group only if that user may set it. For anyone else,
     `configure-host.sh` leaves the file readable instead of locking ps-server
     out, and says so. `upgrade.sh` rewrites `config.js` only for a config
-    migration (for example `--enable-local-eseal`) and does not re-apply the
-    model: run `validate-config.sh` after it.
-- **Backups** (`*.bak`) that `bootstrap.sh` and `configure-host.sh` write are
-  readable by their owner only: `config/config.js.bak` holds the same secrets
-  as `config/config.js`.
+    migration (for example `--enable-local-eseal`), and re-applies the model
+    afterwards (its step 4e), with the same code.
+  - Before it touches anything, `upgrade.sh` checks that the ps-server image
+    it is about to start (the requested `--server-tag`) can read `config.js`.
+    Moving from a root image (3.29 and older) to 3.30 or later with a `root:root 640`
+    file is refused there, with the `chgrp`/`chmod` fix, instead of ending in
+    the `EACCES` crash loop.
+- **Backups** (`*.bak`) that `bootstrap.sh`, `configure-host.sh`, `upgrade.sh`
+  and `update-hostname.sh` write are readable by their owner only (`0600`):
+  `config/config.js.bak` holds the same secrets as `config/config.js`.
 - `config/config.js` itself is still a tracked file, so its secrets are in
   `git diff` and in upgrade stashes. Keep the checkout's `.git` as private as
   the file, or run the host as release baseline + overlay

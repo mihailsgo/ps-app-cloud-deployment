@@ -34,6 +34,16 @@ date -u +%FT%TZ | tee "$EVID/R3-start.txt"
 # Only if C4 re-owned docs/ for a fallback image with another uid (42.4 C2):
 [ "$FB_IDS" = "$OLD_FB_IDS" ] || sudo chown -R "$OLD_FB_IDS" "$DOCS"
 (cd "$OLD" && docker compose up -d)
+# The old stack may predate the health checks: nginx and ps-server then start
+# before container-signature is ready. Wait for it before anyone signs.
+cs_up=no
+for i in $(seq 1 60); do
+  if grep -q '"status":"UP"' < <(cd "$OLD" && docker compose exec -T dmss-container-and-signature-services \
+       curl -sf http://localhost:8092/actuator/health </dev/null 2>/dev/null); then cs_up=yes; break; fi
+  sleep 10
+done
+echo "container-signature actuator UP: ${cs_up} at $(date -u +%FT%TZ)" | tee "$EVID/R3-container-signature.txt"
+sleep 35   # one ps-server circuit-breaker cooldown (DEPENDENCY_CB_COOLDOWN_MS, 30 s by default)
 (cd "$OLD" && docker compose ps --format '{{.Service}} {{.Status}} {{.Health}}') | tee "$EVID/R3-compose-ps.txt"
 date -u +%FT%TZ | tee "$EVID/R3-end.txt"
 ```
@@ -43,9 +53,31 @@ intact after every switch, and the storage fingerprints were unchanged.
 
 - **Check:**
   - all services `Up`, and `healthy` where a health check exists;
-  - `docker inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$(cd "$OLD" && docker compose ps -q keycloak)"` prints `$OLD`;
+  - `R3-container-signature.txt` says `UP: yes`, and the `sleep 35` after it
+    has run. Do not declare the rollback done, or run a smoke sign, before
+    that. `UP: no` after the 10 minutes the loop waits: see
+    `docker compose logs dmss-container-and-signature-services` (from `$OLD`);
+  - `docker inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$(cd "$OLD" && docker compose ps -q ps-server)"` prints `$OLD`. Check ps-server, not Keycloak: 42.4 C4 explains why Keycloak's label can keep naming the other directory;
   - a smoke login works (42.2 K5);
   - the storage-integrity check (42.4 C5) reports 0.
+
+**Why the wait.** A stack from before the release's health checks (and their
+`depends_on: condition: service_healthy`) starts nginx and ps-server as soon
+as their containers exist. container-signature needs minutes to boot, so the
+first signing attempts return `502`. After `DEPENDENCY_CB_FAILURE_THRESHOLD`
+(5) failures in a row, ps-server's circuit breaker for container-signature
+opens: for `DEPENDENCY_CB_COOLDOWN_MS` (30 s) it answers
+`VISUAL_SIGNATURE_CIRCUIT_OPEN` without trying, then lets one request
+through. That request closes the breaker if it succeeds and opens it for
+another 30 s if it fails, so the breaker keeps reopening until
+container-signature is up. On the demo host, a rollback to
+container-signature 24.3.0.49.2 took 3 min 33 s to report `UP` on its
+actuator, and signing failed for about 3.5 minutes. The loop waits for `UP`,
+and the `sleep 35` outlasts a cooldown that started just before it, so the
+next signing request is let through and succeeds. If `config/config.js` on
+`$OLD` sets another `DEPENDENCY_CB_COOLDOWN_MS`, sleep that long plus a few
+seconds instead. The stacks of this release have the health checks, so a
+cut-over to them (42.4 C4) waits for container-signature by itself.
 - **What it does not undo:** Keycloak changes made while the new checkout ran (users, roles, the K3 password). They live in the shared volume, which is what you want. If you must undo those too, use R4. After a Keycloak version move, R4 is required anyway (next point), and it undoes them.
 - **Keycloak version:** R3 alone is enough only if the cut-over kept the
   host's Keycloak version (gate G1). The recommended default moves the host

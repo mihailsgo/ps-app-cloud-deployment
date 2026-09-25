@@ -16,7 +16,7 @@ presence check and only fires when its target is **absent**:
 | Migration | Fires only when |
 |---|---|
 | `document-routing` | `config/config.js` contains no `DOCUMENT_ROUTING` key at all |
-| `signed-output` | `docker-compose.yml` has no `signed-output` volume mount, or the `signed-output/` or `docs/` directory is missing |
+| `signed-output` | neither `docker-compose.yml` nor the effective compose model (with any `COMPOSE_FILE` overlay) mounts `/signed-output` for ps-server, or a `signed-output/` or `docs/` store the model mounts from inside the checkout is missing. A store mounted from outside the checkout (an environment overlay's, [42](42-host-reconciliation-runbook.md)) never counts: it is where the documents already are, and `upgrade.sh` does not create it |
 | `compose-hostname` | `docker-compose.yml`'s keycloak `KC_HOSTNAME`, or the nginx service's network alias, names a different host than `nginx/nginx.conf`'s `server_name` |
 | `local-eseal` | (only with `--enable-local-eseal`) whichever of its six parts are not yet in place |
 

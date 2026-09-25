@@ -1315,32 +1315,153 @@ def cmd_rebase(args):
 
 # ── rehash ──────────────────────────────────────────────────────────────────
 
-def cmd_rehash(args):
-    """Re-record checksums after the operator deliberately edits overlay files
-    (resolved a merge conflict, changed a value, renewed a certificate).
-    Prints what changed so the edit is visible in the log."""
-    overlay = os.path.realpath(args.overlay)
-    m = load_manifest(overlay)
-    changed = 0
-    for e in m["files"]:
-        p = os.path.join(overlay, "files", e["path"])
-        new = sha256_file(p)
-        if new != e["sha256"]:
-            print(f"  files/{e['path']}: re-recorded")
-            e["sha256"] = new
-            changed += 1
-    for c in m["certs"]:
-        p = os.path.join(overlay, "certs", c["path"].split("/", 2)[2])
-        new = sha256_file(p)
-        if new != c["sha256"]:
-            print(f"  certs/{os.path.basename(p)}: re-recorded")
-            c["sha256"] = new
-            changed += 1
-    m["rehashed_at"] = utcnow()
+def write_manifest(overlay, m):
     with open(os.path.join(overlay, "MANIFEST.json"), "w", encoding="utf-8") as fh:
         json.dump(m, fh, indent=2, sort_keys=True)
         fh.write("\n")
+
+
+def cmd_rehash(args):
+    """Re-record checksums after the operator deliberately edits overlay files
+    (resolved a merge conflict, changed a value, renewed a certificate).
+    Prints what changed so the edit is visible in the log. A file the
+    manifest lists but that is gone is an error, and nothing is re-recorded:
+    re-recording around it would make the overlay look complete."""
+    overlay = os.path.realpath(args.overlay)
+    m = load_manifest(overlay)
+    entries = [(f"files/{e['path']}", os.path.join(overlay, "files", e["path"]), e) for e in m["files"]]
+    entries += [(f"certs/{c['path'].split('/', 2)[2]}", os.path.join(overlay, "certs", c["path"].split("/", 2)[2]), c)
+                for c in m["certs"]]
+    missing = [(label, e) for label, p, e in entries if not os.path.isfile(p)]
+    if missing:
+        for label, e in missing:
+            print(f"  FAIL {label} is listed in MANIFEST.json but is missing from the overlay")
+        print()
+        print("  Nothing was re-recorded. Either restore the file(s) (from the overlay's backup, 42.3 O5),")
+        missing_files = [e["path"] for label, e in missing if label.startswith("files/")]
+        if missing_files:
+            print("  or, if the entry is OBSOLETE and should leave the overlay, drop it:")
+            print(f"    ./installation-scripts/overlay.sh drop --overlay {overlay} {' '.join(missing_files)}")
+        if any(label.startswith("certs/") for label, _ in missing):
+            print("  A missing certificate must be restored or re-captured (documentation/42-06, Certificate renewal).")
+        return 1
+    changed = 0
+    for label, p, e in entries:
+        new = sha256_file(p)
+        if new != e["sha256"]:
+            print(f"  {label}: re-recorded")
+            e["sha256"] = new
+            changed += 1
+    m["rehashed_at"] = utcnow()
+    write_manifest(overlay, m)
     print(f"  {changed} checksum(s) updated in MANIFEST.json")
+    return 0
+
+
+# ── drop ────────────────────────────────────────────────────────────────────
+
+def _manifest_path(raw):
+    """A path as the operator types it -> the MANIFEST "path" form:
+    forward slashes, no leading "./", and the overlay's own "files/" prefix
+    accepted as well (DEVIATIONS.md headings name repo paths, `ls` shows
+    files/<path>)."""
+    p = raw.replace("\\", "/").strip()
+    while p.startswith("./"):
+        p = p[2:]
+    if p.startswith("files/"):
+        p = p[len("files/"):]
+    return p
+
+
+def _prune_empty_dirs(path, stop):
+    """Remove now-empty parent directories of path, up to (not including) stop."""
+    d = os.path.dirname(path)
+    stop = os.path.realpath(stop)
+    while os.path.realpath(d) != stop and is_within(d, stop):
+        try:
+            os.rmdir(d)
+        except OSError:
+            break
+        d = os.path.dirname(d)
+
+
+def cmd_drop(args):
+    """Remove captured files from an overlay: the DEVIATIONS.md entries the
+    change ticket marks OBSOLETE (runbook 42.3 O4). For each path: deletes
+    files/<path> (and base/<path>, the release copy kept for merges), removes
+    its MANIFEST.json record, and appends a note to DEVIATIONS.md. All or
+    nothing: if any path is not a captured file, nothing is changed."""
+    overlay = os.path.realpath(args.overlay)
+    m = load_manifest(overlay)
+    declared = {e["path"]: e for e in m["files"]}
+    cert_paths = {c["path"] for c in m["certs"]}
+    wanted, unknown = [], []
+    for raw in args.paths:
+        p = _manifest_path(raw)
+        if p in declared:
+            if p not in wanted:
+                wanted.append(p)
+        else:
+            unknown.append((raw, p))
+    if unknown:
+        for raw, p in unknown:
+            if p in cert_paths or p.startswith("certs/") or p.startswith("nginx/certs/"):
+                why = "a certificate - not dropped this way; re-capture after a certificate change (documentation/42-06)"
+            elif p in ("env", ".env") or p in (m.get("env_keys") or []):
+                why = ".env values are not files of the overlay - edit the overlay's env file"
+            elif p in ("compose.overlay.yml", "docker-compose.yml"):
+                why = "compose differences are dropped by editing compose.overlay.yml (42.3 O4)"
+            else:
+                why = "not a file captured in MANIFEST.json"
+            print(f"  FAIL {raw}: {why}")
+        print()
+        print(f"  Nothing was dropped. Files this overlay carries ({len(declared)}):")
+        for p in sorted(declared):
+            print(f"    {p}")
+        return 1
+
+    print(f"Dropping {len(wanted)} file(s) from overlay {overlay}")
+    when = utcnow()
+    notes = []
+    for p in wanted:
+        e = declared[p]
+        for sub in ("files", "base"):
+            fp = os.path.join(overlay, sub, p)
+            if os.path.lexists(fp):
+                os.remove(fp)
+                _prune_empty_dirs(fp, os.path.join(overlay, sub))
+        m["files"] = [x for x in m["files"] if x["path"] != p]
+        m.setdefault("dropped", []).append({"path": p, "class": e.get("class"), "sha256": e.get("sha256"),
+                                           "dropped_at": when})
+        if e.get("class") == "override":
+            effect = "the checkout keeps the release's version of this file"
+        else:
+            effect = "the checkout no longer gets this file"
+        notes.append(f"- `{p}` ({e.get('class')}) - dropped {when} with `overlay.sh drop` (OBSOLETE): {effect}.")
+        print(f"  OK   {p} ({e.get('class')}): removed from files/ and MANIFEST.json - {effect}")
+        if p == "config/config.js":
+            print("  WARN config/config.js holds this environment's secrets and settings: without it the checkout")
+            print("       runs the release's shipped config.js (demo credentials). Intended?")
+    write_manifest(overlay, m)
+
+    dev = os.path.join(overlay, "DEVIATIONS.md")
+    header = "## Dropped from the overlay"
+    text = ""
+    if os.path.isfile(dev):
+        with open(dev, encoding="utf-8") as fh:
+            text = fh.read()
+    fd = os.open(dev, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    with os.fdopen(fd, "a", encoding="utf-8") as fh:
+        if header not in text:
+            # One blank line between the previous content and the new section.
+            sep = "" if not text or text.endswith("\n\n") else "\n" if text.endswith("\n") else "\n\n"
+            fh.write(sep + header + "\n\n")
+        fh.write("\n".join(notes) + "\n")
+    print(f"  DEVIATIONS.md: {len(notes)} note(s) appended under '{header[3:]}'")
+    print()
+    print("  If this overlay is already applied to a checkout, the dropped files are still there: restore")
+    print("  the release's version (`git checkout -- <path>` for an override, delete an extra file), then")
+    print("  `overlay.sh apply --force` and `overlay.sh verify`. See documentation/42-03 O4.")
     return 0
 
 
@@ -1364,12 +1485,15 @@ def main(argv):
     v.add_argument("--live")
     h = sub.add_parser("rehash")
     h.add_argument("--overlay", required=True)
+    d = sub.add_parser("drop")
+    d.add_argument("--overlay", required=True)
+    d.add_argument("paths", nargs="+", metavar="path")
     rb = sub.add_parser("rebase")
     rb.add_argument("--overlay", required=True)
     rb.add_argument("--out", required=True)
     args = p.parse_args(argv)
     return {"capture": cmd_capture, "apply": cmd_apply, "verify": cmd_verify,
-            "rehash": cmd_rehash, "rebase": cmd_rebase}[args.cmd](args)
+            "rehash": cmd_rehash, "drop": cmd_drop, "rebase": cmd_rebase}[args.cmd](args)
 
 
 if __name__ == "__main__":

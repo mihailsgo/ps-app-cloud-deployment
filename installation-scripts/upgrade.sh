@@ -84,10 +84,15 @@ Previewing before you commit:
   always breaks login.
 
 What it does:
-  1) Backs up docker-compose.yml and config.js
+  0) Pre-flight, before anything is written or pulled: the approved-tag gate,
+     image signatures, and that the ps-server image it (re)starts can read
+     config/config.js (refused with the exact chgrp/chmod fix otherwise)
+  1) Backs up docker-compose.yml and config.js (owner-only *.bak copies)
   2) Updates image tags in docker-compose.yml
   3) Ensures DOCUMENT_ROUTING config exists (disabled by default)
-  4) Ensures signed-output volume mount and directory exist
+  4) Ensures signed-output volume mount and directory exist (the stores the
+     effective compose model mounts; one mounted from outside the checkout,
+     e.g. by an environment overlay, is left as it is)
   4b) (--enable-local-eseal only) Materializes the dmss-digital-stamping-service
       assets, appends the gated compose service block, patches the
       container-signature baseUrl, flips STAMP_MODE in config.js to "local",
@@ -102,6 +107,8 @@ What it does:
   4d) Points docker-compose.yml's Keycloak KC_HOSTNAME and nginx network
       alias at the hostname nginx/nginx.conf serves, if they name another
       one (then recreates keycloak/nginx in step 5)
+  4e) Re-applies config/config.js's ownership model (group of the ps-server
+      image, mode 640, checked from inside that image) after steps 3/4b
   5) Pulls new images and recreates changed containers
   6) Waits for the restarted services to be healthy; fails (exit 1) if not
 
@@ -382,8 +389,28 @@ MIGRATION_IDS=(document-routing signed-output compose-hostname local-eseal keycl
 
 # ---- per-edit predicates (shared by _needed and _apply) ----
 need_document_routing()  { ! grep -q 'DOCUMENT_ROUTING' "$config_js"; }
-need_signed_output_vol() { ! grep -q 'signed-output:/signed-output' "$compose_yml"; }
-need_signed_output_dir() { [[ ! -d "${repo_root}/signed-output" || ! -d "${repo_root}/docs" ]]; }
+# signed-output: where the two stores live is decided by the EFFECTIVE compose
+# model (docker-compose.yml plus any COMPOSE_FILE overlay or override), not by
+# the checkout's layout. On an overlay host (documentation/42) both are
+# mounted from where the documents already are, outside the checkout, so
+# ${repo_root}/signed-output never exists there, and checking it made every
+# such host's --plan-only report [WILL APPLY] signed-output. See
+# storage_mount / in_tree_store_missing in lib/dir-permissions.sh.
+need_signed_output_vol() {
+  # The model can only rule this migration out, never trigger it: a mount
+  # line the fallback reader (no docker) failed to parse must not get a
+  # second copy appended to docker-compose.yml.
+  grep -q 'signed-output:/signed-output' "$compose_yml" && return 1
+  signed_output_mount
+  [[ "$storage_how" == none || "$storage_how" == unknown ]]
+}
+need_signed_output_dir() {
+  local mounts; mounts="$(effective_mounts)"
+  signed_output_mount "$mounts"
+  in_tree_store_missing && return 0
+  docs_mount "$mounts"
+  in_tree_store_missing
+}
 need_eseal_assets()      { [[ ! -f "$stamping_dst/application.yml" || ! -f "$stamping_dst/seal/seal.p12" || ! -f "$stamping_dst/seal/README.md" ]]; }
 need_eseal_compose()     { ! grep -qE '^[[:space:]]+dmss-digital-stamping-service:[[:space:]]*$' "$compose_yml"; }
 need_eseal_baseurl()     { grep -q '^  baseUrl: http://host.docker.internal:8084/api' "$csig_yml" 2>/dev/null; }
@@ -559,8 +586,13 @@ mig_signed_output_title() { echo 'Add signed-output volume mount and create sign
 mig_signed_output_files() { echo 'docker-compose.yml,signed-output/,docs/'; }
 mig_signed_output_needed() { need_signed_output_vol || need_signed_output_dir; }
 mig_signed_output_body() {
+  local mounts
   need_signed_output_vol && printf 'docker-compose.yml, under the ps-server volumes:\n%s\n' "$SIGNED_OUTPUT_VOLUME_LINE"
-  need_signed_output_dir && printf 'mkdir -p signed-output/ (mode 750) docs/ (mode 770), each owned by the uid its container image runs as\n'
+  mounts="$(effective_mounts)"
+  signed_output_mount "$mounts"
+  in_tree_store_missing && printf 'mkdir -p %s/ (mode 750), owned by the uid the ps-server image runs as\n' "${storage_path#"${repo_root}/"}"
+  docs_mount "$mounts"
+  in_tree_store_missing && printf 'mkdir -p %s/ (mode 770), owned by the uid the dmss-archive-services-fallback image runs as\n' "${storage_path#"${repo_root}/"}"
   return 0
 }
 mig_signed_output_apply() {
@@ -576,7 +608,9 @@ mig_signed_output_apply() {
   # of the image being upgraded TO (root <= 3.29, uid 1000 from the Node 24
   # image on). Returns non-zero - stopping the upgrade before any container
   # is recreated - if a non-root image would not be able to write its tree.
-  # Permission model: see lib/dir-permissions.sh.
+  # Both act on the directory the effective compose model mounts (the same
+  # one need_signed_output_dir checked), and leave one outside the checkout
+  # (overlay storage) untouched. Permission model: see lib/dir-permissions.sh.
   fix_signed_output_permissions
   fix_docs_permissions
 }
@@ -1012,20 +1046,47 @@ if [[ -n "$server_tag" || -n "$client_tag" ]]; then
   fi
 fi
 
+# ── config.js pre-flight: before anything is written or pulled ──
+# The ps-server this run (re)starts must be able to read config/config.js.
+# Moving from a root image (<= 3.29) to 3.30 or later (uid 1000) with a
+# root:root 640 config.js (the old validate-config.sh hint's result)
+# crash-loops ps-server with EACCES, and nginx never starts. Checked against
+# the image this upgrade ends on - the requested tag's approved digest, or
+# the current pin when only --enable-local-eseal restarts ps-server - from
+# inside that image (config_js_preflight, lib/dir-permissions.sh), and
+# refused here with the exact fix, before the snapshot, any edit or any
+# pull. Step 4e re-applies the ownership model after this run's own edits.
+if [[ -n "$server_tag" || "$enable_local_eseal" == true ]]; then
+  if [[ -n "$server_tag" ]]; then
+    target_ps_ref="mihailsgordijenko/ps-server:${server_tag}$(approved_pin ps-server "$server_tag")"
+  else
+    target_ps_ref="$(pinned_image_ref "$ps_server_image_repo")"
+  fi
+  echo "Pre-flight: checking that the ps-server image can read config/config.js..."
+  cfg_rc=0
+  config_js_preflight "$target_ps_ref" || cfg_rc=$?
+  if [[ "$cfg_rc" == 1 ]]; then
+    echo "" >&2
+    echo "Upgrade refused before any change: ps-server could not read config/config.js." >&2
+    echo "Nothing was written, and no container was touched." >&2
+    exit 1
+  fi
+fi
+
 # ── Step 1: Backup ──
 echo "Step 1/6: Backing up..."
 # Timestamped, non-overwriting snapshot FIRST (before anything below mutates
 # either file) - this is what rollback.sh restores from. The single-generation
 # .bak copy is kept alongside it for the manual "cp ...bak" recipe printed at
-# the end, unchanged from before.
+# the end. Owner-only (0600): config.js.bak holds every secret config.js does.
 snapshot_dir="$(write_rollback_snapshot)"
 echo "  Rollback snapshot: ${snapshot_dir}"
 for c in ps-server ps-client; do
   if [[ -n "${drift_note[$c]}" ]]; then echo "  NOTE: ${drift_note[$c]}"; fi
 done
-cp -f "$compose_yml" "${compose_yml}.bak"
-cp -f "$config_js" "${config_js}.bak"
-echo "  Backups created"
+backup_owner_only "$compose_yml"
+backup_owner_only "$config_js"
+echo "  Backups created (*.bak, owner-only)"
 
 # ── Step 2: Update image tags ──
 # The replacement deliberately also strips any existing "@sha256:..." - that
@@ -1095,6 +1156,18 @@ mig_call keycloak-backend-audience apply
 # ── Step 4d: Align compose hostname with nginx ──
 echo "Step 4d/6: Ensuring KC_HOSTNAME and nginx alias match the served hostname..."
 mig_call compose-hostname apply
+
+# ── Step 4e: config.js ownership model, after this run's own edits ──
+# Steps 3 and 4b rewrite config/config.js with perl -i / sed -i. Those write a
+# NEW file as the user running this script and keep its group only if that
+# user may set it, so a user who is neither root nor in the ps-server image's
+# group turns a 640 file ps-server 3.30 reads through its group into one it
+# cannot open. Same model and code as configure-host.sh's last step
+# (secure_config_js, lib/dir-permissions.sh): group = gid of the ps-server
+# image Step 2 pinned, mode 640, read back from inside that image - and made
+# readable again, with the fix printed, rather than left locked.
+echo "Step 4e/6: Re-applying the config/config.js ownership model..."
+secure_config_js
 
 # ── Step 5: Pull and restart ──
 echo "Step 5/6: Pulling images and restarting..."
