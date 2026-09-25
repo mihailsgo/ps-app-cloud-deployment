@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ============================================================================
-# PadSign Rollback — restore the ps-server / ps-client images and config.js
+# PadSign Rollback - restore the ps-server / ps-client images and config.js
 # that were in place immediately before an upgrade.sh run.
 #
 # Usage:
@@ -42,7 +42,8 @@ set -euo pipefail
 #   - the git checkout itself: release/approved-digests.json keeps approving
 #     the release rolled back from. validate-config.sh reports the restored
 #     pins as a rollback (WARN) when an earlier committed revision of that
-#     file approved them - see .rollback-applied.json below.
+#     file approved them, using the .rollback-applied.json this script
+#     writes after a verified rollback (lib/rollback-snapshot.sh).
 #
 # Idempotent: running this twice in a row against the same snapshot is a
 # no-op the second time (the tag sed matches nothing to change, config.js
