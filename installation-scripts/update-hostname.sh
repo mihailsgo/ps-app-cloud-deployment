@@ -142,13 +142,15 @@ echo "========================================"
 echo ""
 
 # ── Step 1: Backup ──
+# Owner-only (0600): config.js.bak holds every secret config.js does, and an
+# older docker-compose.yml can still carry an inline admin password.
 echo "Step 1/4: Backing up config files..."
+# shellcheck source=lib/dir-permissions.sh
+. "${scripts_dir}/lib/dir-permissions.sh"
 for f in "${config_js}" "${repo_root}/config/constants.json" "${repo_root}/nginx/nginx.conf" "${repo_root}/docker-compose.yml"; do
-  if [[ -f "$f" ]]; then
-    cp -f "$f" "${f}.bak"
-  fi
+  backup_owner_only "$f"
 done
-echo "  Backups created (*.bak)"
+echo "  Backups created (*.bak, owner-only)"
 
 # ── Step 2: Configure files for the new hostname ──
 echo "Step 2/4: Configuring files for hostname '${host}'..."

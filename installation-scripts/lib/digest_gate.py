@@ -40,6 +40,18 @@ Called by lib/digests.sh (never directly by an operator). Two subcommands:
       pin no release ever approved (an --allow-unapproved hotfix, or a
       checkout without git history) still FAILs.
 
+  mounts <repo_root>
+      Prints every volume mount of the same effective model, one
+      "<service>\t<target>\t<type>\t<source>\t<in_tree>\t<relpath>" line
+      each (type "bind" or "volume"; in_tree 1 and relpath the source
+      relative to repo_root when a bind source is inside it), after the same
+      "#source" line. upgrade.sh / lib/dir-permissions.sh use
+      it to find the signed-output/ and docs/ stores where an overlay mounts
+      them from outside the checkout. The file fallback reads short-syntax
+      ("src:target[:mode]") and long-syntax (type/source/target) entries;
+      a later file replaces an earlier file's entry for the same target,
+      which is compose's merge rule for volumes.
+
   approvals <repo_root>
       Prints the overlay's approvals as "<key>\t<repository>\t<tag>\t<digest>"
       (nothing if there is no overlay or it approves nothing), for
@@ -144,7 +156,7 @@ def display_files(repo_root, files):
 
 
 def model_from_docker(repo_root):
-    """(services dict {name: image}, profiles list) or (None, reason)."""
+    """(services dict {name: service definition}, profiles list) or (None, reason)."""
     def run(args):
         p = subprocess.run(["docker", "compose"] + args, cwd=repo_root,
                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -172,7 +184,7 @@ def model_from_docker(repo_root):
         services = json.loads(out).get("services") or {}
     except ValueError as exc:
         return None, "unreadable docker compose config output: %s" % exc
-    return {name: (svc or {}).get("image") or "" for name, svc in services.items()}, profiles
+    return {name: (svc or {}) for name, svc in services.items()}, profiles
 
 
 _TOP_KEY = re.compile(r"^([A-Za-z0-9_.\-\"']+)\s*:")
@@ -221,26 +233,181 @@ def model_from_files(files):
     return services, missing
 
 
-def effective_images(repo_root):
+_LIST_ITEM = re.compile(r"^(\s*)-\s?(.*)$")
+_LONG_KEY = re.compile(r"^(type|source|target)\s*:\s*(.*)$")
+_SHORT_VOLUME = re.compile(r"^((?:[A-Za-z]:)?[^:]*):(/[^:]*)(?::[A-Za-z,]+)?$")
+
+
+def _scalar(text):
+    """A YAML scalar as written on one line: quotes removed, or a trailing
+    comment dropped from an unquoted value."""
+    text = text.strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in "\"'":
+        return text[1:-1]
+    return re.sub(r"\s+#.*$", "", text).strip()
+
+
+def _host_path(source, project_dir):
+    """(type, absolute source) of a mount source, the way compose reads it:
+    a path (./x, /x, ~/x, C:\\x) is a bind mount resolved against the
+    project directory, anything else names a volume."""
+    if re.match(r"^([./~\\]|[A-Za-z]:[\\/])", source):
+        path = os.path.expanduser(source)
+        if not os.path.isabs(path):
+            path = os.path.join(project_dir, path)
+        return "bind", os.path.normpath(path)
+    return "volume", source
+
+
+def mounts_from_files(files, project_dir):
+    """Same minimal line reader as model_from_files, for each service's
+    `volumes:` list: {service: {target: (type, source)}}. A later file's
+    entry for a target replaces an earlier one; `volumes: !override` or
+    `!reset` replaces the service's whole list first."""
+    mounts = {}
+    missing = []
+
+    def record(svc, entry):
+        """entry: {"source": ..., "target": ..., optional "type"} of one list item."""
+        if not (svc and entry.get("source") and entry.get("target")):
+            return
+        kind, src = _host_path(entry["source"], project_dir)
+        mounts.setdefault(svc, {})[entry["target"]] = (entry.get("type") or kind, src)
+
+    for path in files:
+        try:
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                lines = fh.read().splitlines()
+        except OSError:
+            missing.append(path)
+            continue
+        in_services = False
+        svc_indent = svc = key_indent = None
+        in_volumes = False
+        dash_indent = None  # column of the volumes list's "-"
+        entry = None        # the list item being read
+
+        for line in lines:
+            if not line.strip() or line.lstrip().startswith("#"):
+                continue
+            indent = len(line) - len(line.lstrip())
+            top = _TOP_KEY.match(line)
+            key = _KEY.match(line)
+            item = _LIST_ITEM.match(line)
+            # Anything at or left of a level we are tracking ends that level
+            # (a "-" may sit at its key's own column: that is still the list).
+            if entry is not None and (indent <= dash_indent or top):
+                record(svc, entry)
+                entry = None
+            if in_volumes and (top or indent < key_indent or (indent == key_indent and not item)):
+                in_volumes = False
+            if top and indent == 0:
+                in_services = top.group(1).strip("\"'") == "services"
+                svc_indent = svc = key_indent = None
+                continue
+            if not in_services:
+                continue
+            if key and (svc_indent is None or indent == svc_indent):
+                svc_indent, svc, key_indent = indent, key.group(2).strip("\"'"), None
+                continue
+            if svc is None or indent <= svc_indent:
+                continue
+            if key_indent is None:
+                key_indent = indent
+            if indent == key_indent and not (in_volumes and item):
+                in_volumes = bool(re.match(r"^\s+volumes\s*:", line))
+                dash_indent = None
+                if in_volumes and re.search(r":\s*!(override|reset)\b", line):
+                    mounts[svc] = {}
+                continue
+            if not in_volumes:
+                continue
+            if item and (dash_indent is None or indent == dash_indent):
+                dash_indent = indent
+                value = item.group(2).strip()
+                long_key = _LONG_KEY.match(value)
+                if long_key:  # long syntax: "- type: bind" then source:/target: below
+                    entry = {long_key.group(1): _scalar(long_key.group(2))}
+                    continue
+                short = _SHORT_VOLUME.match(_scalar(value))
+                if short:     # short syntax: "- ./src:/target[:ro]"
+                    record(svc, {"source": short.group(1), "target": short.group(2)})
+                continue
+            if entry is not None:
+                long_key = _LONG_KEY.match(line.strip())
+                if long_key:
+                    entry[long_key.group(1)] = _scalar(long_key.group(2))
+        if entry is not None:
+            record(svc, entry)
+    return mounts, missing
+
+
+def tree_relpath(source, root):
+    """source relative to root ("/"-separated) when it is inside root, else
+    None. Compared as written and with symlinks resolved, so an in-tree
+    symlink stays in-tree and a Windows short (8.3) name still matches."""
+    for resolve in (os.path.abspath, os.path.realpath):
+        s, r = resolve(source), resolve(root)
+        sn, rn = os.path.normcase(s), os.path.normcase(r)
+        if sn == rn or sn.startswith(rn.rstrip(os.sep) + os.sep):
+            return os.path.relpath(s, r).replace(os.sep, "/")
+    return None
+
+
+def effective_model(repo_root):
+    """("docker"|"files", detail, services) of the effective model. For
+    "docker", services is compose's own JSON per service; for "files" it is
+    None and the callers read the files themselves."""
     files = compose_files(repo_root)
     reason = "PADSIGN_DIGEST_GATE_NO_DOCKER is set"
     if os.environ.get("PADSIGN_DIGEST_GATE_NO_DOCKER") != "1":
         services, detail = model_from_docker(repo_root)
         if services is not None:
             profiles = ", ".join(detail) or "none declared"
-            print("#source\tdocker\tdocker compose config over %s, all profiles (%s)"
-                  % (display_files(repo_root, files), profiles))
-            for name in sorted(services):
-                print("%s\t%s" % (name, services[name]))
-            return 0
+            return "docker", ("docker compose config over %s, all profiles (%s)"
+                              % (display_files(repo_root, files), profiles)), services
         reason = detail
-    services, missing = model_from_files(files)
     detail = "read %s directly (%s)" % (display_files(repo_root, files), reason)
+    missing = [f for f in files if not os.path.isfile(f)]
     if missing:
         detail += "; MISSING: %s" % display_files(repo_root, missing)
-    print("#source\tfiles\t%s" % detail)
-    for name in sorted(services):
-        print("%s\t%s" % (name, services[name]))
+    return "files", detail, None
+
+
+def effective_images(repo_root):
+    how, detail, services = effective_model(repo_root)
+    if how == "docker":
+        images = {name: svc.get("image") or "" for name, svc in services.items()}
+    else:
+        images, _ = model_from_files(compose_files(repo_root))
+    print("#source\t%s\t%s" % (how, detail))
+    for name in sorted(images):
+        print("%s\t%s" % (name, images[name]))
+    return 0
+
+
+def effective_mounts(repo_root):
+    how, detail, services = effective_model(repo_root)
+    rows = []
+    if how == "docker":
+        for name, svc in services.items():
+            for v in svc.get("volumes") or []:
+                if not isinstance(v, dict) or not v.get("target"):
+                    continue
+                rows.append((name, v["target"], v.get("type") or "", v.get("source") or ""))
+    else:
+        files = compose_files(repo_root)
+        # compose resolves relative paths against the project directory:
+        # the directory of the first compose file.
+        project_dir = os.path.dirname(os.path.abspath(files[0])) if files else os.path.abspath(repo_root)
+        mounts, _ = mounts_from_files(files, project_dir)
+        for name, by_target in mounts.items():
+            for target, (kind, source) in by_target.items():
+                rows.append((name, target, kind, source))
+    print("#source\t%s\t%s" % (how, detail))
+    for name, target, kind, source in sorted(rows):
+        rel = tree_relpath(source, repo_root) if kind == "bind" and source else None
+        print("\t".join((name, target, kind, source, "1" if rel is not None else "0", rel or "")))
     return 0
 
 
@@ -497,13 +664,15 @@ def check(repo_root, release_path):
 def main(argv):
     if len(argv) >= 2 and argv[0] == "images":
         return effective_images(argv[1])
+    if len(argv) >= 2 and argv[0] == "mounts":
+        return effective_mounts(argv[1])
     if len(argv) >= 3 and argv[0] == "check":
         return check(argv[1], argv[2])
     if len(argv) >= 2 and argv[0] == "approvals":
         return approvals(argv[1])
     if len(argv) >= 5 and argv[0] == "release-tag":
         return release_tag(argv[1], argv[2], argv[3], argv[4])
-    sys.stderr.write("usage: digest_gate.py images <repo_root> | check <repo_root> <approved-digests.json> | approvals <repo_root>"
+    sys.stderr.write("usage: digest_gate.py images <repo_root> | mounts <repo_root> | check <repo_root> <approved-digests.json> | approvals <repo_root>"
                      " | release-tag <repo_root> <approved-digests.json> <repository> <digest>\n")
     return 2
 

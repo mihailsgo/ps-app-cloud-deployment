@@ -30,7 +30,12 @@ set -euo pipefail
 #            directory. The old overlay is never modified, so "previous
 #            release checkout + previous overlay" stays a complete rollback.
 #   rehash   Re-record checksums after deliberately editing overlay files
-#            (resolved merge conflicts, a renewed certificate).
+#            (resolved merge conflicts, a renewed certificate). A file the
+#            manifest lists but that is gone is an error, not a traceback.
+#   drop     Remove captured files the change ticket marks OBSOLETE (42.3
+#            O4): deletes files/<path> and its MANIFEST.json record, notes it
+#            in DEVIATIONS.md. Refuses (and changes nothing) for any path the
+#            manifest does not list.
 #
 # All logic is in lib/overlay.py; secrets are never printed (lib/redact.py).
 # Operator procedure: documentation/42-host-reconciliation-runbook.md.
@@ -44,9 +49,12 @@ Usage:
   ./installation-scripts/overlay.sh verify  --overlay <overlay-dir> [--live <deployed-dir>]
   ./installation-scripts/overlay.sh rebase  --overlay <old-overlay-dir> --out <new-overlay-dir>
   ./installation-scripts/overlay.sh rehash  --overlay <overlay-dir>
+  ./installation-scripts/overlay.sh drop    --overlay <overlay-dir> <path>...
 
 The overlay directory must be outside every checkout (e.g. /etc/padsign/overlay/<date>,
 mode 700). apply, verify and rebase act on the checkout this script lives in.
+drop takes repo-relative paths as MANIFEST.json lists them (config/config.js; a
+files/ prefix is accepted too).
 --host-base: the release the host was ORIGINALLY deployed from (default: the
 host's own git HEAD); lets capture carry only the host's edits, not old release content.
 
@@ -55,7 +63,7 @@ USAGE
 }
 
 case "${1:-}" in
-  capture|apply|verify|rebase|rehash) ;;
+  capture|apply|verify|rebase|rehash|drop) ;;
   -h|--help) usage; exit 0;;
   *) usage >&2; exit 2;;
 esac

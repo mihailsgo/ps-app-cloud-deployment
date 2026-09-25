@@ -76,6 +76,38 @@ change ticket:** INTENTIONAL (keep in the overlay), OBSOLETE (drop it), or
 UPSTREAM (belongs in the release, so raise an issue). That annotated file *is*
 the "documented diff that lists every intentional environment deviation".
 
+Drop the files you marked OBSOLETE from the overlay with `overlay.sh drop`,
+never by deleting them under `files/`. The overlay records a checksum for
+every file in `MANIFEST.json`, so a file deleted by hand makes `apply` and
+`verify` fail (`overlay file missing`) and `rehash` refuse:
+
+```bash
+cd "$NEW"
+./installation-scripts/overlay.sh drop --overlay "$OVERLAY" <path> [<path>...] 2>&1 | tee -a "$EVID/O4-drop.log"
+```
+
+- `<path>` is the file's path in the checkout, exactly as the `###` heading in
+  DEVIATIONS.md shows it (for example `config/logo-old.png`). A `files/`
+  prefix is accepted too.
+- For each path, `drop` deletes `files/<path>` and the release copy under
+  `base/<path>`, removes the entry from `MANIFEST.json`, and adds a line under
+  *Dropped from the overlay* at the end of DEVIATIONS.md. For an override,
+  the checkout keeps the release's version of the file. For an extra file,
+  the checkout does not get the file at all.
+- It refuses the whole command, and changes nothing, if any path is not a
+  captured file. It then lists the files the overlay does carry.
+  Certificates, `.env` values and compose differences are not dropped this
+  way: re-capture after a certificate change (42.6), edit `$OVERLAY/env`,
+  and edit `compose.overlay.yml` (below).
+- `rehash` now names a file that is listed but missing instead of crashing,
+  and points at `drop`.
+- `drop` edits the overlay in place. That is right here, before the first
+  `apply`. Once an overlay is in use, make the change in a new overlay
+  version instead (`cp -a`, 42.6). If the overlay was already applied to a
+  checkout, that checkout still has the dropped files: restore the release's
+  version (`git -C "$NEW" checkout -- <path>`, or delete an extra file), then
+  `apply --force` and `verify`.
+
 What to confirm explicitly, because #7 names these:
 
 | Must be preserved | Where it lives in the overlay | How to confirm |
@@ -142,7 +174,7 @@ also checks these entries against the live registry.
 
 - **Check:** every COMPOSE-DIFFERENCES line is either ported or recorded as OBSOLETE. `verify --live` in 42.4 C3 proves it.
 - **Rollback:** edit again. Nothing live depends on the overlay yet.
-- **Evidence:** the annotated decisions in the ticket. `sha256sum "$OVERLAY/compose.overlay.yml" >> "$EVID/O4-overlay.sha256"` (hash only).
+- **Evidence:** the annotated decisions in the ticket, and `O4-drop.log` (paths only). `sha256sum "$OVERLAY/compose.overlay.yml" >> "$EVID/O4-overlay.sha256"` (hash only).
 
 ## O5: protect the overlay
 

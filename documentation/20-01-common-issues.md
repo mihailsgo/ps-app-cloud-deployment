@@ -95,6 +95,10 @@ service 93 no longer bind a host port at all — see [22. Security and Route Pro
 2. `docker compose up -d` (nginx starts once ps-server is healthy).
 3. Background: [22, Secrets on the host](22-security-and-route-protection.md#secrets-on-the-host).
 
+`upgrade.sh` checks this before it changes anything (v1.0.44): when the
+ps-server image it would start cannot read `config.js`, it stops with the
+same fix instead of restarting ps-server into this loop ([5.1](05-01-what-upgrade-does-step-by-step.md)).
+
 ## General debug commands
 
 ```bash
