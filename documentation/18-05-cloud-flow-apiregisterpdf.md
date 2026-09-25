@@ -4,6 +4,34 @@ Purpose
 - Upload a ready PDF to Archive and make it available to the SPA for viewing and signing.
 - Protected by an API key carried in the `Authorization: Bearer` header, configured in server `config/config.js` as `REGISTER_PDF_API_KEY`.
 
+## Reading the API key
+
+The `REGISTER_PDF_API_KEY` shipped in this public repository is known to
+everyone, so a fresh `bootstrap.sh` replaces it with a random one
+(`tlx_pdf_` + 64 hex characters) and never prints it: not to the terminal, not
+to the deployment wizard's run log. Read it when you configure a client (the
+Virtual Printer / Padsign Manager Setup tab, a 3rd-party uploader), from inside
+ps-server, so it appears on your terminal only:
+
+```bash
+docker compose exec -T ps-server node -p 'require("/usr/src/app/config.js").REGISTER_PDF_API_KEY' </dev/null
+```
+
+That works for anyone who may run `docker compose` here, although
+`config/config.js` itself is mode 640 (it reads the file as ps-server's own
+user; per-company keys are `.REGISTER_PDF_API_KEYS`). With ps-server down,
+read the file as root or as a member of its group:
+
+```bash
+sudo python3 -c 'import re; print(re.search(r"REGISTER_PDF_API_KEY\s*:\s*[\"\x27]([^\"\x27]+)", open("config/config.js").read()).group(1))'
+```
+
+Hand it over like any other credential, not in a ticket or chat. A key that
+still equals the shipped one is a `validate-config.sh` WARN; its fix,
+`./installation-scripts/configure-host.sh --host <host> --generate-secrets`
+then `docker compose restart ps-server`, means giving every client the new
+key.
+
 Endpoint
 - Method: `POST`
 - URL: `/api/registerPDF`
@@ -70,7 +98,7 @@ Authentication and security
   - `auth-server-url`: Base URL to Keycloak, default `"https://padsign.trustlynx.com/auth"`.
   - `resource`: Backend client (confidential) ID, default `"padsign-backend"`.
   - `credentials.secret`: Client secret for the confidential backend client.
-- `REGISTER_PDF_API_KEY`: Static API key protecting the `/api/registerPDF` endpoint (sent as `Authorization: Bearer <key>` by 3rd-party uploaders). Replace with a strong secret for production.
+- `REGISTER_PDF_API_KEY`: Static API key protecting the `/api/registerPDF` endpoint (sent as `Authorization: Bearer <key>` by 3rd-party uploaders). `bootstrap.sh` replaces the shipped value with a random one; see *Reading the API key* above.
 
 ---
 

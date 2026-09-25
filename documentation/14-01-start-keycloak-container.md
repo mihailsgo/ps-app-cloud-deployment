@@ -7,7 +7,7 @@ keycloak:
   image: quay.io/keycloak/keycloak:26.7.4
   environment:
     - KEYCLOAK_ADMIN=admin
-    - KEYCLOAK_ADMIN_PASSWORD=admin
+    - KEYCLOAK_ADMIN_PASSWORD=${KEYCLOAK_FIRST_BOOT_ADMIN_PASSWORD:-admin}
     - KC_HOSTNAME=<host>
     - KC_HTTP_RELATIVE_PATH=/auth
     - KC_PROXY=edge
@@ -22,10 +22,13 @@ keycloak:
     - keycloak_data:/opt/keycloak/data
 ```
 
-> **Demo default — change before production.** `KEYCLOAK_ADMIN_PASSWORD=admin`
-> is the out-of-the-box demo value; `bootstrap.sh --admin-pass` replaces it at
-> install time. Note that Keycloak only reads this variable on its **first**
-> boot against an empty volume — see
+> **Demo default - change before production.** `admin` is the out-of-the-box
+> demo value, used when `.env` does not set `KEYCLOAK_FIRST_BOOT_ADMIN_PASSWORD`.
+> `bootstrap.sh` writes the password you give it into `.env` (git-ignored,
+> mode 600), never into the tracked `docker-compose.yml`: see
+> [17.1](17-01-keycloak-container-environment-variables.md), which also moves
+> an inline value an older bootstrap left there. Note that Keycloak only reads
+> this variable on its **first** boot against an empty volume - see
 > [37.5 Known gap: Keycloak admin password rotation](37-05-known-gaps-keycloak-admin-password-rotation.md)
 > for changing it later. Hardening checklist:
 > [25. Production Hardening](25-production-hardening.md).

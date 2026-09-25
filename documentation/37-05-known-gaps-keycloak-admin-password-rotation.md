@@ -13,12 +13,12 @@ oversight.
 ## Why
 
 `docker-compose.yml`'s `keycloak` service takes `KEYCLOAK_ADMIN` /
-`KEYCLOAK_ADMIN_PASSWORD` environment variables, but Keycloak only
+`KEYCLOAK_ADMIN_PASSWORD` environment variables (the password from
+`KEYCLOAK_FIRST_BOOT_ADMIN_PASSWORD` in `.env`), but Keycloak only
 consumes them to create its master-realm admin account **the first time
 it boots against an empty database volume**. On an already-initialized,
-already-live Keycloak, rewriting those env vars in `docker-compose.yml`
-(which is exactly what `configure-host.sh --admin-user/--admin-pass`
-does) has no effect on the real, live admin password — it would silently
+already-live Keycloak, rewriting them (which is exactly what
+`configure-host.sh --admin-user/--admin-pass` does) has no effect on the real, live admin password - it would silently
 look like it worked while changing nothing. No script in this repository
 performs an actual `kcadm update-user`/`set-password` against a live
 instance, and building one is a meaningfully different (and riskier)
@@ -58,9 +58,14 @@ unset CUR_PW NEW_PW v
 ```
 
 Store the new value in your secret manager. **Do not** write it into
-`docker-compose.yml`'s `KEYCLOAK_ADMIN_PASSWORD`. That file is tracked and
-usually world-readable, and Keycloak never reads the variable again on an
-existing volume. Disaster recovery restores the Keycloak data volume, which
+`docker-compose.yml`: that file is tracked and world-readable, and the
+release keeps the password out of it
+([17.1](17-01-keycloak-container-environment-variables.md)). Keycloak never
+reads the variable again on an existing volume. Updating
+`KEYCLOAK_FIRST_BOOT_ADMIN_PASSWORD` in `.env` (mode 600) is optional: it is
+what `upgrade.sh` falls back to when `KEYCLOAK_ADMIN_PASSWORD` is not
+exported, and changing it recreates the keycloak container on the next
+`docker compose up -d`. Disaster recovery restores the Keycloak data volume, which
 already carries the real credential
 ([42.6](42-06-living-with-an-overlay.md)). The full managed-credential
 procedure is [42.2](42-02-keycloak-admin-access-and-smoke-identity.md).

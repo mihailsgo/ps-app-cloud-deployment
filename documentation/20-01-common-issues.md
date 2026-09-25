@@ -86,6 +86,15 @@ service 93 no longer bind a host port at all — see [22. Security and Route Pro
 2. Fix with: `sudo chown $(id -u):$(id -g) docs/` or `sudo chmod 777 docs/`.
 3. Re-run `./installation-scripts/validate-config.sh --host <host>` to confirm it reports `docs directory exists and is writable`.
 
+## 9. ps-server restarts in a loop with `EACCES: permission denied, open '/usr/src/app/config.js'`, and nginx never starts
+
+**Cause**: ps-server 3.30 and later run as uid 1000, not root, and `config/config.js` is not readable by that uid - typically a root-owned file restricted with `chmod o-rwx` / `chmod 640`, or an overlay applied as root before v1.0.42. nginx waits for a healthy ps-server, so the whole site is down.
+
+**Solution**:
+1. `./installation-scripts/validate-config.sh` prints `FAIL config/config.js cannot be read by <uid>:<gid> ...` with the exact fix, for example `sudo chgrp 1000 config/config.js && sudo chmod 640 config/config.js` (the gid it read from the pinned image).
+2. `docker compose up -d` (nginx starts once ps-server is healthy).
+3. Background: [22, Secrets on the host](22-security-and-route-protection.md#secrets-on-the-host).
+
 ## General debug commands
 
 ```bash

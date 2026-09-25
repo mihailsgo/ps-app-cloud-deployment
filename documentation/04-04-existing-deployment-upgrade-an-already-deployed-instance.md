@@ -61,10 +61,12 @@ Pull the new version of this repo into your deployment directory.
 this host's hostname and secrets into four tracked files, so on every
 bootstrapped deployment `git status` shows them as modified:
 
-- `config/config.js` (hostname URLs, the Keycloak backend client secret)
+- `config/config.js` (hostname URLs, the Keycloak backend client secret, and
+  from v1.0.42 the generated `REGISTER_PDF_API_KEY` / `SESSION_SECRET`)
 - `config/constants.json` (hostname, Keycloak URL, `DEMO_MODE`)
 - `docker-compose.yml` (`KC_HOSTNAME`, the nginx network alias, the Keycloak
-  admin user and password)
+  admin user; on a deployment bootstrapped before v1.0.42 also the admin
+  password, which later ones keep in the git-ignored `.env`)
 - `nginx/nginx.conf` (`server_name`, certificate paths)
 
 `upgrade.sh`, `configure-host.sh` and `toggle-features.sh` edit some of the
@@ -104,7 +106,10 @@ docker compose images ps-server ps-client
 #    in this repo that branch is `main`:
 git checkout main      # safe even if you're already on it
 
-# 4. Stash this host's edits, pull, and re-apply them on top:
+# 4. Stash this host's edits, pull, and re-apply them on top. Bootstrapped
+#    before v1.0.42? First move the Keycloak admin password out of
+#    docker-compose.yml into .env (17.1), so the stash does not carry it
+#    and pop has nothing to conflict on:
 git stash push -m "padsign host config before pull $(date +%Y%m%d-%H%M%S)"
 git pull               # fast-forward to the latest upstream commit
 git stash pop
@@ -132,9 +137,15 @@ Resolve each conflicted file by hand:
 
 - **keep this host's value** for anything host-specific: the hostname
   (`KC_HOSTNAME`, `server_name`, the nginx alias, URLs), the Keycloak admin
-  user and password, the backend client secret, certificate paths, and
+  user, the backend client secret and the generated `REGISTER_PDF_API_KEY` /
+  `SESSION_SECRET`, certificate paths, and
   feature settings (`DEMO_MODE`, `DOCUMENT_ROUTING`, `STAMP_MODE`,
   `STAMP_LOCAL`);
+- **the Keycloak admin password is the exception**: take the release's
+  `KEYCLOAK_ADMIN_PASSWORD=${KEYCLOAK_FIRST_BOOT_ADMIN_PASSWORD:-admin}` line
+  and put the value into `.env` as
+  [17.1](17-01-keycloak-container-environment-variables.md#deployments-bootstrapped-before-v1042)
+  shows, never back into the tracked file;
 - **take the new release's version** of everything else: new keys, comments,
   healthchecks, and the `image:` lines (those are the release's approved
   pins, the tags you then pass to `upgrade.sh`).

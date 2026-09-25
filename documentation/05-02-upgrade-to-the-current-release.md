@@ -40,6 +40,14 @@ alone is safe and changes no behaviour until you enable routing.
 > deletes `signed-output/{company}/{email}/...` files), so plan for that
 > directory to grow. See [1. Release Snapshot](01-release-snapshot.md).
 
+> **Bootstrapped before v1.0.42?** Your `docker-compose.yml` then carries the
+> Keycloak admin password inline, and the release's `docker-compose.yml` reads
+> it from `.env` instead. Move it before you pull, or the stash of your local
+> edits keeps carrying it and `git stash pop` conflicts on that line:
+> [17.1, Deployments bootstrapped before v1.0.42](17-01-keycloak-container-environment-variables.md#deployments-bootstrapped-before-v1042).
+> Nothing else changes for a running deployment: `REGISTER_PDF_API_KEY` and
+> `SESSION_SECRET` are never rotated by an upgrade.
+
 ---
 
 ## Step 1 — bump the images
