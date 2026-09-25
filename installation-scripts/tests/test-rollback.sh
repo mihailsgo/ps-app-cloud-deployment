@@ -539,8 +539,20 @@ else
   else
     fail_case "snapshot modes" "$modes"
   fi
+  # An older upgrade.sh's world-readable tree, then only rollback.sh runs.
+  chmod -R go+rX "${repo}/.rollback-snapshots"
+  set +e
+  out="$(in_repo bash installation-scripts/rollback.sh --yes)"; rc=$?
+  set -e
+  modes="$(cd "${repo}/.rollback-snapshots" && stat -c '%a %n' . * */* | sort -k2)"
+  bad_modes="$(awk '($2 ~ /\// || $2 == "latest") && $1 != "600" { print } ($2 !~ /\// && $2 != "latest") && $1 != "700" { print }' <<< "$modes")"
+  if [[ $rc -eq 0 && -z "$bad_modes" ]]; then
+    ok_case "rollback.sh alone also tightens a 755/644 snapshot tree"
+  else
+    fail_case "rollback.sh tightening (rc=${rc})" "$modes"$'\n'"$out"
+  fi
   if [[ "$(stat -c '%a' "${repo}/config/config.js")" == "$(stat -c '%a' "${src_root}/config/config.js")" ]]; then
-    ok_case "config/config.js itself keeps its mode"
+    ok_case "config/config.js itself keeps its mode after the restore"
   else
     fail_case "config.js mode changed"
   fi

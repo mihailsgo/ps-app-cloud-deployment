@@ -109,6 +109,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Snapshots hold copies of config.js: close up a tree an older upgrade.sh left
+# world-readable before reading anything from it.
+tighten_rollback_snapshots
+
 snap_dir="$(resolve_rollback_snapshot "$target_ref")" || {
   echo "ERROR: No usable rollback snapshot found for '--to ${target_ref}'." >&2
   if unreadable="$(rollback_snapshots_unreadable)"; then

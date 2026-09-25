@@ -123,6 +123,17 @@ component_drift_text() {
   fi
 }
 
+# Removes group/other access from .rollback-snapshots/ and everything in it
+# (directories 700, files 600). upgrade.sh and rollback.sh both call it, so a
+# tree an older upgrade.sh left at 755/644 is fixed by whichever runs first.
+# Best effort: a file this user does not own is left as it is.
+tighten_rollback_snapshots() {
+  local snapshots_root="${repo_root}/${ROLLBACK_SNAPSHOTS_DIR_NAME}"
+  [[ -d "$snapshots_root" ]] || return 0
+  chmod -R go= "$snapshots_root" 2>/dev/null || true
+  return 0
+}
+
 # write_rollback_snapshot
 #
 # Captures docker-compose.yml + config/config.js as they are RIGHT NOW (i.e.
@@ -146,7 +157,7 @@ write_rollback_snapshot() {
   # 644 copies of config.js in it.
   umask 077
   mkdir -p "$snap_dir"
-  chmod -R go= "$snapshots_root" 2>/dev/null || true
+  tighten_rollback_snapshots
   cp -f "${repo_root}/docker-compose.yml" "${snap_dir}/docker-compose.yml"
   cp -f "${repo_root}/config/config.js" "${snap_dir}/config.js"
 
