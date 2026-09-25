@@ -1022,7 +1022,7 @@ def cmd_apply(args):
 
 # ── verify ──────────────────────────────────────────────────────────────────
 
-IGNORED_EXPECTED = re.compile(r"^(\.env|\.overlay-applied\.json|deployment-evidence\.json(\.previous)?|nginx/certs/.*|\.rollback-snapshots/.*)$")
+IGNORED_EXPECTED = re.compile(r"^(\.env|\.overlay-applied\.json|\.rollback-applied\.json|deployment-evidence\.json(\.previous)?|nginx/certs/.*|\.rollback-snapshots/.*)$")
 
 
 def cmd_verify(args):

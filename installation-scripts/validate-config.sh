@@ -363,16 +363,30 @@ client_tag="$(grep -oP 'mihailsgordijenko/ps-client:\K[0-9.]+' "${repo_root}/doc
 ok "ps-server: ${server_tag}"
 ok "ps-client: ${client_tag}"
 
-# Check that the release snapshot doc matches (if present)
+# Check that the release snapshot doc matches (if present). A pin rollback.sh
+# restored and verified (.rollback-applied.json) differs from the release on
+# purpose: a WARN here, and the digest gate below decides whether that pin
+# was ever approved.
+# shellcheck source=lib/rollback-snapshot.sh
+. "${repo_root}/installation-scripts/lib/rollback-snapshot.sh"
+snapshot_tag_mismatch() {  # <component> <release snapshot tag> <docker-compose tag>
+  local pin_digest
+  pin_digest="$(compose_pin "$1" | cut -d' ' -f2)"
+  if rollback_marker_covers "$1" "$3" "$pin_digest"; then
+    warn "Release snapshot $1 ($2) != docker-compose ($3): rollback.sh restored $3 - see Image digest pinning below"
+  else
+    bad "Release snapshot $1 ($2) != docker-compose ($3)"
+  fi
+}
 snapshot_doc="${repo_root}/documentation/01-release-snapshot.md"
 if [[ -f "$snapshot_doc" ]]; then
   snap_server="$(grep -oPm1 'mihailsgordijenko/ps-server:\K[0-9.]+' "$snapshot_doc" 2>/dev/null || echo "")"
   if [[ -n "$snap_server" && "$snap_server" != "$server_tag" ]]; then
-    bad "Release snapshot ps-server (${snap_server}) != docker-compose (${server_tag})"
+    snapshot_tag_mismatch ps-server "$snap_server" "$server_tag"
   fi
   snap_client="$(grep -oPm1 'mihailsgordijenko/ps-client:\K[0-9.]+' "$snapshot_doc" 2>/dev/null || echo "")"
   if [[ -n "$snap_client" && "$snap_client" != "$client_tag" ]]; then
-    bad "Release snapshot ps-client (${snap_client}) != docker-compose (${client_tag})"
+    snapshot_tag_mismatch ps-client "$snap_client" "$client_tag"
   fi
 fi
 
@@ -398,6 +412,7 @@ else
   while IFS=$'\t' read -r gate_status gate_message; do
     case "$gate_status" in
       OK)   ok "$gate_message";;
+      WARN) warn "$gate_message";;
       FAIL) bad "$gate_message";;
       INFO) printf '  %s
 ' "$gate_message";;
