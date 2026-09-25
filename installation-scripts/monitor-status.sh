@@ -344,7 +344,7 @@ console.log("oldest_age_hours="+(oldest===null?"":Math.floor((Date.now()-oldest)
 if [[ -n "$ps_server_cid" ]]; then
   # MSYS_NO_PATHCONV stops Git Bash (Windows dev hosts) from rewriting the
   # script's /usr/... literals; it is ignored everywhere else.
-  buffer_out="$(MSYS_NO_PATHCONV=1 docker compose exec -T ps-server node -e "$buffer_js" 2>/dev/null || echo "error=docker compose exec into ps-server failed")"
+  buffer_out="$(MSYS_NO_PATHCONV=1 docker compose exec -T ps-server node -e "$buffer_js" 2>/dev/null </dev/null || echo "error=docker compose exec into ps-server failed")"
   buffer_error="$(printf '%s\n' "$buffer_out" | sed -n 's/^error=//p')"
   if [[ -n "$buffer_error" ]]; then
     echo "  Could not read buffer: ${buffer_error}"

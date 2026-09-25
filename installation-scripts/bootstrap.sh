@@ -250,9 +250,11 @@ echo "Step 8/8: Verifying deployment..."
 echo "  Waiting for services to initialize..."
 sleep 5
 
-# Check ps-server is responding
+# Check ps-server is responding. Not `docker compose logs | grep -q`: grep -q
+# exits at the first match while compose is still writing, compose dies of
+# SIGPIPE, and pipefail turns the match into a miss (see verify-keycloak.sh).
 for i in $(seq 1 30); do
-  if docker compose logs ps-server 2>/dev/null | grep -q "PadSign Server listening"; then
+  if grep -q "PadSign Server listening" < <(docker compose logs ps-server 2>/dev/null); then
     echo "  ps-server: OK"
     break
   fi

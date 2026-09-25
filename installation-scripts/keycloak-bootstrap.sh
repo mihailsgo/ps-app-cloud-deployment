@@ -224,7 +224,11 @@ if [[ -n "$users_csv" ]]; then
       ensure_role "${role}"
       kc_exec "/opt/keycloak/bin/kcadm.sh add-roles -r ${realm} --uusername '${username}' --rolename '${role}'" >/dev/null
     fi
-  done <<< "$(printf '%s' "$users_csv" | tr ',' '\0')"
+  # A process substitution, not <<< "$(...)": command substitution drops NUL
+  # bytes, which merged every entry into the first (the second user's
+  # password ended up in the first user's role name). kc_exec reads
+  # /dev/null, so it cannot eat this loop's input either.
+  done < <(printf '%s' "$users_csv" | tr ',' '\0')
 fi
 
 echo

@@ -57,6 +57,32 @@ is needed for local e-sealing.
 
 Pull the new version of this repo into your deployment directory.
 
+**Your checkout is not clean, and that is expected.** `bootstrap.sh` writes
+this host's hostname and secrets into four tracked files, so on every
+bootstrapped deployment `git status` shows them as modified:
+
+- `config/config.js` (hostname URLs, the Keycloak backend client secret)
+- `config/constants.json` (hostname, Keycloak URL, `DEMO_MODE`)
+- `docker-compose.yml` (`KC_HOSTNAME`, the nginx network alias, the Keycloak
+  admin user and password)
+- `nginx/nginx.conf` (`server_name`, certificate paths)
+
+`upgrade.sh`, `configure-host.sh` and `toggle-features.sh` edit some of the
+same files (image pins, feature toggles), and `--enable-local-eseal` also
+edits `dmss-container-and-signature-services/application.yml`. These edits
+are this deployment's configuration: never discard them with
+`git checkout -- .` or `git reset --hard`. A plain `git pull` refuses to run
+over them:
+
+```
+error: Your local changes to the following files would be overwritten by merge:
+	docker-compose.yml
+Please commit your changes or stash them before you merge.
+Aborting
+```
+
+So set them aside, pull, and put them back:
+
 ```bash
 cd /opt/psapp
 
@@ -67,16 +93,74 @@ git remote -v
 #   origin  git@gitlab.com:.../ps-app-cloud-deployment.git (fetch)
 #   origin  git@gitlab.com:.../ps-app-cloud-deployment.git (push)
 
-# 2. Confirm the working tree is clean. If there are local changes, stash
-#    or commit them first - `git pull` will refuse to merge over dirty
-#    files:
-git status
+# 2. See what is modified. Expect at least the four files above (" M").
+#    Untracked files ("??": *.bak, signed-output/, docs/, nginx/certs/ ...)
+#    are not touched by the next steps. Note the image tags running now,
+#    in case you need to go back:
+git status --short
+docker compose images ps-server ps-client
 
-# 3. Pull. Make sure you're on the branch that contains the local-eseal
-#    feature; in this repo that branch is `main`:
+# 3. Make sure you're on the branch that contains the local-eseal feature;
+#    in this repo that branch is `main`:
 git checkout main      # safe even if you're already on it
+
+# 4. Stash this host's edits, pull, and re-apply them on top:
+git stash push -m "padsign host config before pull $(date +%Y%m%d-%H%M%S)"
 git pull               # fast-forward to the latest upstream commit
+git stash pop
+
+# 5. Confirm the stash is empty again and your edits are back:
+git stash list         # expect no output
+git status --short     # the same " M" files as in step 2
 ```
+
+`git stash pop` usually merges cleanly: upstream rarely changes the lines
+`bootstrap.sh` wrote. If it reports `CONFLICT (content): Merge conflict in
+<file>`, the stash entry is **kept** (`git stash list` still shows it) and
+the conflicted file contains markers:
+
+```
+<<<<<<< Updated upstream
+    image: 'mihailsgordijenko/ps-server:3.30@sha256:...'
+=======
+    image: 'mihailsgordijenko/ps-server:3.29'
+>>>>>>> Stashed changes
+```
+
+The upper half is the new release, the lower half is this host's edit.
+Resolve each conflicted file by hand:
+
+- **keep this host's value** for anything host-specific: the hostname
+  (`KC_HOSTNAME`, `server_name`, the nginx alias, URLs), the Keycloak admin
+  user and password, the backend client secret, certificate paths, and
+  feature settings (`DEMO_MODE`, `DOCUMENT_ROUTING`, `STAMP_MODE`,
+  `STAMP_LOCAL`);
+- **take the new release's version** of everything else: new keys, comments,
+  healthchecks, and the `image:` lines (those are the release's approved
+  pins, the tags you then pass to `upgrade.sh`).
+
+Then remove the markers, unstage, and drop the entry `pop` kept:
+
+```bash
+grep -n '^<<<<<<<\|^=======\|^>>>>>>>' docker-compose.yml config/config.js \
+  config/constants.json nginx/nginx.conf   # expect no output
+git restore --staged .    # back to plain local edits (" M"), nothing staged
+git stash list            # your entry, e.g. stash@{0}: On main: padsign host config ...
+git stash drop stash@{0}  # the entry from the line above
+git stash list            # expect no output
+```
+
+If it goes wrong, the stash entry still holds your original edits until you
+drop it: `git stash show -p stash@{0}` shows them.
+
+> **Run `upgrade.sh` right after the pull, with nothing in between.** The pull
+> already moved `docker-compose.yml` to the new release's image tags, while
+> the containers are still the old ones. Any `docker compose up` in that
+> window (or a script that runs one, such as `toggle-features.sh` or
+> `update-hostname.sh`) starts the new images without `upgrade.sh`'s checks,
+> backups, rollback snapshot and migrations. Go straight on to the checks
+> below and then Phase 2 (or [5. Upgrading an Existing Deployment](05-upgrading-an-existing-deployment.md)
+> if you are only bumping image versions).
 
 If you can't pull from a git remote (air-gapped host, no SSH keys, etc.),
 the alternative is to download the repo as a `.zip` / `.tar.gz` from

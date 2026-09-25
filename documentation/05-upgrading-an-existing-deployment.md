@@ -11,6 +11,17 @@ checkout's `docker-compose.yml` pins, described in
 # Any combination is valid; --enable-local-eseal alone is allowed too.
 ```
 
+> **First bring this checkout to the new release.** On a bootstrapped host a
+> plain `git pull` aborts, because `bootstrap.sh` left this host's hostname
+> and secrets in `config/config.js`, `config/constants.json`,
+> `docker-compose.yml` and `nginx/nginx.conf`. Stash them, pull, pop them
+> back and check `git stash list` is empty, as in
+> [4.4 Phase 1](04-04-existing-deployment-upgrade-an-already-deployed-instance.md#phase-1---update-the-deployment-scripts-and-configs)
+> (which also covers a conflict on `git stash pop`). Then run `upgrade.sh`
+> straight away: the pull already pins the new tags in `docker-compose.yml`
+> while the old containers are still running, so no `docker compose up`
+> in between.
+
 The script only changes what you ask it to — it pulls the new image(s), restarts
 just those containers, and prints a rollback command. It is safe to re-run.
 A requested tag must be the one `release/approved-digests.json` approves. The

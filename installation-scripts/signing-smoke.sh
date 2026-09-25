@@ -191,7 +191,8 @@ ps_server_node() {  # runs a node snippet inside ps-server; extra -e VAR=... bef
   local -a envs=()
   while [[ "${1:-}" == -e ]]; do envs+=("$1" "$2"); shift 2; done
   # MSYS_NO_PATHCONV stops Git Bash (Windows dev hosts) rewriting /usr/...
-  MSYS_NO_PATHCONV=1 docker compose exec -T "${envs[@]}" ps-server node -e "$1"
+  # stdin is /dev/null: `exec -T` still forwards stdin (see lib/kcadm.sh kc_exec).
+  MSYS_NO_PATHCONV=1 docker compose exec -T "${envs[@]}" ps-server node -e "$1" </dev/null
 }
 
 # kc_step <what> <kcadm command...>: kcadm's chatter ("Logging into ...",

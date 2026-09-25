@@ -229,9 +229,10 @@ cs_logs() { "${compose[@]}" logs --no-color --no-log-prefix dmss-container-and-s
 # MSYS_NO_PATHCONV only matter under Git Bash (a dev/test convenience),
 # which would otherwise rewrite in-container paths like /smoke/... into
 # Windows paths; on Linux both are no-ops.
+# stdin is /dev/null: `exec -T` still forwards stdin (see lib/kcadm.sh kc_exec).
 cs_exec() {
   (cd "$work" && MSYS_NO_PATHCONV=1 docker compose -p "$project" -f compose.yml \
-    exec -T dmss-container-and-signature-services "$@")
+    exec -T dmss-container-and-signature-services "$@" </dev/null)
 }
 
 echo "========================================"
@@ -336,7 +337,7 @@ fi
 tsa_errors="$(cs_logs | tr -d '\r' | grep -a -c 'Error getting timestamp' || true)"
 if [[ "${tsa_errors:-0}" != "0" ]]; then
   echo "       container-signature logged ${tsa_errors} 'Error getting timestamp' line(s):"
-  cs_logs | tr -d '\r' | grep -a 'Error getting timestamp' | head -3 | cut -c1-220 | sed 's/^/         /'
+  cs_logs | tr -d '\r' | grep -a 'Error getting timestamp' | head -3 | cut -c1-220 | sed 's/^/         /' || true
 fi
 echo ""
 
