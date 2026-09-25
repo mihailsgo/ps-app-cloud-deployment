@@ -3,7 +3,7 @@
 Use this when an instance is **already deployed on an older tag** and you want to
 move it to the current release: the tags this checkout's `docker-compose.yml`
 pins, described in [1. Release Snapshot](01-release-snapshot.md)
-(`ps-server:3.30` + `ps-client:8.40` at the time of writing). The two features
+(`ps-server:3.32` + `ps-client:8.40` at the time of writing). The two features
 this page walks through arrived in `ps-server:3.27` / `ps-client:8.38` and are
 retained by every later tag.
 
@@ -54,7 +54,7 @@ alone is safe and changes no behaviour until you enable routing.
 
 ```bash
 cd /path/to/ps-app-cloud-deployment
-./installation-scripts/upgrade.sh --server-tag 3.30 --client-tag 8.40
+./installation-scripts/upgrade.sh --server-tag 3.32 --client-tag 8.40
 ```
 
 This backs up `docker-compose.yml` + `config/config.js`, rewrites the image tags,
@@ -122,7 +122,7 @@ Full desktop steps + verification: [35. Receive-back deployment runbook](35-rece
 
 ```bash
 docker ps --format '  {{.Names}}: {{.Image}} ({{.Status}})' | grep -E 'ps-server|ps-client'
-#   expect the tags you passed above (ps-server:3.30 and ps-client:8.40)
+#   expect the tags you passed above (ps-server:3.32 and ps-client:8.40)
 ```
 
 Then sign a (non-demo) document for a known `email`+`company`; the Manager should

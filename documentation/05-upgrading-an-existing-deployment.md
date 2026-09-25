@@ -2,11 +2,11 @@
 
 To move an already-deployed instance to the **current release** (the tags this
 checkout's `docker-compose.yml` pins, described in
-[1. Release Snapshot](01-release-snapshot.md) - `ps-server:3.30`,
+[1. Release Snapshot](01-release-snapshot.md) - `ps-server:3.32`,
 `ps-client:8.40` at the time of writing):
 
 ```bash
-./installation-scripts/upgrade.sh --server-tag 3.30 --client-tag 8.40
+./installation-scripts/upgrade.sh --server-tag 3.32 --client-tag 8.40
 # Add --enable-local-eseal to also provision the local stamping stack.
 # Any combination is valid; --enable-local-eseal alone is allowed too.
 ```
