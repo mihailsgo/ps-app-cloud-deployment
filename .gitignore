@@ -49,6 +49,8 @@ PSDOCS/**
 # stateDetector.test.js reads this fixture by name.
 !deployment-wizard/test/fixtures/**/*.bak
 .rollback-snapshots/
+# Written by rollback.sh after a verified rollback (image references only)
+.rollback-applied.json
 .monitor-state/
 deployment-evidence.json
 deployment-evidence.json.previous

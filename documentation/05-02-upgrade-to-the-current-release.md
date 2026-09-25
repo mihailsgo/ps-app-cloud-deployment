@@ -132,10 +132,14 @@ services to report healthy:
 ./installation-scripts/rollback.sh --yes
 ```
 
-This restores the exact `tag@sha256:digest` that was pinned immediately
-before the upgrade — not just the tag — taken from the snapshot's own copy of
-`docker-compose.yml` (falling back to the registry digest its manifest
-recorded for the running container), rather than re-deriving it.
+This restores the exact `tag@sha256:digest` of the image that was **running**
+immediately before the upgrade - not just the tag, and not what
+`docker-compose.yml` pinned then, which after the `git pull` above was already
+the new release. It then checks that the restored containers run exactly that
+digest and exits 1 if they do not. Afterwards `validate-config.sh` reports the
+restored pins as a rollback (WARN), because an earlier committed revision of
+`release/approved-digests.json` approved them; see
+[40.4](40-04-rollback.md#validate-configsh-after-a-rollback).
 
 If no snapshot exists (a deployment upgraded before `rollback.sh` existed, or
 `.rollback-snapshots/` was pruned/lost), reconstruct manually: look up the

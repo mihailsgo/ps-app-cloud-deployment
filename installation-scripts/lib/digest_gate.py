@@ -25,16 +25,32 @@ Called by lib/digests.sh (never directly by an operator). Two subcommands:
 
   check <repo_root> <release approved-digests.json>
       Reads "images" output on stdin and prints one "<STATUS>\t<message>"
-      line per finding, STATUS one of OK / FAIL / INFO. Every image must be
+      line per finding, STATUS one of OK / WARN / FAIL / INFO. Every image must be
       digest-pinned and approved, either by the release's
       release/approved-digests.json or, on a host run as "release baseline +
       environment overlay", by the overlay's own approved-digests.json (the
       overlay directory named in .overlay-applied.json). Anything else FAILs.
 
+      One exception, reported as WARN instead of FAIL: a ps-server /
+      ps-client pin that rollback.sh restored (it is named in
+      .rollback-applied.json, which rollback.sh writes after it has verified
+      the restored containers) AND that a committed revision of the release's
+      approved-digests.json approved for that same tag. That is a rollback to
+      a previously approved release, not an unreviewed image; a rollback to a
+      pin no release ever approved (an --allow-unapproved hotfix, or a
+      checkout without git history) still FAILs.
+
   approvals <repo_root>
       Prints the overlay's approvals as "<key>\t<repository>\t<tag>\t<digest>"
       (nothing if there is no overlay or it approves nothing), for
       check-digest-drift.sh's live registry comparison.
+
+  release-tag <repo_root> <release approved-digests.json> <repository> <digest>
+      Prints "<tag>\t<where>" for a digest this release knows under a tag:
+      approved now, listed in release/unsigned-legacy-images.json, or
+      approved by an earlier committed revision of approved-digests.json.
+      Prints nothing if none does. rollback.sh uses it to name the tag of a
+      digest a rollback snapshot recorded.
 
 Set PADSIGN_DIGEST_GATE_NO_DOCKER=1 to force the file fallback (used by tests
 and on hosts where docker is present but must not be called).
@@ -56,6 +72,9 @@ except AttributeError:
 RELEASE_MANAGED_IMAGES = ("mihailsgordijenko/ps-server", "mihailsgordijenko/ps-client")
 
 ENV_APPROVALS_NAME = "approved-digests.json"
+
+# Written by rollback.sh (lib/rollback-snapshot.sh) after a verified rollback.
+ROLLBACK_MARKER_NAME = ".rollback-applied.json"
 
 
 # ── image references ────────────────────────────────────────────────────────
@@ -283,6 +302,106 @@ def approvals(repo_root):
     return 0
 
 
+# ── release history (rollback) ──────────────────────────────────────────────
+
+def release_history(repo_root, release_path):
+    """Every (key, repository, tag, digest, commit) a committed revision of
+    the release's approved-digests.json approved, newest commit first. Empty
+    when the file is outside the checkout or git history is unavailable (a
+    .zip-unpacked deployment, no git installed)."""
+    rel = os.path.relpath(os.path.abspath(release_path), os.path.abspath(repo_root))
+    if rel.startswith(".."):
+        return []
+    rel = rel.replace(os.sep, "/")
+
+    def git(args):
+        try:
+            p = subprocess.run(["git", "-C", repo_root] + args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        except OSError:
+            return None
+        return p.stdout.decode("utf-8", "replace") if p.returncode == 0 else None
+
+    commits = git(["log", "--format=%H", "--", rel])
+    out, seen = [], set()
+    for commit in (commits or "").split():
+        text = git(["show", "%s:%s" % (commit, rel)])
+        if text is None:
+            continue
+        try:
+            images = (json.loads(text) or {}).get("images") or {}
+        except (ValueError, AttributeError):
+            continue
+        for key, e in images.items():
+            if not isinstance(e, dict):
+                continue
+            entry = (key, norm_repo(e.get("repository", "")), e.get("tag", ""), e.get("digest", ""))
+            if entry not in seen:
+                seen.add(entry)
+                out.append(entry + (commit,))
+    return out
+
+
+def load_rollback_marker(repo_root):
+    """{key: {repository, tag, digest}} plus the marker's own fields, or {}."""
+    try:
+        with open(os.path.join(repo_root, ROLLBACK_MARKER_NAME), encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def rollback_finding(repo_root, release_path, key, repo, tag, digest, current, marker, history_cache):
+    """A (STATUS, message) for a ps-server / ps-client pin that rollback.sh
+    restored, or None when the pin is not a rollback target at all."""
+    if norm_repo(repo) not in RELEASE_MANAGED_IMAGES:
+        return None
+    entry = (marker.get("images") or {}).get(key) or {}
+    if not (norm_repo(entry.get("repository", "")) == norm_repo(repo)
+            and entry.get("tag") == tag and entry.get("digest") == digest):
+        return None
+    if "history" not in history_cache:
+        history_cache["history"] = release_history(repo_root, release_path)
+    commits = [h[4] for h in history_cache["history"]
+               if h[0] == key and h[1] == norm_repo(repo) and h[2] == tag and h[3] == digest]
+    flag = {"ps-server": "--server-tag", "ps-client": "--client-tag"}.get(key, "--%s-tag" % key)
+    restored = "rolled back to %s:%s by rollback.sh (snapshot %s, %s)" % (
+        repo, tag, marker.get("snapshot") or "?", marker.get("restored_at") or "?")
+    if not commits:
+        return ("FAIL", "%s: %s, but no committed revision of release/approved-digests.json ever approved %s for %s - "
+                "unapproved digest (an --allow-unapproved hotfix, or a checkout without git history?)"
+                % (key, restored, digest, tag))
+    return ("WARN", "%s: %s - approved by release commit %s, not by this checkout's release/approved-digests.json "
+            "(which approves %s). Roll forward with upgrade.sh %s %s once the cause of the rollback is fixed"
+            % (key, restored, commits[0][:12], current or "nothing", flag, current or "<tag>"))
+
+
+def release_tag(repo_root, release_path, repository, digest):
+    """Prints "<tag>\t<where>" for a digest the release knows, or nothing."""
+    repo = norm_repo(repository)
+    try:
+        for key, e in load_release(release_path).items():
+            if norm_repo(e.get("repository", "")) == repo and e.get("digest") == digest and e.get("tag"):
+                print("%s\t%s" % (e["tag"], "release/approved-digests.json"))
+                return 0
+    except Exception:  # noqa: BLE001 - an unreadable file just knows nothing
+        pass
+    legacy = os.path.join(os.path.dirname(os.path.abspath(release_path)), "unsigned-legacy-images.json")
+    try:
+        with open(legacy, encoding="utf-8") as fh:
+            for e in (json.load(fh) or {}).get("images") or []:
+                if norm_repo(e.get("repository", "")) == repo and e.get("digest") == digest and e.get("tag"):
+                    print("%s\t%s" % (e["tag"], "release/unsigned-legacy-images.json"))
+                    return 0
+    except (OSError, ValueError, AttributeError):
+        pass
+    for key, r, tag, d, commit in release_history(repo_root, release_path):
+        if r == repo and d == digest and tag:
+            print("%s\t%s" % (tag, "release/approved-digests.json at commit %s" % commit[:12]))
+            return 0
+    return 0
+
+
 def check(repo_root, release_path):
     findings = []
     source = ""
@@ -317,6 +436,9 @@ def check(repo_root, release_path):
     # Every image the release approves has to be in the model at all - a
     # release image that vanished (renamed service, typo in an overlay) is
     # as wrong as an extra one.
+    marker = None       # .rollback-applied.json, read only if a pin needs it
+    history_cache = {}  # release_history(), read at most once
+
     present = {norm_repo(split_ref(img)[0]) for _, img in services if img}
     for key, e in release.items():
         if norm_repo(e.get("repository", "")) not in present:
@@ -341,6 +463,14 @@ def check(repo_root, release_path):
                              % (label, image, where_approved)))
             continue
         match = [x for x in entries if x[2].get("digest") == digest]
+        if not match and release_entries:
+            if marker is None:
+                marker = load_rollback_marker(repo_root)
+            rolled_back = rollback_finding(repo_root, release_path, release_entries[0][1], repo, tag, digest,
+                                           release_entries[0][2].get("tag"), marker, history_cache)
+            if rolled_back:
+                findings.append(rolled_back)
+                continue
         if not match:
             want = ", ".join("%s for %s:%s" % (x[2].get("digest"), x[1], x[2].get("tag")) for x in entries)
             findings.append(("FAIL", "%s: pinned digest (%s) does not match the approved digest in %s (%s) - unapproved digest"
@@ -371,7 +501,10 @@ def main(argv):
         return check(argv[1], argv[2])
     if len(argv) >= 2 and argv[0] == "approvals":
         return approvals(argv[1])
-    sys.stderr.write("usage: digest_gate.py images <repo_root> | check <repo_root> <approved-digests.json> | approvals <repo_root>\n")
+    if len(argv) >= 5 and argv[0] == "release-tag":
+        return release_tag(argv[1], argv[2], argv[3], argv[4])
+    sys.stderr.write("usage: digest_gate.py images <repo_root> | check <repo_root> <approved-digests.json> | approvals <repo_root>"
+                     " | release-tag <repo_root> <approved-digests.json> <repository> <digest>\n")
     return 2
 
 

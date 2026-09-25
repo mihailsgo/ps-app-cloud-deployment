@@ -177,6 +177,23 @@ current_tag() {
   sed -nE "s|.*mihailsgordijenko/$1:([0-9]+\.[0-9]+(\.[0-9]+)?).*|\1|p" "$compose_yml" 2>/dev/null | head -1
 }
 
+# What is RUNNING, as opposed to what docker-compose.yml pins (current_tag).
+# The two differ after the documented `git pull` ahead of this script
+# (documentation/04-04 Phase 1): the pull already pins the new release while
+# the old containers keep running. The "old → new" lines, the plan and the
+# rollback snapshot (lib/rollback-snapshot.sh) use the running tag, and a
+# mismatch is said out loud. Read-only (docker compose ps / docker inspect),
+# so --plan-only stays side-effect free; without docker it is the pin.
+declare -A from_tag=() drift_note=()
+load_running_state() {
+  local c
+  for c in ps-server ps-client; do
+    component_state "$c"
+    from_tag[$c]="${cs_running_tag:-$cs_pinned_tag}"
+    drift_note[$c]="$(component_drift_text "$c")"
+  done
+}
+
 # ── Capability pre-flight ───────────────────────────────────────────────────
 #
 # Some deployment decisions only work against an image new enough to contain the
@@ -835,15 +852,20 @@ plan_tag_note() {  # <key> <requested tag>
 render_plan() {
   local id status title
   local srv_now cli_now
-  srv_now="$(current_tag ps-server)"; srv_now="${srv_now:-unknown}"
-  cli_now="$(current_tag ps-client)"; cli_now="${cli_now:-unknown}"
+  # "from" is what is running (load_running_state), not what
+  # docker-compose.yml pins: after a `git pull` the pin already names the
+  # target, and the plan used to print "3.30 → 3.30" for a real 3.28 → 3.30.
+  srv_now="${from_tag[ps-server]:-unknown}"
+  cli_now="${from_tag[ps-client]:-unknown}"
 
   if [[ "$plan_format" == machine ]]; then
     printf '###PLAN-BEGIN\n'
     printf 'server_tag_from=%s\n' "$srv_now"
     printf 'server_tag_to=%s\n'   "${server_tag:-$srv_now}"
+    printf 'server_tag_pinned=%s\n' "$(current_tag ps-server)"
     printf 'client_tag_from=%s\n' "$cli_now"
     printf 'client_tag_to=%s\n'   "${client_tag:-$cli_now}"
+    printf 'client_tag_pinned=%s\n' "$(current_tag ps-client)"
     # Only reachable with --allow-unapproved; without it the gate has already
     # refused. "ps-server:3.99:3.28" = key, requested tag, approved tag (or -).
     if [[ ${#unapproved_requests[@]} -gt 0 ]]; then
@@ -878,8 +900,10 @@ render_plan() {
   echo "  Image tags:"
   if [[ -n "$server_tag" ]]; then echo "    ps-server: ${srv_now} → ${server_tag}$(plan_tag_note ps-server "$server_tag")"
   else echo "    ps-server: ${srv_now} (unchanged)"; fi
+  if [[ -n "${drift_note[ps-server]}" ]]; then echo "      NOTE: ${drift_note[ps-server]}"; fi
   if [[ -n "$client_tag" ]]; then echo "    ps-client: ${cli_now} → ${client_tag}$(plan_tag_note ps-client "$client_tag")"
   else echo "    ps-client: ${cli_now} (unchanged)"; fi
+  if [[ -n "${drift_note[ps-client]}" ]]; then echo "      NOTE: ${drift_note[ps-client]}"; fi
   echo ""
   if [[ ${#unapproved_requests[@]} -gt 0 ]]; then
     echo "  UNAPPROVED OVERRIDE (--allow-unapproved): $(describe_unapproved)."
@@ -916,6 +940,8 @@ render_plan() {
   echo "========================================"
 }
 
+load_running_state
+
 if [[ "$plan_only" == true ]]; then
   render_plan
   exit 0
@@ -923,8 +949,8 @@ fi
 
 echo "========================================"
 echo "PadSign Upgrade"
-[[ -n "$server_tag" ]] && echo "  ps-server: → ${server_tag}"
-[[ -n "$client_tag" ]] && echo "  ps-client: → ${client_tag}"
+[[ -n "$server_tag" ]] && echo "  ps-server: ${from_tag[ps-server]:-unknown} → ${server_tag}"
+[[ -n "$client_tag" ]] && echo "  ps-client: ${from_tag[ps-client]:-unknown} → ${client_tag}"
 echo "========================================"
 echo ""
 if [[ ${#unapproved_requests[@]} -gt 0 ]]; then
@@ -994,6 +1020,9 @@ echo "Step 1/6: Backing up..."
 # the end, unchanged from before.
 snapshot_dir="$(write_rollback_snapshot)"
 echo "  Rollback snapshot: ${snapshot_dir}"
+for c in ps-server ps-client; do
+  if [[ -n "${drift_note[$c]}" ]]; then echo "  NOTE: ${drift_note[$c]}"; fi
+done
 cp -f "$compose_yml" "${compose_yml}.bak"
 cp -f "$config_js" "${config_js}.bak"
 echo "  Backups created"
@@ -1014,7 +1043,7 @@ echo "  Backups created"
 echo "Step 2/6: Updating image tags..."
 unpinned_tags=false
 if [[ -n "$server_tag" ]]; then
-  old_server="$(current_tag ps-server)"; old_server="${old_server:-unknown}"
+  old_server="${from_tag[ps-server]:-unknown}"
   server_pin="$(approved_pin ps-server "$server_tag")"
   sed -i -E "s|mihailsgordijenko/ps-server:[0-9.]*(@sha256:[0-9a-f]+)?|mihailsgordijenko/ps-server:${server_tag}${server_pin}|" "$compose_yml"
   if [[ -n "$server_pin" ]]; then
@@ -1025,7 +1054,7 @@ if [[ -n "$server_tag" ]]; then
   fi
 fi
 if [[ -n "$client_tag" ]]; then
-  old_client="$(current_tag ps-client)"; old_client="${old_client:-unknown}"
+  old_client="${from_tag[ps-client]:-unknown}"
   client_pin="$(approved_pin ps-client "$client_tag")"
   sed -i -E "s|mihailsgordijenko/ps-client:[0-9.]*(@sha256:[0-9a-f]+)?|mihailsgordijenko/ps-client:${client_tag}${client_pin}|" "$compose_yml"
   if [[ -n "$client_pin" ]]; then
@@ -1152,6 +1181,8 @@ fix_docs_permissions >/dev/null
 echo ""
 echo "Recording deployment evidence..."
 write_deployment_evidence "upgrade.sh"
+# A rollback marker only speaks for pins still in place (lib/rollback-snapshot.sh).
+prune_rollback_marker || true
 
 echo ""
 echo "========================================"
