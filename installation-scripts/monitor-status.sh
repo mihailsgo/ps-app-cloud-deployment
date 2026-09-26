@@ -10,9 +10,15 @@ set -euo pipefail
 # --alert mode evaluates the same numbers against thresholds, prints an
 # "== Alerts ==" section, exits 1 when anything fired, and - when
 # ALERT_WEBHOOK_URL is set (environment, or .env next to docker-compose.yml) -
-# POSTs one JSON message per run to that URL. Run it from cron:
+# POSTs one JSON message per run to that URL. ALERT_WEBHOOK_FORMAT picks the
+# message shape: json (default) or teams (the Adaptive Card a Microsoft Teams
+# Workflows webhook requires; auto-selected for a Workflows URL). Run it from
+# cron:
 #
 #   */10 * * * * cd /opt/padsign && ./installation-scripts/monitor-status.sh --alert >/dev/null
+#
+# --test-webhook sends one harmless test message through the same URL, format
+# and auth header, prints the HTTP status and exits. It needs no running stack.
 #
 # In --alert mode the script keeps a small state file (.monitor-state/ by
 # default) so that each run only scans logs written since the previous run
@@ -30,8 +36,15 @@ host=""
 log_lines=500
 since=""
 alert_mode=false
+test_webhook=false
 compose_dir="$repo_root"
 state_dir=""
+
+# shellcheck source=lib/alert-webhook.sh
+. "${scripts_dir}/lib/alert-webhook.sh"
+# storage_mount: where the effective compose model mounts the stores from.
+# shellcheck source=lib/dir-permissions.sh
+. "${scripts_dir}/lib/dir-permissions.sh"
 
 usage() {
   cat <<'EOF'
@@ -39,6 +52,8 @@ Usage:
   ./installation-scripts/monitor-status.sh [--host example.com] [--log-lines 500]
                                            [--since 15m|<RFC3339>]
                                            [--alert] [--state-dir DIR]
+                                           [--compose-dir DIR]
+  ./installation-scripts/monitor-status.sh --test-webhook [--host example.com]
                                            [--compose-dir DIR]
 
 Reports:
@@ -51,6 +66,11 @@ Reports:
 --alert        Evaluate thresholds, exit 1 if any alert fired, and POST them to
                ALERT_WEBHOOK_URL when set. Keeps state in --state-dir
                (default: <repo>/.monitor-state) between runs.
+--test-webhook Send ONE harmless test message ("PadSign monitor test from
+               <host> - webhook works") with the same URL, format and auth
+               header --alert uses, print the HTTP status and exit: 0 delivered
+               (2xx), 3 not delivered, 2 not configured. Checks nothing else
+               and needs no running stack.
 --since        Log window for failure counts. Default in --alert mode: since the
                previous run (first run: last --log-lines lines). Default in
                report mode: last --log-lines lines.
@@ -66,12 +86,24 @@ Thresholds (environment variables, defaults in brackets):
   ALERT_FAILURE_MIN [1]            failure log lines per category in the window
 
 Delivery:
-  ALERT_WEBHOOK_URL                POST target (env var wins over .env)
+  ALERT_WEBHOOK_URL                POST target (env var wins over .env). A secret:
+                                   only its scheme and host are ever printed.
+  ALERT_WEBHOOK_FORMAT             json (default): {"text":...,"alerts":[...]},
+                                   for Slack and generic receivers.
+                                   teams: an Adaptive Card message, which a
+                                   Microsoft Teams Workflows webhook requires.
+                                   Unset: teams when the URL host ends with
+                                   .logic.azure.com or contains .powerplatform.com,
+                                   otherwise json. An explicit value always wins.
   ALERT_WEBHOOK_AUTH_HEADER        optional full header line, e.g.
                                    "Authorization: Bearer abc"
+  Any 2xx counts as delivered. Teams Workflows answers 202 before its flow
+  runs, so a 202 does not prove the card was posted.
 
-Exit codes: 0 ok / no alerts, 1 alerts fired, 2 usage error,
-            3 alerts fired AND webhook delivery failed.
+Exit codes: 0 ok / no alerts, 1 alerts fired, 2 usage error (including an
+            unsupported ALERT_WEBHOOK_FORMAT), 3 alerts fired AND webhook
+            delivery failed. --test-webhook: 0 delivered, 2 not configured,
+            3 not delivered.
 EOF
 }
 
@@ -81,6 +113,7 @@ while [[ $# -gt 0 ]]; do
     --log-lines) log_lines="${2:-}"; shift 2;;
     --since) since="${2:-}"; shift 2;;
     --alert) alert_mode=true; shift 1;;
+    --test-webhook) test_webhook=true; shift 1;;
     --state-dir) state_dir="${2:-}"; shift 2;;
     --compose-dir) compose_dir="${2:-}"; shift 2;;
     -h|--help) usage; exit 0;;
@@ -111,6 +144,48 @@ failure_min="${ALERT_FAILURE_MIN:-1}"
 # not given explicitly.
 if [[ -z "$host" ]]; then
   host="$(awk '/server_name/{print $2; exit}' "${compose_dir}/nginx/nginx.conf" 2>/dev/null | tr -d ';' || true)"
+fi
+
+# ── Webhook settings (--alert, --test-webhook) ──
+# Resolved up front, so an unsupported ALERT_WEBHOOK_FORMAT stops the run
+# (exit 2) at the first check by hand instead of when an alert finally fires.
+webhook_url=""; webhook_auth=""; webhook_format="json"; webhook_format_why="default"
+if [[ "$alert_mode" == true || "$test_webhook" == true ]]; then
+  resolve_webhook_config "$compose_dir" || exit 2
+fi
+
+teams_202_note() {
+  echo "  Teams Workflows answers 202 before its flow runs, so a 2xx does not prove the card was posted."
+  echo "  If it is not in the channel within a minute, open the flow's run history (Power Automate > My flows)."
+}
+
+if [[ "$test_webhook" == true ]]; then
+  echo "PadSign webhook test"
+  echo "================================"
+  if [[ -z "$webhook_url" ]]; then
+    echo "ERROR: ALERT_WEBHOOK_URL is not set (environment, or ${compose_dir}/.env) - nothing to test." >&2
+    exit 2
+  fi
+  test_generated="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  test_text="PadSign monitor test from ${host:-unknown host} - webhook works"
+  webhook_target="$(webhook_url_target "$webhook_url")"
+  if [[ "$webhook_format" == teams ]]; then
+    payload="$(teams_card_payload "$(card_text_block "$test_text" '"weight":"Bolder","size":"Medium"'),$(card_text_block "Sent by monitor-status.sh --test-webhook. This is a test: no action needed."),$(card_footer "$test_generated")")"
+  else
+    payload="{\"text\":$(json_str "$test_text"),\"source\":\"padsign-monitor\",\"host\":$(json_str "${host:-}"),\"generated\":$(json_str "$test_generated"),\"test\":true,\"alerts\":[]}"
+  fi
+  echo "Webhook:   ${webhook_target} (scheme and host only; the URL is a secret and is never printed)"
+  echo "Format:    ${webhook_format} (${webhook_format_why})"
+  echo "Message:   ${test_text}"
+  post_webhook "$webhook_url" "$webhook_auth" "$payload"
+  if [[ "$webhook_http_code" =~ ^2[0-9][0-9]$ ]]; then
+    echo "Result:    HTTP ${webhook_http_code} - delivered to ${webhook_target}."
+    if [[ "$webhook_format" == teams ]]; then teams_202_note; fi
+    exit 0
+  fi
+  echo "ERROR: HTTP ${webhook_http_code} - the test message was not delivered to ${webhook_target}." >&2
+  if [[ -n "$webhook_curl_error" ]]; then echo "  ${webhook_curl_error}" >&2; fi
+  exit 3
 fi
 
 # ── Alert bookkeeping ──
@@ -249,8 +324,11 @@ if [[ -n "$ps_server_cid" ]]; then
   matches() { printf '%s\n' "$recent_logs" | grep -E "$1" || true; }
   count_of() { [[ -z "$1" ]] && echo 0 || printf '%s\n' "$1" | grep -c . ; }
   # Last three matching lines, trimmed, so an alert says which document or
-  # dependency failed instead of just a number.
-  samples_of() { [[ -z "$1" ]] && return 0; printf '%s\n' "$1" | tail -3 | cut -c1-400; }
+  # dependency failed instead of just a number. The cut is at byte 400, and a
+  # multi-byte character (a Latvian letter) it splits is dropped: half a
+  # character makes the payload invalid UTF-8.
+  utf8_cut_tail=$'s/([\xC0-\xDF]|[\xE0-\xEF][\x80-\xBF]?|[\xF0-\xF7][\x80-\xBF]{0,2})$//'
+  samples_of() { [[ -z "$1" ]] && return 0; printf '%s\n' "$1" | tail -3 | LC_ALL=C cut -b1-400 | LC_ALL=C sed -E "$utf8_cut_tail"; }
 
   check_failures() {  # key label regex [exclude-regex]
     local key="$1" label="$2" re="$3" exclude="${4:-}" lines n
@@ -276,15 +354,39 @@ echo ""
 
 # ── Disk ──
 echo "== Disk usage =="
-for dir in "${compose_dir}/signed-output" "${compose_dir}/docs"; do
-  if [[ -d "$dir" ]]; then
-    echo "  ${dir}: $(du -sh "$dir" 2>/dev/null | cut -f1 || echo "?")"
+# The two stores are wherever the effective compose model mounts them from
+# (lib/digest_gate.py mounts, read by storage_mount in lib/dir-permissions.sh,
+# as upgrade.sh does): on an overlay-managed checkout compose.overlay.yml
+# mounts them from outside the checkout, where the documents already are, and
+# the checkout's own signed-output/ and docs/ do not exist. When the model
+# cannot be read (no python3), or has no such mount, the checkout paths are
+# shown as before.
+store_mounts=""
+if command -v python3 >/dev/null 2>&1; then
+  store_mounts="$(python3 "${scripts_dir}/lib/digest_gate.py" mounts "$compose_dir" 2>/dev/null | tr -d '\r' || true)"
+fi
+store_dirs=()
+for store in "ps-server /signed-output signed-output" "dmss-archive-services-fallback /docs docs"; do
+  read -r store_svc store_target store_name <<< "$store"
+  # storage_mount resolves in-tree mounts against repo_root: here, the
+  # directory the model was read from.
+  repo_root="$compose_dir" storage_mount "$store_svc" "$store_target" "${compose_dir}/${store_name}" "$store_mounts"
+  if [[ "$storage_how" == volume ]]; then
+    echo "  ${store_name}: a named Docker volume (no host directory) - see 'docker system df -v'"
+    continue
+  fi
+  where=""
+  [[ "$storage_in_tree" == true ]] || where=" (${store_name}, mounted from outside the checkout)"
+  if [[ -d "$storage_path" ]]; then
+    echo "  ${storage_path}: $(du -sh "$storage_path" 2>/dev/null | cut -f1 || echo "?")${where}"
+    store_dirs+=("$storage_path")
   else
-    echo "  ${dir}: does not exist"
+    echo "  ${storage_path}: does not exist${where}"
   fi
 done
 docker_root="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || true)"
-disk_paths=("$compose_dir")
+# The stores' filesystems too: overlay storage can be a separate volume.
+disk_paths=("$compose_dir" ${store_dirs[@]+"${store_dirs[@]}"})
 [[ -n "$docker_root" && -d "$docker_root" ]] && disk_paths+=("$docker_root")
 declare -A seen_fs=()
 for p in "${disk_paths[@]}"; do
@@ -382,13 +484,6 @@ if [[ "$alert_mode" != true ]]; then
 fi
 
 # ── Alerts ──
-json_str() {
-  local s
-  s="$(printf '%s' "$1" | tr -d '\000-\010\013\014\016-\037')"
-  s="${s//\\/\\\\}"; s="${s//\"/\\\"}"; s="${s//$'\t'/\\t}"; s="${s//$'\r'/}"; s="${s//$'\n'/\\n}"
-  printf '"%s"' "$s"
-}
-
 echo "== Alerts =="
 n_alerts="${#alert_keys[@]}"
 if [[ "$n_alerts" -eq 0 ]]; then
@@ -414,14 +509,6 @@ mv -f "${state_file}.tmp" "$state_file"
 
 [[ "$n_alerts" -eq 0 ]] && { echo "No alerts."; exit 0; }
 
-webhook_url="${ALERT_WEBHOOK_URL:-}"
-webhook_auth="${ALERT_WEBHOOK_AUTH_HEADER:-}"
-if [[ -f "${compose_dir}/.env" ]]; then
-  env_val() { sed -n "s/^$1=//p" "${compose_dir}/.env" | tail -1 | sed -E 's/^"(.*)"$/\1/; s/^'"'"'(.*)'"'"'$/\1/'; }
-  [[ -z "$webhook_url" ]] && webhook_url="$(env_val ALERT_WEBHOOK_URL)"
-  [[ -z "$webhook_auth" ]] && webhook_auth="$(env_val ALERT_WEBHOOK_AUTH_HEADER)"
-fi
-
 if [[ -z "$webhook_url" ]]; then
   echo "${n_alerts} alert(s) fired. ALERT_WEBHOOK_URL is not set - nothing delivered (exit code 1 only)."
   exit 1
@@ -430,29 +517,47 @@ fi
 summary="PadSign ALERT on ${host:-unknown host}: ${n_alerts} alert(s)"
 text="$summary"
 alerts_json=""
+# The Teams card: bold title, one TextBlock per alert (key: message), its log
+# samples in small monospace, and a subtle source/timestamp footer.
+card_body=""
+if [[ "$webhook_format" == teams ]]; then
+  card_body="$(card_text_block "PadSign: ${n_alerts} alert(s) on ${host:-unknown host}" '"weight":"Bolder","size":"Medium"')"
+fi
 for i in "${!alert_keys[@]}"; do
   text+=$'\n'"- ${alert_keys[$i]}: ${alert_messages[$i]}"
+  if [[ "$webhook_format" == teams ]]; then
+    card_body+=",$(card_text_block "${alert_keys[$i]}: ${alert_messages[$i]}")"
+  fi
   samples_json=""
   if [[ -n "${alert_samples[$i]}" ]]; then
     while IFS= read -r line; do
       [[ -z "$line" ]] && continue
       text+=$'\n'"    ${line}"
       samples_json+="${samples_json:+,}$(json_str "$line")"
+      if [[ "$webhook_format" == teams ]]; then
+        card_body+=",$(card_text_block "$line" '"fontType":"Monospace","size":"Small","isSubtle":true,"spacing":"None"')"
+      fi
     done <<< "${alert_samples[$i]}"
   fi
   alerts_json+="${alerts_json:+,}{\"key\":$(json_str "${alert_keys[$i]}"),\"message\":$(json_str "${alert_messages[$i]}"),\"samples\":[${samples_json}]}"
 done
-payload="{\"text\":$(json_str "$text"),\"source\":\"padsign-monitor\",\"host\":$(json_str "${host:-}"),\"generated\":$(json_str "$run_started"),\"alerts\":[${alerts_json}]}"
+if [[ "$webhook_format" == teams ]]; then
+  payload="$(teams_card_payload "${card_body},$(card_footer "$run_started")")"
+else
+  payload="{\"text\":$(json_str "$text"),\"source\":\"padsign-monitor\",\"host\":$(json_str "${host:-}"),\"generated\":$(json_str "$run_started"),\"alerts\":[${alerts_json}]}"
+fi
 
-curl_args=(-sS -o /dev/null -w '%{http_code}' --max-time 15 --retry 2 -X POST -H 'Content-Type: application/json')
-[[ -n "$webhook_auth" ]] && curl_args+=(-H "$webhook_auth")
 # Only the scheme+host is ever printed - Slack/Teams webhook URLs embed their
 # secret in the path.
-webhook_target="$(printf '%s' "$webhook_url" | sed -E 's#^([a-zA-Z]+://[^/]+).*#\1#')"
-http_code="$(printf '%s' "$payload" | curl "${curl_args[@]}" --data-binary @- "$webhook_url" 2>/dev/null || true)"
+webhook_target="$(webhook_url_target "$webhook_url")"
+echo "Webhook: ${webhook_target}, format ${webhook_format} (${webhook_format_why})"
+post_webhook "$webhook_url" "$webhook_auth" "$payload"
+http_code="$webhook_http_code"
 if [[ "$http_code" =~ ^2[0-9][0-9]$ ]]; then
   echo "${n_alerts} alert(s) fired and delivered to ${webhook_target} (HTTP ${http_code})."
+  if [[ "$webhook_format" == teams ]]; then teams_202_note; fi
   exit 1
 fi
 echo "ERROR: ${n_alerts} alert(s) fired but delivery to ${webhook_target} failed (HTTP ${http_code:-none})." >&2
+if [[ -n "$webhook_curl_error" ]]; then echo "  ${webhook_curl_error}" >&2; fi
 exit 3
