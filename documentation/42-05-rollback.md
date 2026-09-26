@@ -23,7 +23,7 @@ Two properties make every rollback here short and data-safe:
 | 42.2 K6 | `test` user deleted / secrets rotated | recreate `test` with `keycloak-bootstrap.sh` (**rotates its password**); for rotated secrets, 42.6 with the previous value | none / ps-server restart |
 | 42.4 C1 | files inside `$NEW` only | `rm -rf "$NEW"`, re-clone | none |
 | 42.4 C2 | permission bits on the storage directories | `sudo chmod <mode from C2-storage-modes-before.txt>` | none |
-| 42.4 C4/C5 | containers now run from `$NEW` | **R3**, plus **R4** if the cut-over moved Keycloak to the release's version (gate G1) | 1-3 min |
+| 42.4 C4/C5 | containers now run from `$NEW`; the boot unit, `$CURRENT` and the cron jobs point at it | **R3** (which points `$CURRENT` and the cron jobs back), plus **R4** if the cut-over moved Keycloak to the release's version (gate G1) | 1-3 min |
 | 42.4 C7 | old working tree archived and removed | `sudo tar xzf "$BACKUP/old-deployment-dir.tgz" -C "$OLD"`, then **R3** | 1-3 min |
 
 ## R3: switch back to the old directory
@@ -34,6 +34,9 @@ date -u +%FT%TZ | tee "$EVID/R3-start.txt"
 # Only if C4 re-owned docs/ for a fallback image with another uid (42.4 C2):
 [ "$FB_IDS" = "$OLD_FB_IDS" ] || sudo chown -R "$OLD_FB_IDS" "$DOCS"
 (cd "$OLD" && docker compose up -d)
+# The boot unit (42.4 C4) starts whatever $CURRENT points at: point it back,
+# or the next reboot starts $NEW's stack again. Repoint the cron jobs C4 moved, too.
+[ -L "$CURRENT" ] && sudo ln -sfn "$OLD" "$CURRENT"
 # The old stack may predate the health checks: nginx and ps-server then start
 # before container-signature is ready. Wait for it before anyone signs.
 cs_up=no
@@ -59,7 +62,11 @@ intact after every switch, and the storage fingerprints were unchanged.
     `docker compose logs dmss-container-and-signature-services` (from `$OLD`);
   - `docker inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$(cd "$OLD" && docker compose ps -q ps-server)"` prints `$OLD`. Check ps-server, not Keycloak: 42.4 C4 explains why Keycloak's label can keep naming the other directory;
   - a smoke login works (42.2 K5);
-  - the storage-integrity check (42.4 C5) reports 0.
+  - the storage-integrity check (42.4 C5) reports 0;
+  - `readlink -f "$CURRENT"` prints `$OLD`. The release's boot unit has no
+    `-f`, so it starts a plain old checkout just as well. Do not put back the
+    old unit C4 saved as `$BACKUP/padsign.service.old`: its `down` lines are
+    what brought the old stack back on the demo host.
 
 **Why the wait.** A stack from before the release's health checks (and their
 `depends_on: condition: service_healthy`) starts nginx and ps-server as soon

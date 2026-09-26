@@ -75,6 +75,8 @@ ps-app-cloud-deployment/
 │   ├── tests/test-secret-hygiene.sh  # generated secrets, .env admin password, config.js mode, overlay apply/verify (stubbed docker run)
 │   ├── tests/test-overlay-host.sh    # upgrade.sh --plan-only on an overlay-managed checkout (storage mounted from outside), overlay.sh drop / rehash
 │   ├── tests/test-upgrade-config-js.sh  # upgrade.sh config.js pre-flight, step 4e ownership re-apply, 0600 .bak copies (Linux for the mode cases)
+│   ├── tests/test-boot-and-timeouts.sh  # overlay.sh capture/verify host boot/cron hooks (fake host root), health-check windows vs script health waits, nginx /api/ timeout, the boot unit
+│   ├── assets/padsign.service.example   # systemd boot unit for overlay hosts (WorkingDirectory = the padsign-current symlink; documentation/42-06)
 │   ├── tests/test-alert-webhook.sh   # monitor-status.sh webhook formats, auto-detect, escaping, --test-webhook, URL never printed, Disk usage on overlay storage (local receiver, stub docker)
 │   └── certs/                        # Place PEM certs here for bootstrap
 ├── dmss-archive-services/            # Spring config for document archive
@@ -295,7 +297,8 @@ A host can run as a clean checkout of a release tag plus an overlay directory ou
 - the overlay directory contains real secrets and must never be copied into the repo or into evidence;
 - a captured file marked OBSOLETE leaves the overlay with `overlay.sh drop --overlay <dir> <path>...` (removes `files/`/`base/` and the MANIFEST.json record, notes it in DEVIATIONS.md, refuses unknown paths), never by deleting it under `files/` (`documentation/42-03` O4);
 - to confirm which checkout the stack runs from, read ps-server's `com.docker.compose.project.working_dir` label, not Keycloak's: Keycloak mounts nothing from the checkout, so compose does not recreate it when its definition is unchanged and its label keeps naming the previous directory (`documentation/42-04` C4);
-- because `upgrade.sh` never runs there, its `keycloak-backend-audience` migration never runs either. Before such a host moves to the pinned Keycloak, the `padsign-backend-audience` mapper is checked and added by hand (`documentation/42-02` K4b, gate G1 in `42-01`).
+- because `upgrade.sh` never runs there, its `keycloak-backend-audience` migration never runs either. Before such a host moves to the pinned Keycloak, the `padsign-backend-audience` mapper is checked and added by hand (`documentation/42-02` K4b, gate G1 in `42-01`);
+- systemd units, cron entries, `rc.local` and init scripts are host files the overlay does not carry. `overlay.sh capture` and `verify` list every one that names the old checkout or runs `docker compose` (WARN, and a DEVIATIONS.md section; `PADSIGN_HOST_SCAN_ROOT` points the scan at a fake root in tests). The cut-over repoints or disables them (`documentation/42-04` C3b/C4): an enabled unit that still ran `docker compose -f <old>/docker-compose.yml down` / `up -d` brought the old stack back on the demo host at the first reboot. The boot unit to use is `installation-scripts/assets/padsign.service.example` (`WorkingDirectory` = a symlink repointed at every cut-over, no `-f`, `stop` not `down`, retried `up -d`; `documentation/42-06`).
 
 When changing what `configure-host.sh` / `upgrade.sh` rewrite, keep `lib/overlay.py`'s notion of release content vs. environment content (`RELEASE_CONTENT_PREFIXES`) in step.
 

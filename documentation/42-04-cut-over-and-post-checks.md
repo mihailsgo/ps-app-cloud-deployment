@@ -1,6 +1,6 @@
 # 42.4 Cut-over and post-checks (#7)
 
-C1-C3 change nothing that is running. The interruption is C4 only: the
+C1-C3b change nothing that is running. The interruption is C4 only: the
 application and Keycloak are unavailable for roughly 1-3 minutes, and about
 1 minute more if the 42.2 K2 break-glass rides along. In the rehearsal, the
 Keycloak part of the switch (stop, volume backup, start from the new checkout)
@@ -102,6 +102,50 @@ docker compose pull 2>&1 | tail -3                   # pre-pull every image; run
 - **Rollback:** nothing to roll back.
 - **Evidence:** both logs, which print field names and paths, never values.
 
+## C3b: host boot and cron hooks (plan; changes nothing)
+
+Systemd units, cron entries, `rc.local` and init scripts are host files. The
+overlay does not carry them, so after the cut-over one that still names
+`$OLD` keeps running from there. On the demo host, an enabled
+`padsign.service` had `WorkingDirectory=$OLD`, `ExecStartPre` and `ExecStop`
+running `docker compose -f $OLD/docker-compose.yml down`, and `ExecStart`
+running `up -d`. At the first reboot after the cut-over, its `ExecStop`
+removed the new checkout's containers (same compose project name), and its
+`ExecStart` started the old stack. The old Keycloak 26.3.2 then ran on a
+database 26.7.4 had already migrated (`Possibly incorrect state of
+migration`), and an R4 restore was needed.
+
+`capture` (42.3 O3) and `verify --live` (C3) list every hook that names
+`$OLD` or runs `docker compose`, each with a `WARN`, in their *Host boot and
+cron hooks* section. They read what your user can read. The per-user
+crontabs need root:
+
+```bash
+sed -n '/== Host boot and cron hooks/,/^$/p' "$EVID/C3-verify.log"
+sudo sh -c 'for f in /var/spool/cron/crontabs/* /var/spool/cron/*; do [ -f "$f" ] && grep -lE -- "$1|docker[ -]compose" "$f"; done; true' _ "$OLD"
+systemctl list-unit-files --state=enabled --no-pager | grep -iE 'padsign|psapp|compose'
+```
+
+Decide each one in the ticket, and prepare the change now. C4 makes it,
+while neither stack runs:
+
+- **The stack's boot unit** (the demo case): C4 replaces it with the
+  release's unit, which starts from `$CURRENT` (42.6, *Starting the stack at
+  boot*).
+- **Cron jobs and timers that run this repo's scripts from `$OLD`**
+  (`monitor-status.sh --alert`, `verify-served-cert.sh`, backups): repoint
+  them at `cd -P "$CURRENT"`. Write the edited lines now, into `$BACKUP` if
+  they hold a webhook URL or another secret.
+- **Anything else that starts or stops this compose project:** disable it in
+  C4.
+
+A job that only reads or backs up the storage (`$SIGNED`, `$DOCS`) is fine
+as it is: the storage stays where it is, and `verify` does not flag it.
+
+- **Check:** every hook in the section has a decision in the ticket.
+- **Rollback:** nothing changed.
+- **Evidence:** the ticket entries. The hook list is already in `C3-verify.log`.
+
 ## C4: the cut-over (maintenance window, interruption starts)
 
 ```bash
@@ -116,6 +160,13 @@ docker run --rm -v "$KC_VOLUME":/v:ro -v "$BACKUP":/b "$TAR_IMG" \
   tar czf "/b/keycloak_data-$(date -u +%Y%m%dT%H%M%SZ).tgz" -C /v .
 sha256sum "$BACKUP"/keycloak_data-*.tgz | tee "$EVID/C4-keycloak-backup.sha256"
 # --- optional: 42.2 K2 break-glass goes HERE, run from "$NEW" (Keycloak is already stopped) ---
+# --- boot/cron hooks (C3b), while neither stack runs ---
+sudo install -d -m 755 "$(dirname "$CURRENT")" && sudo ln -sfn "$NEW" "$CURRENT"
+sudo cp -a /etc/systemd/system/padsign.service "$BACKUP/padsign.service.old" 2>/dev/null   # the old unit, for the record
+sudo install -m 644 -o root -g root "$NEW/installation-scripts/assets/padsign.service.example" /etc/systemd/system/padsign.service
+#   (another CURRENT than /opt/trustlynx/padsign-current: the sed line in 42.6, here)
+sudo systemctl daemon-reload && sudo systemctl enable padsign.service
+# + the cron lines prepared in C3b; other hooks disabled
 cd "$NEW" && docker compose up -d
 for i in $(seq 1 60); do
   pending="$(docker compose ps --format '{{.Service}} {{.Health}}' | awk '$2!="" && $2!="healthy"' | wc -l)"
@@ -125,10 +176,32 @@ docker compose ps --format '{{.Service}} {{.Status}} {{.Health}}' | tee "$EVID/C
 date -u +%FT%TZ | tee "$EVID/C4-window-end.txt"
 ```
 
+The unit file is replaced under its own name, and systemd reloaded, before
+anything stops the old unit. So its old `ExecStop` (`down` against `$OLD`)
+never runs: from the reload on, systemd uses the new definition, also for a
+unit that has been active since boot. That was checked with a throwaway
+unit: after `daemon-reload`, stopping it ran the new `ExecStop`. The unit
+stays active until shutdown, when its new `ExecStop` stops the new stack
+cleanly. Do not `systemctl restart` it now: that would run `docker compose
+stop` and then `up -d` again. If the host has no boot unit, the same four
+lines add one. A boot hook under another name is disabled with `sudo
+systemctl disable --now <unit>`, which runs its `ExecStop` now, against the
+stopped old stack: `down` then only removes old containers that R3's `up -d`
+recreates. If that `ExecStop` has `-v` or `--volumes`, it would delete the
+Keycloak volume: remove that line first with `sudo systemctl edit --full
+<unit>` (which reloads), then disable it.
+
+If `docker compose up -d` stops with `dependency failed to start: container
+... is unhealthy`, a DMSS JVM took longer than its health-check window
+(160 s in releases before v1.0.47, 400 s since). Wait until `docker compose
+ps` shows it `healthy`, then run `docker compose up -d` again. nginx starts
+last, so it is the one missing.
+
 - **Check:**
-  - Every service with a health check reports `healthy`.
+  - Every service with a health check reports `healthy`, **nginx included**. After a failed `up -d`, nginx is created but not started, and `docker compose ps` does not list it at all.
   - `docker inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$(docker compose ps -q ps-server)"` prints `$NEW`.
   - `docker volume ls | grep keycloak_data` shows **only** `$KC_VOLUME`: no second, empty volume was created.
+  - `readlink -f "$CURRENT"` prints `$NEW`, and `systemctl is-enabled padsign.service` prints `enabled`.
 
   Check ps-server, not Keycloak. Compose recreates a container only when its
   definition changes, and the `working_dir` label is not part of that
@@ -144,7 +217,7 @@ date -u +%FT%TZ | tee "$EVID/C4-window-end.txt"
   directory, and Keycloak's label kept naming the previous one. A Keycloak
   label that names the old directory is expected, not a failed cut-over.
 - **Rollback:** 42.5 R3. Stop from `$NEW` and start from `$OLD`. That needs the same project, volume and storage, so it takes minutes.
-- **Evidence:** window start/end, backup checksum (the tarball stays in `$BACKUP`: it contains the realm, the client secrets and password hashes), `C4-compose-ps.txt`.
+- **Evidence:** window start/end, backup checksum (the tarball stays in `$BACKUP`: it contains the realm, the client secrets and password hashes), `C4-compose-ps.txt`, and `systemctl cat padsign.service > "$EVID/C4-boot-unit.txt"` (the release's unit holds no secret).
 
 ## C5: post-checks (interruption over)
 
@@ -182,6 +255,12 @@ for pair in "signed-output:$SIGNED" "docs:$DOCS"; do
 done | tee "$EVID/C5-storage-integrity.txt"                         # both must say 0
 ```
 
+6. **Boot and cron hooks:** in `C5-verify.log`, the *Host boot and cron
+   hooks* section shows `OK   /etc/systemd/system/padsign.service (...):
+   runs docker compose for this checkout`, and no `references the old
+   checkout`. Without `--live`, `verify` still checks against the directory
+   the overlay was captured from.
+
 - **Rollback:** any failed check → 42.5 R3.
 - **Evidence:** every file named above. `deployment-evidence.json` records:
   - the source revision (`deployment_repo.revision` = the tag's commit), plus `modified_tracked_files` = exactly the overlay's files;
@@ -195,11 +274,39 @@ Keep `$OLD` exactly as it is for an agreed period (for example 72 hours):
 it is the instant-rollback target. Run `monitor-status.sh` daily, and add the
 output to the evidence.
 
+Check the boot and cron hooks daily too. A hook added or edited since C4
+(a package update, another operator's cron job) must not bring `$OLD` back:
+
+```bash
+cd "$NEW"
+./installation-scripts/overlay.sh verify --overlay "$OVERLAY" 2>&1 | sed -n '/== Host boot and cron hooks/,/^$/p' | tee -a "$EVID/C6-boot-hooks.log"
+```
+
+It must show no `references the old checkout`. Once during the period,
+reboot the host in a window (`sudo systemctl reboot`) and check that the
+stack comes back by itself: every service `healthy`, nginx included, and
+ps-server's `working_dir` label naming `$NEW`, with nobody running `docker
+compose up -d`. This is the check the demo host failed on 2026-09-26. Then
+back up the host-level state the overlay does not carry (42.6, *Host-level
+state the overlay does not carry*), now that C4 has repointed it.
+
 ## C7: decommission the old working tree (storage stays)
 
 After the observation period, remove the old checkout's secrets and
 operational backups from disk. **The storage directories stay where they are:
 the new checkout mounts them.**
+
+First, as root, confirm that no host file still names `$OLD`. The
+`verify` in C6 reads what your user can read; this also covers the per-user
+crontabs:
+
+```bash
+sudo grep -rlF -- "$OLD" /etc/systemd/system /etc/cron* /etc/rc.local /etc/init.d /var/spool/cron 2>/dev/null
+```
+
+It must print nothing, or only jobs that back up `$SIGNED` / `$DOCS`, which
+stay where they are. A hook that still names the old checkout fails once the
+tree is removed: fix it as in C4 before you go on.
 
 ```bash
 cd "$OLD"

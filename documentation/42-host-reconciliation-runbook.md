@@ -44,9 +44,9 @@ documents where they already are.
                          ▼
       K2 break-glass: fold it into the 42.4 cut-over window (one interruption, not two)
 42.3  capture + review overlay       (read-only on the live host)
-42.4  apply, verify, fix storage modes          (no interruption)
-      cut-over window: stop → back up Keycloak volume → [K2] → start from new checkout (~1-3 min)
-      post-checks, smoke identity twice (K5), retire stale credentials (K6)
+42.4  apply, verify, fix storage modes, plan boot/cron hooks   (no interruption)
+      cut-over window: stop → back up Keycloak volume → [K2] → repoint boot/cron hooks → start from new checkout (~1-3 min)
+      post-checks, smoke identity twice (K5), retire stale credentials (K6), one controlled reboot (C6)
 42.5  rollback at any point: start the old directory again (same volume, same storage)
 42.7  evidence bundle + sign-off
 ```

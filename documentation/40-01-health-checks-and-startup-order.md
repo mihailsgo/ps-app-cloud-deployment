@@ -18,6 +18,44 @@ Each probe was picked by exec-ing into the actual running container and testing 
 | `ps-client` | `curl` to `http://localhost/portal/`, expecting `200` | Root `/` is a 404 in this image (confirmed) — the SPA is actually served under `/portal/`, which is also what nginx proxies to. |
 | `wizard` (profile `wizard`) | `curl -sk` to `https://localhost:${WIZARD_PORT}/login`, expecting `200` (`interval: 30s`, `timeout: 5s`, `retries: 3`) | Long-running (`restart: unless-stopped`), so it gets a real probe rather than an exemption. `/login` is the only page served without a session, so a 200 proves the HTTPS listener, Express and its EJS rendering. `-k` because the wizard's certificate is self-signed and regenerated on every start. `curl` is installed by `deployment-wizard/Dockerfile`. Verified on an isolated project: `healthy` from a cold start, `healthy` with `WIZARD_PORT=9443`, and `unhealthy` ("Health check exceeded timeout (5s)") with the Node process frozen, which `lib/health-wait.sh` then reports as a failure. Nothing waits on it: `bootstrap.sh` and `monitor-status.sh` still leave the profile-gated wizard out. |
 
+## Start-up windows
+
+Docker marks a container `unhealthy` after `start_period` plus `retries`
+consecutive failed probes, `interval` apart (and each probe may take up to
+`timeout`). Probes that fail during `start_period` do not count, and the
+first probe that passes marks the container `healthy` at once. So a long
+`start_period` does not slow a normal start. It only delays the verdict on a
+container that runs but never passes a probe. A container that crashes is
+still caught at once, because it exits or restarts.
+
+| Service | `start_period` | Unhealthy after (`start_period` + `retries` x `interval`, at most + `retries` x `timeout`) |
+|---|---|---|
+| DMSS JVMs (`dmss-archive-services`, `-fallback`, `dmss-container-and-signature-services`, `dmss-digital-stamping-service`) | 300 s | 400 s, 450 s at most |
+| `keycloak` | 90 s | 190 s, 240 s at most |
+| `ps-server` | 30 s | 130 s, 180 s at most |
+| `nginx`, `ps-client` | 20 s, 15 s | 120 s, 115 s (170 s, 165 s at most) |
+
+The DMSS services had 60 s until v1.0.47, so 160 s in all. When the demo
+host's EC2 instance was stopped and started, every JVM started at once, and
+container-signature 24.3.0.49.2 needed about 3.5 minutes to report `UP` (213 s
+measured after a stack restart). `docker compose up -d` then failed with
+`dependency failed to start: container dmss-container-and-signature-services
+is unhealthy`, and nginx, last in the chain, never started. The pinned
+24.3.0.29, on a 16-core workstation, took 101 s with the three DMSS JVMs
+starting together (112 s on 2 shared cores) and 46 s restarted alone. It
+downloads trust lists at startup, so the network adds to it. The comment in
+`docker-compose.yml` has the reasoning for 300 s.
+
+`docker compose up -d` waits for each `service_healthy` dependency with no
+timeout of its own, so these windows are also how long `up -d` waits. The
+scripts' own health waits (`lib/health-wait.sh`) are never shorter than the
+longest window: `upgrade.sh` and `rollback.sh` default to `--health-timeout
+480`, and `bootstrap.sh` waits 600 s. Neither retries `up -d`: an operator
+is there to see a slow service, and a retry would hide it. The boot unit for
+overlay hosts does retry, because nobody is there at boot (42.6, *Starting
+the stack at boot*). `installation-scripts/tests/test-boot-and-timeouts.sh`
+checks these relations.
+
 ## Dependency graph
 
 The previous `depends_on` was backwards for what startup ordering actually needs (`ps-server` depended on `nginx`; `nginx` depended only on `ps-client`) and covered none of the DMSS chain. It's now:
