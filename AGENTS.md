@@ -56,6 +56,7 @@ ps-app-cloud-deployment/
 │   ├── verify-served-cert.sh         # Wire check: cert nginx actually serves
 │   ├── diff-baseline-overlay.sh      # Drift check: live host vs. a clean baseline ref (see documentation/41)
 │   ├── overlay.sh                    # capture/apply/verify/rebase/drop an environment overlay kept OUTSIDE the checkout (documentation/42)
+│   ├── monitor-status.sh             # Status report; --alert (cron) POSTs to ALERT_WEBHOOK_URL, ALERT_WEBHOOK_FORMAT=json|teams (Teams Workflows needs teams, auto-detected); --test-webhook sends one test message (documentation/40-03)
 │   ├── dmss-seal-smoke.sh            # Boot + 3 consecutive local e-seals on the pinned DMSS images, isolated project (see documentation/39)
 │   ├── lib/
 │   │   ├── capabilities.sh           # Shared reader for release/capabilities.json
@@ -67,6 +68,7 @@ ps-app-cloud-deployment/
 │   │   ├── digests.sh                # approved-digests.json reader + effective-compose-model image helpers
 │   │   ├── digest_gate.py            # the digest gate: effective compose model (COMPOSE_FILE, all profiles) vs. approvals
 │   │   ├── dir-permissions.sh        # signed-output/ and docs/ permission model (no chmod 777; the stores the effective compose model mounts), config.js model + pre-flight, owner-only .bak copies
+│   │   ├── alert-webhook.sh          # monitor-status.sh's webhook payloads (json / Teams Adaptive Card), format auto-detection, delivery with the URL off curl's argv
 │   │   └── deployment-evidence.sh    # Writes deployment-evidence.json (git-ignored)
 │   ├── tests/test-digest-gate.sh     # digest gate + upgrade.sh approved-tag refusal, on a throwaway copy
 │   ├── tests/test-pipefail-and-stdin.sh  # grep -q/SIGPIPE under pipefail + scripts not eating a heredoc caller's stdin (stub docker)
@@ -75,6 +77,7 @@ ps-app-cloud-deployment/
 │   ├── tests/test-upgrade-config-js.sh  # upgrade.sh config.js pre-flight, step 4e ownership re-apply, 0600 .bak copies (Linux for the mode cases)
 │   ├── tests/test-boot-and-timeouts.sh  # overlay.sh capture/verify host boot/cron hooks (fake host root), health-check windows vs script health waits, nginx /api/ timeout, the boot unit
 │   ├── assets/padsign.service.example   # systemd boot unit for overlay hosts (WorkingDirectory = the padsign-current symlink; documentation/42-06)
+│   ├── tests/test-alert-webhook.sh   # monitor-status.sh webhook formats, auto-detect, escaping, --test-webhook, URL never printed, Disk usage on overlay storage (local receiver, stub docker)
 │   └── certs/                        # Place PEM certs here for bootstrap
 ├── dmss-archive-services/            # Spring config for document archive
 ├── dmss-archive-services-fallback/   # Spring config for filesystem fallback archive
