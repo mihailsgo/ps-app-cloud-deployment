@@ -1,0 +1,49 @@
+# /etc/systemd/system/padsign.service - start the PadSign stack at boot.
+#
+# For a baseline + overlay host (documentation/42-06, "Starting the stack at
+# boot"). Install:
+#   sudo install -m 644 -o root -g root installation-scripts/assets/padsign.service.example /etc/systemd/system/padsign.service
+#   sudo systemctl daemon-reload && sudo systemctl enable padsign.service
+#
+# WorkingDirectory is a symlink to the live release checkout, repointed at
+# every cut-over (sudo ln -sfn <release dir> /opt/trustlynx/padsign-current),
+# so this file never changes between releases. systemd starts compose in the
+# directory the symlink resolves to, so compose sees the same project
+# directory as a `docker compose` run from the release directory itself.
+#
+# Deliberately NOT here:
+#   -f docker-compose.yml   an explicit -f makes compose ignore COMPOSE_FILE
+#                           in the checkout's .env, which is how the overlay's
+#                           compose.overlay.yml (storage mounts, image
+#                           overrides) is added. Plain `docker compose` reads it.
+#   ExecStartPre=... down   `down` removes the containers. Against a directory
+#   ExecStop=... down       with the same compose project name (the previous
+#                           checkout, on the demo host) it tears down the
+#                           running stack. `stop` keeps the containers.
+#
+# ExecStart retries: on a cold boot every JVM starts at once, and a DMSS
+# service slower than its health-check window makes `docker compose up -d`
+# fail with "dependency failed to start: ... is unhealthy", leaving nginx
+# (last in the chain) stopped. The release's start_period covers the measured
+# times; the retries cover a slower boot. Five attempts, 30 s apart: `up -d`
+# itself blocks until the dependencies are healthy, and a failed attempt
+# often only means one was still starting.
+# TimeoutStartSec=0: that wait can take minutes; systemd must not kill it.
+
+[Unit]
+Description=PadSign stack (docker compose)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=/opt/trustlynx/padsign-current
+Type=oneshot
+RemainAfterExit=yes
+User=root
+ExecStart=/bin/sh -c "for i in 1 2 3 4 5; do /usr/bin/docker compose up -d && exit 0; echo compose up attempt $i failed, retrying in 30s; sleep 30; done; exit 1"
+ExecStop=/usr/bin/docker compose stop
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target

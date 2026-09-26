@@ -11,3 +11,7 @@
 
 # Python helpers under installation-scripts/lib run on the Linux target too.
 *.py text eol=lf
+
+# The systemd unit in installation-scripts/assets/ is installed on Linux hosts:
+# a CRLF copy would hand a carriage return to ExecStart / ExecStop as part of an argument.
+*.service.example text eol=lf

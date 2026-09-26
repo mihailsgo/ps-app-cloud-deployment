@@ -16,7 +16,11 @@ enable_local_eseal=false
 plan_only=false
 plan_format="text"
 require_capabilities=()
-health_timeout=300
+# Default health wait: at least the longest health-check window in
+# docker-compose.yml, so this never gives up on a service Docker still
+# counts as starting. DMSS JVMs: start_period 300s + 10 retries x (10s
+# interval + 5s timeout) = 450s; see dmss-container-and-signature-services.
+health_timeout=480
 rollback_on_failure=false
 allow_unapproved=false
 
@@ -26,7 +30,7 @@ Usage:
   ./installation-scripts/upgrade.sh [--server-tag X.XX] [--client-tag X.XX] [--enable-local-eseal]
   ./installation-scripts/upgrade.sh [same args] --require-capability NAME
   ./installation-scripts/upgrade.sh [same args] --plan-only [--plan-format text|machine]
-  ./installation-scripts/upgrade.sh [same args] [--health-timeout 300] [--rollback-on-failure]
+  ./installation-scripts/upgrade.sh [same args] [--health-timeout 480] [--rollback-on-failure]
   ./installation-scripts/upgrade.sh [same args] --allow-unapproved
 
 Approved tags only:
@@ -44,7 +48,7 @@ Approved tags only:
 Failing and rolling back:
   After restarting, the upgrade waits for every restarted service to report
   healthy and exits 1 if one turns unhealthy, exits, crash-loops, or is not
-  healthy within --health-timeout seconds (default 300). A failed upgrade
+  healthy within --health-timeout seconds (default 480). A failed upgrade
   prints the one-line rollback.sh command for the snapshot it just took.
   --rollback-on-failure   Run `rollback.sh --yes` automatically on that
                           failure (and on a failed image pull). The upgrade

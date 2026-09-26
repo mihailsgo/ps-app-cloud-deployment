@@ -27,6 +27,7 @@ NEW=/opt/padsign/releases/$TAG              # fresh checkout of $TAG (created in
 OVERLAY=/etc/padsign/overlay/$(date +%Y%m%d) # created by `overlay.sh capture`; outside every checkout
 EVID=/var/lib/padsign/evidence/CHG-1234     # evidence bundle (42.7)
 BACKUP=/var/backups/padsign/CHG-1234        # SENSITIVE backups: Keycloak volume, moved .bak files
+CURRENT=/opt/trustlynx/padsign-current      # symlink the boot unit starts from; repointed at every cut-over (42.6)
 ROLE="Your Company"                         # the configured company role (see 42.2 K5 to list roles)
 export HISTCONTROL=ignorespace              # a command typed with a leading space stays out of history
 
@@ -53,6 +54,8 @@ sha256sum config/config.js config/constants.json nginx/nginx.conf docker-compose
 stat -c '%a %U:%G %n' config/config.js .env nginx/certs/* signed-output docs 2>/dev/null > "$EVID/00-modes.txt"
 find "$OLD" -xdev -perm -0002 ! -type l -printf '%m %p\n' 2>/dev/null > "$EVID/00-world-writable.txt"
 find "$OLD" -xdev \( -name '*.bak*' -o -name '*.orig' -o -name 'retired-*' \) -printf '%m %s %p\n' 2>/dev/null > "$EVID/00-backups-in-tree.txt"
+# host boot/cron hooks that name this directory or run compose (paths only; 42.4 C3b decides each)
+sudo grep -rlE -- "$OLD|docker[ -]compose" /etc/systemd/system /etc/cron* /etc/rc.local /etc/init.d /var/spool/cron 2>/dev/null > "$EVID/00-boot-hooks.txt"
 ```
 
 Signed-document storage: take a content fingerprint so you can prove later

@@ -71,7 +71,11 @@ config_js="${repo_root}/config/config.js"
 
 target_ref="latest"
 assume_yes="false"
-health_timeout=300
+# Default health wait: at least the longest health-check window in
+# docker-compose.yml, so this never gives up on a service Docker still
+# counts as starting. DMSS JVMs: start_period 300s + 10 retries x (10s
+# interval + 5s timeout) = 450s; see dmss-container-and-signature-services.
+health_timeout=480
 
 usage() {
   cat <<'EOF'
@@ -85,7 +89,7 @@ Usage:
   --yes   Skip the confirmation prompt (for non-interactive use).
   --health-timeout N
           Seconds to wait for the restored services to be healthy
-          (default 300). The rollback exits 1 if they are not.
+          (default 480). The rollback exits 1 if they are not.
 
 This restores the ps-server / ps-client images that were RUNNING immediately
 before the chosen upgrade.sh run (repo:tag@digest), and config/config.js as

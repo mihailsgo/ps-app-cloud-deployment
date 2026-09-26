@@ -388,6 +388,347 @@ def named_volume_names(model):
     return names
 
 
+# ── host boot and cron hooks ────────────────────────────────────────────────
+#
+# systemd units, cron entries, rc.local and init scripts live on the HOST,
+# outside every checkout, so capture does not carry them and apply does not
+# install them. One that still starts the stack from the old directory runs
+# at the next boot. On the demo host, an enabled padsign.service
+# (WorkingDirectory=<old>, `docker compose -f <old>/docker-compose.yml down`,
+# then `up -d`) tore down the new checkout's containers at the first reboot
+# after the cut-over (same compose project name) and started the OLD stack,
+# whose Keycloak then ran on a database the newer Keycloak had already
+# migrated. capture and verify list every hook that names the old directory
+# or runs docker compose, so the cut-over (42.4 C4) repoints or disables it.
+# Read-only. A location that is missing is skipped; one that is not readable
+# is named in the report.
+
+HOST_SCAN_ROOT_ENV = "PADSIGN_HOST_SCAN_ROOT"  # tests: scan <root>/etc/... instead of /etc/...
+SYSTEMD_UNIT_DIRS = ("/etc/systemd/system", "/run/systemd/system", "/usr/local/lib/systemd/system",
+                     "/usr/lib/systemd/system", "/lib/systemd/system")
+SYSTEMD_UNIT_SUFFIXES = (".service", ".timer", ".path", ".socket", ".target", ".mount")
+SYSTEMD_ENABLE_DIR_SUFFIXES = (".wants", ".requires", ".upholds")
+CRON_FILES = ("/etc/crontab", "/etc/anacrontab")
+CRON_DIRS = ("/etc/cron.d", "/etc/cron.hourly", "/etc/cron.daily", "/etc/cron.weekly", "/etc/cron.monthly")
+RC_FILES = ("/etc/rc.local", "/etc/rc.d/rc.local")
+INIT_DIRS = ("/etc/init.d",)
+CRONTAB_SPOOLS = ("/var/spool/cron/crontabs", "/var/spool/cron")  # Debian/Ubuntu, RHEL
+HOOK_MAX_BYTES = 1 << 20
+HOOK_SCANNED = ("systemd unit directories, /etc/crontab, /etc/anacrontab, /etc/cron.d, "
+                "/etc/cron.{hourly,daily,weekly,monthly}, user crontabs, /etc/rc.local, /etc/init.d")
+
+# `docker compose` or the old `docker-compose` binary, not a docker-compose.yml path.
+COMPOSE_CMD_RE = re.compile(r"\bdocker\s+compose\b|\bdocker-compose\b(?![.\w-])")
+# Absolute paths in a command line (a drive prefix only so the tests run under Git Bash).
+PATH_TOKEN_RE = re.compile(r"(?<![\w.$/:\\])((?:[A-Za-z]:)?/[^\s\"'`;|&<>(){}=,:]*)")
+_COMPOSE_VALUE_FLAGS = {"-f", "--file", "-p", "--project-name", "--project-directory", "--env-file",
+                        "--profile", "--ansi", "--parallel", "--progress"}
+_CMD_SEPARATORS = {"&&", "||", ";", "|", "&"}
+
+
+def _norm(p):
+    return os.path.normcase(os.path.normpath(p))
+
+
+_realpath_cache = {}
+
+
+def _real(p):
+    """os.path.realpath, cached: the scan resolves every path token of every
+    unit file on the host against several directories."""
+    if p not in _realpath_cache:
+        try:
+            _realpath_cache[p] = _norm(os.path.realpath(p))
+        except (OSError, ValueError):
+            _realpath_cache[p] = _norm(p)
+    return _realpath_cache[p]
+
+
+def _under(t, d):
+    return t == d or t.startswith(d.rstrip(os.sep) + os.sep)
+
+
+def _dir_ref(token, d):
+    """'path' if token names d or something under it, 'symlink' if it only
+    resolves there (e.g. /opt/trustlynx/padsign-current -> d), else None."""
+    t = _norm(token)
+    if _under(t, _norm(d)) or _under(t, _real(d)):
+        return "path"
+    if _under(_real(token), _real(d)):
+        return "symlink"
+    return None
+
+
+def _compose_calls(line):
+    """(global options, subcommand, subcommand args) for each docker compose
+    call in a command line. Approximate (no shell parsing), which is enough
+    to spot `-f` before the subcommand and `down -v` after it."""
+    calls = []
+    for m in COMPOSE_CMD_RE.finditer(line):
+        opts, sub, args, value_next = [], None, [], False
+        for raw in line[m.end():].split():
+            t = raw.strip("\"'")
+            if t in _CMD_SEPARATORS:
+                break
+            last = t.endswith(";")  # `up -d;` ends this command
+            t = t.rstrip(";")
+            if value_next:
+                opts.append(t)
+                value_next = False
+            elif sub is None and t.startswith("-"):
+                opts.append(t)
+                value_next = t in _COMPOSE_VALUE_FLAGS
+            elif sub is None:
+                sub = t or None
+            elif t:
+                args.append(t)
+            if last:
+                break
+        calls.append((opts, sub, args))
+    return calls
+
+
+_HOOK_ASSIGN_RE = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)=(\"[^\"]*\"|'[^']*'|[^\s\"']+)")
+_HOOK_SECRET_FLAG_RE = re.compile(r"(--?[A-Za-z0-9_-]*(?:pass|secret|token|key|credential|auth)[A-Za-z0-9_-]*)(=|\s+)(\S+)",
+                                  re.IGNORECASE)
+
+
+def _redact_hook_line(line, limit=200):
+    """A hook line as reports show it. Unlike a config line, a command line
+    carries its secrets anywhere, not only at the start: an inline
+    `KEY=value` with a secret-looking KEY (lib/redact.py) or a WEBHOOK/URL
+    one, the value of a --*pass*/--*secret*/--*token* flag, and every URL
+    after its host (a webhook URL's path is the secret) become <redacted>."""
+    def assign(mm):
+        key, val = mm.group(1), mm.group(2)
+        if is_secret_key(key) or re.search(r"WEBHOOK|URL", key, re.IGNORECASE):
+            return f"{key}={REDACTED}"
+        if val[:1] in ("\"", "'"):  # systemd Environment="KEY=value": look inside
+            return f"{key}={val[0]}{_HOOK_ASSIGN_RE.sub(assign, val[1:-1])}{val[-1]}"
+        return mm.group(0)
+
+    s = redact_line(line.strip())
+    s = _HOOK_ASSIGN_RE.sub(assign, s)
+    s = _HOOK_SECRET_FLAG_RE.sub(lambda mm: f"{mm.group(1)}{mm.group(2)}{REDACTED}", s)
+    s = re.sub(r"\b(https?://[^/\s\"'<>]+)/[^\s\"'<>]*", lambda mm: f"{mm.group(1)}/{REDACTED}", s,
+               flags=re.IGNORECASE)
+    return s if len(s) <= limit else s[:limit] + " ...(truncated)"
+
+
+def _read_hook_text(path):
+    try:
+        if os.path.getsize(path) > HOOK_MAX_BYTES:
+            return None
+        with open(path, "rb") as fh:
+            data = fh.read()
+    except OSError:
+        return None
+    if b"\0" in data[:8192]:
+        return None
+    return data.decode("utf-8", "replace")
+
+
+def _current_user():
+    try:
+        import pwd
+        return pwd.getpwuid(os.getuid()).pw_name
+    except (ImportError, KeyError, AttributeError):
+        import getpass
+        return getpass.getuser()
+
+
+def host_hook_files():
+    """(files, enablement, not_scanned): every candidate hook file with its
+    text, the systemd *.wants/ (etc.) directories each unit name appears in,
+    and the locations that exist but could not be read."""
+    root = os.environ.get(HOST_SCAN_ROOT_ENV, "")
+
+    def host(p):
+        return os.path.join(root, p.lstrip("/")) if root else p
+
+    files, not_scanned, seen, enabled_by = [], [], set(), {}
+
+    def add(shown, real, kind, unit=None, text=None):
+        key = os.path.realpath(real) if real else shown
+        if key in seen:
+            return
+        seen.add(key)
+        if text is None:
+            if not os.access(real, os.R_OK):
+                not_scanned.append(f"{shown} (not readable as {_current_user()})")
+                return
+            text = _read_hook_text(real)
+            if text is None:
+                return  # binary or larger than HOOK_MAX_BYTES: not a hook script
+        files.append({"path": shown, "kind": kind, "unit": unit, "text": text})
+
+    for d in SYSTEMD_UNIT_DIRS:
+        base = host(d)
+        if not os.path.isdir(base):
+            continue
+        for dirpath, dirnames, filenames in os.walk(base):
+            dirnames.sort()
+            parent = os.path.basename(dirpath)
+            for f in sorted(filenames):
+                fp = os.path.join(dirpath, f)
+                shown = d + "/" + os.path.relpath(fp, base).replace(os.sep, "/")
+                if parent.endswith(SYSTEMD_ENABLE_DIR_SUFFIXES):
+                    enabled_by.setdefault(f, set()).add(parent)
+                elif parent.endswith(".d") and f.endswith(".conf") and os.path.isfile(fp):
+                    add(shown, fp, "systemd drop-in", parent[:-2])
+                elif f.endswith(SYSTEMD_UNIT_SUFFIXES) and os.path.isfile(fp):  # masked (-> /dev/null): skipped
+                    add(shown, fp, "systemd unit", f)
+    for f in CRON_FILES + RC_FILES:
+        fp = host(f)
+        if os.path.isfile(fp):
+            add(f, fp, "rc.local" if f.endswith("rc.local") else "system crontab")
+    for d in CRON_DIRS + INIT_DIRS:
+        base = host(d)
+        if not os.path.isdir(base):
+            continue
+        try:
+            names = sorted(os.listdir(base))
+        except OSError:
+            not_scanned.append(f"{d}/ (not readable as {_current_user()})")
+            continue
+        kind = "init script" if d in INIT_DIRS else ("cron.d entry" if d.endswith("cron.d") else f"{os.path.basename(d)} script")
+        for n in names:
+            fp = os.path.join(base, n)
+            if os.path.isfile(fp):
+                add(f"{d}/{n}", fp, kind)
+    user_crontabs_read = False
+    for d in CRONTAB_SPOOLS:
+        base = host(d)
+        if not os.path.isdir(base):
+            continue
+        try:
+            names = sorted(os.listdir(base))
+        except OSError:
+            not_scanned.append(f"{d}/ (not readable as {_current_user()}: every user's crontab, "
+                               f"root's and the deploy user's included - run as root, or `sudo crontab -l -u <user>`)")
+            continue
+        for n in names:
+            fp = os.path.join(base, n)
+            if os.path.isfile(fp):
+                user_crontabs_read = True
+                add(f"{d}/{n}", fp, f"crontab of {n}")
+        if d == CRONTAB_SPOOLS[0]:
+            user_crontabs_read = True
+    if not user_crontabs_read and not root:
+        # The spool is root-only; this user's own crontab is still readable.
+        rc, out, _ = run(["crontab", "-l"])
+        if rc == 0 and out.strip():
+            add(f"crontab of {_current_user()} (crontab -l)", None, f"crontab of {_current_user()}", text=out)
+    return files, enabled_by, not_scanned
+
+
+def host_hooks(old_dirs, checkout=None, storage=()):
+    """Hooks that reference one of old_dirs or the checkout, or run docker
+    compose. A path inside `storage` (the signed documents, which stay where
+    they are, often under the old directory) is not a reference to the old
+    checkout: a backup job for them is fine. Returns (hooks, not_scanned);
+    hooks carry redacted lines only."""
+    files, enabled_by, not_scanned = host_hook_files()
+    storage = [s for s in storage if s]
+    hooks = []
+    for f in files:
+        lines, old_refs, via, checkout_ref, subs = [], [], [], False, []
+        file_flag = down_volumes = runs_compose = False
+        for n, raw in enumerate(f["text"].splitlines(), 1):
+            s = raw.strip()
+            if not s or s.startswith(("#", ";")):
+                continue
+            hit = False
+            for t in PATH_TOKEN_RE.findall(s):
+                if any(_dir_ref(t, sd) for sd in storage):
+                    continue
+                how = _dir_ref(t, checkout) if checkout else None
+                if how:
+                    checkout_ref = hit = True
+                    continue
+                for d in old_dirs:
+                    how = _dir_ref(t, d)
+                    if how:
+                        hit = True
+                        if d not in old_refs:
+                            old_refs.append(d)
+                        if how == "symlink" and t not in via:
+                            via.append(t)
+                        break
+            for opts, sub, args in (_compose_calls(s) if COMPOSE_CMD_RE.search(s) else []):
+                runs_compose = hit = True
+                if sub and sub not in subs:
+                    subs.append(sub)
+                if any(o in ("-f", "--file") or o.startswith("--file=") or (o.startswith("-f") and not o.startswith("--"))
+                       for o in opts):
+                    file_flag = True
+                if sub == "down" and any(a in ("-v", "--volumes") or a.startswith("--volumes") for a in args):
+                    down_volumes = True
+            if hit:
+                lines.append({"line": n, "text": _redact_hook_line(s)})
+        if not lines:
+            continue
+        enabled = None
+        if f["kind"].startswith("systemd"):
+            unit = f["unit"] or ""
+            dirs = sorted(enabled_by.get(unit, ()))
+            timer = unit[:-len(".service")] + ".timer" if unit.endswith(".service") else None
+            tdirs = sorted(enabled_by.get(timer, ())) if timer else []
+            if dirs:
+                enabled = f"enabled ({', '.join(dirs)})"
+            elif tdirs:
+                enabled = f"enabled via {timer} ({', '.join(tdirs)})"
+            else:
+                enabled = "not enabled"
+            if f["kind"] == "systemd drop-in":
+                enabled = f"drop-in for {unit}, {enabled}"
+        hooks.append({"path": f["path"], "kind": f["kind"], "enabled": enabled,
+                      "references_old": old_refs, "via_symlink": via, "references_checkout": checkout_ref,
+                      "runs_compose": runs_compose, "compose_commands": subs,
+                      "compose_file_flag": file_flag, "down_volumes": down_volumes, "lines": lines})
+    return hooks, not_scanned
+
+
+def report_host_hooks(r, hooks, not_scanned, old_dirs, checkout=None):
+    """WARN for every hook that would start or stop the stack from the wrong
+    place; OK for one that runs compose for `checkout`. Used by capture
+    (checkout=None) and verify."""
+    olds = ", ".join(old_dirs) or "the old checkout"
+    if not hooks:
+        r.ok(f"no systemd unit, cron entry, rc.local or init script names {olds} or runs docker compose")
+    for h in hooks:
+        where = f"{h['path']} ({h['kind']}" + (f", {h['enabled']}" if h.get("enabled") else "") + ")"
+        if h["references_old"]:
+            via = f" (via {', '.join(h['via_symlink'])})" if h["via_symlink"] else ""
+            r.warn(f"{where}: references the old checkout {', '.join(h['references_old'])}{via}. After the cut-over, "
+                   "a job that starts the stack from there brings the OLD stack back (same compose project, same "
+                   "Keycloak volume), and one that runs its scripts stops working at 42.4 C7 - repoint it at the "
+                   "new checkout or disable it in the cut-over window (42.4 C4)")
+        elif h["runs_compose"] and h["references_checkout"]:
+            r.ok(f"{where}: runs docker compose for this checkout")
+        elif h["runs_compose"]:
+            names = f"does not name {olds}" + (" or this checkout" if checkout else "")
+            r.warn(f"{where}: runs docker compose, but {names} - confirm it does not start or stop this stack "
+                   "(a compose project with the same name), or disable it")
+        else:
+            r.ok(f"{where}: references this checkout")
+        if h["compose_file_flag"]:
+            r.warn(f"{h['path']}: passes -f/--file to docker compose. On an overlay-managed checkout that ignores "
+                   "COMPOSE_FILE in .env, so compose.overlay.yml (storage mounts, image overrides) is left out - "
+                   "use the boot unit in documentation/42-06 instead")
+        if h["down_volumes"]:
+            r.warn(f"{h['path']}: runs `docker compose down` with -v/--volumes, which deletes named volumes, "
+                   "the Keycloak data volume included")
+        for l in h["lines"][:8]:
+            r.info(f"line {l['line']}: {l['text']}")
+        if len(h["lines"]) > 8:
+            r.info(f"... {len(h['lines']) - 8} more matching line(s)")
+    for s in not_scanned:
+        r.info(f"not scanned: {s}")
+    r.info(f"scanned: {HOOK_SCANNED}. These are host files, outside the checkout and the overlay: "
+           "on a rebuilt host, re-create the ones you keep (documentation/42-06).")
+
+
 # ── capture ─────────────────────────────────────────────────────────────────
 
 def is_release_content(rel):
@@ -714,6 +1055,13 @@ def cmd_capture(args):
             else:
                 r.warn(f"could not render the baseline compose model: {berr}")
 
+        # Host boot/cron hooks: outside the tree, never captured, but a hook
+        # that starts the stack from `live` brings the OLD stack back at the
+        # first reboot after the cut-over (42.4 C4).
+        hooks, hooks_not_scanned = host_hooks(
+            [live], storage=[s.get("source") for s in (manifest.get("storage") or {}).values() if s.get("type") == "bind"])
+        manifest["host_hooks"] = {"hooks": hooks, "not_scanned": hooks_not_scanned}
+
         manifest_path = os.path.join(out, "MANIFEST.json")
         with open(manifest_path, "w", encoding="utf-8") as fh:
             json.dump(manifest, fh, indent=2, sort_keys=True)
@@ -734,6 +1082,8 @@ def cmd_capture(args):
         leftovers = [n for n in manifest["not_captured"] if "backup" in n["reason"] or "staging" in n["reason"]]
         if leftovers:
             r.warn(f"{len(leftovers)} operational backup / staging file(s) found in the tree - listed in DEVIATIONS.md; move them out")
+        print("  Host boot/cron hooks (systemd, cron, rc.local, init scripts - host files, NOT captured; DEVIATIONS.md lists them):")
+        report_host_hooks(r, hooks, hooks_not_scanned, [live])
         print()
         print(f"  Review {os.path.join(out, 'DEVIATIONS.md')} and edit {os.path.join(out, 'compose.overlay.yml')}")
         print("  before running `overlay.sh apply` on the new checkout.")
@@ -859,6 +1209,36 @@ def write_deviations(out, manifest, deviations, compose_notes):
             L.append(f"- `{svc}`: {detail}{tag}")
         else:
             L.append(f"- `{svc}` `{key}`: baseline `{_fmt_value(key, a)}` -> host `{_fmt_value(key, bval)}`{tag}")
+    L += ["", "## Host boot/cron hooks that reference the old checkout or run docker compose", ""]
+    L += [
+        "systemd units, cron entries, rc.local and init scripts are host files, outside the checkout and outside",
+        "this overlay: capture does not carry them and apply does not install them. A hook that still starts",
+        "the stack from the old directory runs at the next boot and brings the OLD stack back (same compose",
+        "project, same Keycloak volume). Record a decision for each: repoint it at the new checkout, or disable",
+        "it, in the cut-over window (42.4 C4). On a rebuilt host, re-create the ones you keep (42.6, *Host-level",
+        "state the overlay does not carry*). Lines are redacted, and URLs are cut after the host.",
+        "",
+    ]
+    hh = manifest.get("host_hooks") or {}
+    if not hh.get("hooks"):
+        L.append(f"None found. Scanned: {HOOK_SCANNED}.")
+    for h in hh.get("hooks") or []:
+        what = []
+        if h["references_old"]:
+            what.append("**references the old checkout** " + ", ".join(f"`{d}`" for d in h["references_old"])
+                        + (" via " + ", ".join(f"`{t}`" for t in h["via_symlink"]) if h["via_symlink"] else ""))
+        if h["runs_compose"]:
+            what.append("runs `docker compose " + ("`, `".join(h["compose_commands"]) or "...") + "`")
+        if h["compose_file_flag"]:
+            what.append("passes `-f`/`--file` (ignores the overlay's COMPOSE_FILE)")
+        if h["down_volumes"]:
+            what.append("`down -v` (deletes the Keycloak data volume)")
+        state = f", {h['enabled']}" if h.get("enabled") else ""
+        L.append(f"- `{h['path']}` ({h['kind']}{state}): " + "; ".join(what))
+        for l in h["lines"]:
+            L.append(f"  - line {l['line']}: `{l['text'].replace('`', chr(39))}`")
+    for s in hh.get("not_scanned") or []:
+        L.append(f"- not scanned: {s}")
     L += ["", "## Found in the tree, NOT captured", ""]
     if manifest["not_captured"]:
         for n in manifest["not_captured"]:
@@ -1163,6 +1543,22 @@ def cmd_verify(args):
     snaps = os.path.join(target, ".rollback-snapshots")
     if os.path.isdir(snaps) and file_mode(snaps) & 0o077:
         r.warn(f".rollback-snapshots/ is mode {oct(file_mode(snaps))}; it holds copies of config.js - chmod 700")
+
+    print("\n== Host boot and cron hooks (systemd, cron, rc.local, init scripts - host files, not in the overlay) ==")
+    # The directory the overlay was captured from and the --live one are
+    # "old" unless they are this checkout (a re-capture from it, 42.6).
+    old_dirs = []
+    for d in (args.live, m.get("source_dir")):
+        if not d:
+            continue
+        d = os.path.abspath(d)
+        if is_within(d, target) or is_within(target, d):
+            continue
+        if all(os.path.realpath(d) != os.path.realpath(x) for x in old_dirs):
+            old_dirs.append(d)
+    hooks, not_scanned = host_hooks(old_dirs, checkout=target, storage=[
+        s.get("source") for s in (m.get("storage") or {}).values() if s.get("type") == "bind"])
+    report_host_hooks(r, hooks, not_scanned, old_dirs, checkout=target)
 
     print("\n== Effective Docker Compose model ==")
     model, err = compose_config(target)

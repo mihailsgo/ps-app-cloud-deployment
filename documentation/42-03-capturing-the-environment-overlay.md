@@ -49,6 +49,7 @@ Useful facts about what capture does:
 - **Release content is never captured.** Scripts, docs and tooling that differ are reported under *Found in the tree, NOT captured* ("upstream it or drop it"). Applying an old script over the new release would silently downgrade it.
 - **Never captured:** `signed-output/` and `docs/` are not even read; operational backups (`*.bak*`, `retired-*`) are only listed; `installation-scripts/certs/*` staging copies are only listed, because `nginx/certs/` is what gets captured.
 - **docker-compose.yml is never applied wholesale.** It is saved as `reference/docker-compose.live.yml`, and its differences appear under COMPOSE-DIFFERENCES for you to port (O4).
+- **Host boot and cron hooks are listed, never captured.** systemd units, `/etc/crontab`, `/etc/cron.d` and `/etc/cron.{hourly,daily,weekly,monthly}`, the user crontabs, `/etc/rc.local` and `/etc/init.d` live outside the checkout. Capture prints a `WARN` for each one that names `$OLD` or runs `docker compose`, and lists them in DEVIATIONS.md under *Host boot/cron hooks that reference the old checkout or run docker compose* (lines redacted, URLs cut after the host). A job that only reads or backs up the signed-document storage is not flagged: the storage stays where it is. The user crontabs under `/var/spool/cron` are readable by root only; run as your user, capture reads your own with `crontab -l` and names the rest as `not scanned` (42.4 C3b lists them with `sudo`). The cut-over repoints or disables every flagged hook (42.4 C3b, C4).
 
 Checks: `exit=0` above (a non-zero exit with `FAIL` lines means merge conflicts to resolve, see below), then:
 
@@ -60,6 +61,7 @@ stat -c '%a %n' "$OVERLAY" "$OVERLAY"/env "$OVERLAY"/certs/* 2>/dev/null   # 700
 
 - The **compose project** must be the one whose `<project>_keycloak_data` volume holds the live realm. If it is wrong, stop: a wrong project name means Keycloak starts on an **empty** volume after cut-over.
 - The two **Storage** lines are where the signed documents are today. They become the new checkout's mounts.
+- Every **Host boot/cron hooks** `WARN` is a job that would still run from `$OLD` after the cut-over. On the demo host that was an enabled `padsign.service`, and the first reboot after the cut-over brought the old stack back (42.4 C3b).
 - **Rollback:** `rm -rf "$OVERLAY"`; nothing else was touched.
 - **Evidence:** `cp "$OVERLAY/DEVIATIONS.md" "$OVERLAY/MANIFEST.json" "$EVID/"`. Both are redacted or non-secret (paths, modes, hashes, redacted diffs). **Never** copy `files/`, `certs/`, `env` or `compose.overlay.yml` into the evidence bundle; they hold secrets.
 
@@ -75,6 +77,9 @@ Open `$OVERLAY/DEVIATIONS.md`. **For every entry, record a decision in the
 change ticket:** INTENTIONAL (keep in the overlay), OBSOLETE (drop it), or
 UPSTREAM (belongs in the release, so raise an issue). That annotated file *is*
 the "documented diff that lists every intentional environment deviation".
+For each entry under *Host boot/cron hooks*, the decision is REPOINT (at
+`$CURRENT`, in 42.4 C4) or DISABLE (in C4). They are host files, so `drop`
+does not apply to them.
 
 Drop the files you marked OBSOLETE from the overlay with `overlay.sh drop`,
 never by deleting them under `files/`. The overlay records a checksum for
@@ -186,4 +191,12 @@ find "$OVERLAY" -type f -exec chmod go-rwx {} +
 Back the overlay directory up to wherever your secret-bearing backups go
 (it is small), and record where in the ticket. Together with a clean checkout
 of `$TAG` and backups of the Keycloak volume and the storage, it is
-everything needed to rebuild the host (42.6).
+everything needed to rebuild the checkout's side of the host (42.6).
+
+The rest of the host is not in the overlay: the boot unit and the
+`$CURRENT` symlink, cron jobs with their wrapper scripts and environment
+file (`ALERT_WEBHOOK_URL`), Let's Encrypt renewal state with its `live/`
+symlinks, cosign, and any secret files the operators keep on the host. Back
+those up too, into `$BACKUP` (they hold secrets), after the cut-over has
+repointed them (42.4 C4). The checklist and the `tar` command are in 42.6,
+*Host-level state the overlay does not carry*.

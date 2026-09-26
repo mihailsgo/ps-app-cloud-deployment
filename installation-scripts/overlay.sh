@@ -13,7 +13,9 @@ set -euo pipefail
 #            (which owns the Keycloak data volume), where signed documents
 #            live, a starter compose.overlay.yml, and a redacted
 #            DEVIATIONS.md. Never modifies the source; never reads
-#            signed-output/ or docs/.
+#            signed-output/ or docs/. Also lists (never captures) the host's
+#            boot/cron hooks - systemd units, cron, rc.local, init scripts -
+#            that name the deployed directory or run docker compose.
 #   apply    Put an overlay onto a CLEAN checkout of the release: copies the
 #            overlay files in (refusing if the release changed a file the
 #            overlay replaces wholesale), installs certificates, writes .env
@@ -22,8 +24,9 @@ set -euo pipefail
 #   verify   Check a checkout against its overlay: every git-visible change is
 #            declared, secret files are not world-readable, the compose project
 #            reuses the existing Keycloak volume, storage mounts point at the
-#            existing documents, and (with --live) the effective compose model
-#            matches the host being replaced.
+#            existing documents, (with --live) the effective compose model
+#            matches the host being replaced, and no boot/cron hook on the host
+#            still starts the stack from the old directory.
 #   rebase   Carry an overlay forward onto a NEWER release (the checkout this
 #            script lives in): 3-way merges the overlay's edits onto the new
 #            release's versions of the files it overrides, into a NEW overlay

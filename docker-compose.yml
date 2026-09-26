@@ -66,7 +66,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-      start_period: 60s
+      start_period: 300s   # JVM: see dmss-container-and-signature-services for the numbers
     depends_on:
       dmss-archive-services-fallback:
         condition: service_healthy
@@ -91,7 +91,27 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-      start_period: 60s
+      # start_period only decides when failed probes start to count: the
+      # first probe that passes marks the container healthy, so a long one
+      # costs nothing on a normal start. Docker calls the container unhealthy
+      # after start_period + retries x interval (+ up to `timeout` per
+      # probe): 300 + 10 x 10 = 400 s, 450 s at most. With the old 60 s it
+      # was 160 s, and on a cold boot every JVM starts at once:
+      #   - demo host (EC2 stop/start), 24.3.0.49.2: actuator UP after about
+      #     3.5 min (213 s measured after a stack restart). `docker compose
+      #     up -d` failed with "dependency failed to start: container
+      #     dmss-container-and-signature-services is unhealthy", and nginx,
+      #     last in the chain, never started;
+      #   - the pinned 24.3.0.29, on a 16-core workstation: 101 s with the
+      #     three DMSS JVMs starting together (112 s on 2 shared cores), 46 s
+      #     restarted alone. It downloads trust lists at startup, so the
+      #     network adds to it.
+      # 400 s is about twice the demo's time. Every DMSS JVM gets the same
+      # 300 s. A container that crashes is still caught at once (it exits or
+      # restarts); only one that runs but never passes a probe is reported
+      # later. The scripts' health waits (lib/health-wait.sh) are at least
+      # 450 s for the same reason (upgrade.sh/rollback.sh --health-timeout 480).
+      start_period: 300s
     depends_on:
       dmss-archive-services:
         condition: service_healthy
@@ -130,7 +150,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-      start_period: 60s
+      start_period: 300s   # JVM: see dmss-container-and-signature-services for the numbers
   dmss-archive-services-fallback:
     container_name: dmss-archive-services-fallback
     restart: always
@@ -148,7 +168,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-      start_period: 60s
+      start_period: 300s   # JVM: see dmss-container-and-signature-services for the numbers
   ps-server:
     image: 'mihailsgordijenko/ps-server:3.32@sha256:cff423bcfc97f3e62e3076259f7a52962c167fe784efb47d663ae2926b403887'
     container_name: ps-server
