@@ -317,7 +317,26 @@ sudo find "$OLD" -mindepth 1 -maxdepth 1 ! -name signed-output ! -name docs -exe
 ls -A "$OLD"                                                     # only: docs signed-output
 ```
 
-- **Check:** `ls -A "$OLD"` shows only the two storage directories, and the C5 storage-integrity check still reports 0.
+Then check that nothing else under the deployment root is left open. The old
+tree was not the only place: on the demo host `/opt/trustlynx` itself, the ACME
+webroot and every file in the Let's Encrypt state were mode 777 (safe only
+because `letsencrypt/` was root 700), and releases before v1.0.48 left the DMSS
+`application.yml` and `htpasswd` world-readable (fixed by `overlay.sh apply`
+from v1.0.48 on):
+
+```bash
+ROOT="$(dirname "$NEW")"
+sudo find "$ROOT" -path "$SIGNED" -prune -o -path "$DOCS" -prune -o ! -type l -perm -o+w -print   # must print nothing
+cd "$NEW" && sudo ./installation-scripts/overlay.sh verify --overlay "$OVERLAY" 2>&1 | sed -n '/== Secret-bearing/,/^$/p'
+```
+
+The `verify` section must show no `WARN`. For the Let's Encrypt state,
+certbot's own modes are enough: directories 755 (`archive/` and `accounts/`
+700), `privkey*.pem` and `private_key.json` 600, everything else 644; certbot
+runs as root and nginx reads only `nginx/certs/`. Afterwards,
+`certbot renew --dry-run` in the certbot container must still succeed.
+
+- **Check:** `ls -A "$OLD"` shows only the two storage directories, the C5 storage-integrity check still reports 0, the `find` prints nothing and `verify` shows no `WARN` for secret-bearing files.
 - **Rollback:** `sudo tar xzf "$BACKUP/old-deployment-dir.tgz" -C "$OLD"` restores the old checkout. Then use 42.5 R3.
 - **Evidence:** archive checksum. The retention period for `$BACKUP` is the one decided in 42.1.
 

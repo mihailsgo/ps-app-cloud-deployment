@@ -140,6 +140,28 @@ def dir_permissions(target, *call):
     return p.returncode, [l for l in p.stdout.decode("utf-8", "replace").replace("\r", "").splitlines() if l.strip()]
 
 
+def report_status_lines(r, lines):
+    """Reports "<OK|WARN|FAIL><TAB><message>" lines from a dir-permissions.sh
+    function through r; a line without a status is a WARN."""
+    report = {"OK": r.ok, "WARN": r.warn, "FAIL": r.fail}
+    for l in lines:
+        status, tab, msg = l.partition("\t")
+        if tab:
+            report.get(status, r.warn)(msg)
+        else:
+            r.warn(l)
+
+
+def carried_service_secret_files(target, m):
+    """(path, service[, user]) of lib/dir-permissions.sh's
+    service_secret_files that overlay manifest m carries, as a file or as a
+    certs/ entry."""
+    carried = {e["path"] for e in m["files"]}
+    carried |= {f"nginx/certs/{c['path'].split('/', 2)[2]}" for c in m["certs"]}
+    rc, lines = dir_permissions(target, "service_secret_files")
+    return [tuple(l.split()) for l in lines if l.split() and l.split()[0] in carried]
+
+
 def is_text(path, limit=8192):
     with open(path, "rb") as fh:
         chunk = fh.read(limit)
@@ -1431,6 +1453,15 @@ def cmd_apply(args):
             r.warn("could not check that ps-server can read config/config.js ("
                    + (text[0] if text else f"exit {rc}") + ") - validate-config.sh checks it; do so before `docker compose up`")
 
+    # The other credential files a container reads (DMSS application.yml,
+    # nginx/certs/htpasswd) that the overlay carries: group = the reader's
+    # gid, mode 640, never widened (lib/dir-permissions.sh,
+    # secure_service_file). A FAIL fails apply here, before the cut-over, for
+    # the same reason as config.js above. Release files the overlay does not
+    # carry hold only the release's defaults and are left as git has them.
+    for entry in carried_service_secret_files(target, m):
+        report_status_lines(r, dir_permissions(target, "secure_service_file", *entry)[1])
+
     stamp = {"applied_at": utcnow(), "overlay_dir": overlay,
              "manifest_sha256": sha256_file(os.path.join(overlay, "MANIFEST.json")),
              "baseline_ref": m["baseline"]["ref"], "baseline_commit": m["baseline"]["commit"],
@@ -1534,6 +1565,8 @@ def cmd_verify(args):
         for l in lines or ["WARN\tconfig/config.js: could not run the permission check"]:
             status, _, msg = l.partition("\t")
             report.get(status, r.warn)(msg or l)
+    for entry in carried_service_secret_files(target, m):
+        report_status_lines(r, dir_permissions(target, "service_file_access_report", *entry)[1])
     candidates = [".env"] + [f"nginx/certs/{c['path'].split('/', 2)[2]}" for c in m["certs"] if c["path"].endswith(".key")]
     for rel in candidates:
         p = os.path.join(target, rel)
