@@ -32,6 +32,7 @@ Release notes for the PadSign deployment package, newest first; versions follow 
 
 ### Fixed
 
+- The Deployment Wizard's sign-in accepts an access token pasted with surrounding spaces or a line break, instead of reporting it invalid. Takes effect with the next wizard image.
 - The Keycloak scripts (`keycloak-bootstrap.sh`, `smoke-user.sh`, `verify-keycloak.sh`) look users up by exact username. Before, a lookup for `test` could match another user whose name contains `test`. `smoke-user.sh delete --username test --force` removes the demo user.
 - `configure-host.sh` and `renew-cert.sh` accept the deployed certificate files (`nginx/certs/<host>.crt` / `.key`) as `--cert-crt` / `--cert-key` instead of stopping with a copy error.
 
