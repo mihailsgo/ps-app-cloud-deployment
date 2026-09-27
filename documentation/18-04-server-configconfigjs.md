@@ -1,17 +1,19 @@
 # 18.4 Server: config/config.js
 
 Service endpoints and templates
-- `CONTAINER_API_BASE_URL`: Base URL for container/signature service. Default: `"https://padsign.trustlynx.com/container/api/"`.
 - `ARCHIVE_API_BASE_URL`: Base URL for archive/document service. Default: `"https://padsign.trustlynx.com/archive/api/"`.
 - `CREATE_DOCUMENT_API_URL`: Archive endpoint to create a new document. Default: `<ARCHIVE_API_BASE_URL>document/create`.
 - `FORM_FILL_API_URL`: Container endpoint to fill a template with field data. Final URL is `FORM_FILL_API_URL + <lng>`. Default: `"https://padsign.trustlynx.com/container/api/forms/fill/template/application"`. API is not relevant for cloud instance.
 - `DOCUMENT_DOWNLOAD_API_URL`: Archive endpoint to download a document by ID. Default: `<ARCHIVE_API_BASE_URL>document/`. API is not relevant for cloud instance.
 - `VISUAL_SIGNATURE_API_TEMPLATE`: Template URL for visual signature call; `"{docid}"` is replaced by the backend. Default: `"https://padsign.trustlynx.com/container/api/signing/visual/pdf/{docid}/sign"`.
-- `STAMP_API_URL`: e-seal service endpoint used by stamping flow when enabled.
+
+E-sealing (`/api/stamp`)
+- `STAMP_MODE`: which e-sealer `/api/stamp` calls. `"external"` (the default, also used when the key is missing or unknown) or `"local"`. Switching modes: [4.5](04-05-switching-modes-after-install.md).
+- `STAMP_API_URL`, `STAMP_API_KEY`, `STAMP_COMPANY_ID`, `STAMP_COMPANY_SECRET`: external mode. The cloud e-seal endpoint and the `X-API-KEY` / `X-COMPANY-ID` / `X-COMPANY-SECRET` headers sent with it.
+- `STAMP_LOCAL`: local mode, written by `--enable-local-eseal`. `url` (the container-signature `/api/eseal/document/profile/<profile>` endpoint), `username` / `password` (container-signature's Basic auth, which must match its `SPRING_SECURITY_USER_*`), `timeoutMs` (default `30000`). See [4. Enabling local e-sealing](04-enabling-local-e-sealing.md).
+- The block for the mode not selected is ignored. `RUN_STAMPING_REQUEST` in `constants.json` decides whether the portal calls `/api/stamp` at all.
 
 Files and directories
-- `TEMPLATE_DIRECTORY`: Legacy template path prefix (not used by standard cloud flows). Default: `"/Repos/psapp/client/public/template"`.
-- `DEFAULT_TEMPLATE_FILENAME`: Filename presented to archive service when uploading a template stream. Default: `"template.pdf"`.
 - `TEMP_DIRECTORY`: Local directory for temporary PDFs produced by form fill. Default: `"./tmp/"`. Not relevant for cloud instance.
 - `DOCUMENT_OUTPUT_DIRECTORY`: Directory where saved PDFs/XMLs are written. Default: `"/PSDOCS/out/"`. Not relevant for cloud instance.
 - `READONLY_PDF_DIRECTORY`: Directory to search for readonly PDFs by naming pattern. Default: `"/PSDOCS/in/"`. API is not relevant for cloud instance.
@@ -29,27 +31,35 @@ Server and CORS
 - `USER_ENTRY_TTL_MS`, `USER_STATE_CLEANUP_MS`: In-memory state retention and cleanup interval. (This repo's `config/config.js` ships the lowered value `600000` = 10 min.)
 - `PAD_ARRIVAL_TIMEOUT_MS`: Hard-wall timeout (default `600000` = 10 min) after which an unsigned document is evicted from the tablet view regardless of activity; the next `/api/latestUser` poll returns empty.
 - `PRIVILEGED_API_ROLES`: Optional role allowlist for privileged internal cleanup operations.
+- `API_PROTECT_LOGS_ENABLED`: Logs each bearer-token validation (`Token valid ...`). Default `false`; turn on only while debugging auth.
+- `ENABLE_PERSONAL_CODE_VALIDATION`: When `true`, personal codes must match the Latvian format (`DDMMYY-NNNNN`). Default `false`.
+
+Demo mode (`DEMO_MODE` in `constants.json`)
+- `DEMO_COMPANY_ROLE`: Company used for a demo upload when the user has no company realm role. Set it to your company role name, or disable demo mode.
+- `DEMO_MAX_FILE_SIZE_MB`: Largest PDF `/api/demo/upload` accepts (`413` above it). Default `10`.
 
 Document routing (post-signing actions)
 - `DOCUMENT_ROUTING`: Configures what happens after a document is signed. Disabled by default.
   - `enabled` (boolean): Master switch. Default: `false`.
   - `skipDemo` (boolean): Skip routing for demo-mode documents. Default: `true`.
   - `strategies` (array): List of routing actions. Each has `type`, `enabled`, and type-specific options.
-  - Strategy `"filesystem"`: Saves PDF to disk with configurable folder structure. Options: `basePath`, `pathTemplate` (supports `{company}`, `{date:YYYY-MM}`, `{docid}`, `{email}`, `{lng}` tokens), `createDirectories`.
-  - Strategy `"webhook"`: POSTs document metadata (and optionally the file) to a URL with retry logic. Options: `url`, `method`, `headers`, `includeFile`, `timeoutMs`, `retries`, `retryBaseDelayMs`, and an optional `company` (the strategy runs only for that company — case-insensitive — enabling per-company direct-API delivery). Sends `document.signed` events on success and `document.signing_error` on failure; permanent failure after retries is logged only (no email/alert channel exists).
-  - Future strategy types (`s3`, `sftp`, `email`) can be added without breaking existing config.
-- Signed-PDF receive-back buffer (Padsign Manager / virtual printer): when the `"filesystem"` strategy is enabled (receive-back deployments set `DOCUMENT_ROUTING.enabled: true` + the filesystem strategy `enabled: true`, writing to the bind-mounted `/signed-output`), the written PDF also becomes a pickup buffer the Manager polls back. Endpoints (all `REGISTER_PDF_API_KEY`): `GET /api/signedPdf/pending?email=&company=` → `GET /api/signedPdf?docid=` (local filename from the `X-Padsign-Filename` header) → `POST /api/signedPdf/ack` (deletes the buffered copy). The buffer is ack-driven with no time-expiry; its index is rebuilt from on-disk `<file>.meta.json` sidecars at startup. Full design in psapp `documentation/document-routing-spec.md` → *Receive-back buffer & per-company delivery*.
+  - Strategy `"filesystem"`: Saves PDF to disk with configurable folder structure. Options: `basePath`, `pathTemplate` (tokens listed under *Customer Data lookup* below and in psapp's `documentation/document-routing-spec.md`), `createDirectories`, and an optional `company` (the strategy runs only for that company, case-insensitive).
+    - `bufferOnly` (default `false`): with `false` the file under `basePath` is a durable archive the Manager's ack never deletes, and the receive-back buffer keeps its own hard-linked copy. `true` makes the archive file itself the buffer entry, so ack deletes it; only set it if you do not want a permanent filesystem archive.
+    - `bufferPath` (optional, only with `bufferOnly: false`): where the buffer copy and its `<file>.meta.json` sidecar live. Default `<basePath>/.padsign-buffer`. If `basePath` is a customer-visible share, point this at a separate, non-shared path.
+  - Strategy `"webhook"`: POSTs document metadata (and optionally the file) to a URL with retry logic. Options: `url`, `method`, `headers`, `includeFile`, `timeoutMs`, `retries`, `retryBaseDelayMs`, and an optional `company` (the strategy runs only for that company - case-insensitive - enabling per-company direct-API delivery). Sends `document.signed` events on success and `document.signing_error` on failure. A permanent failure after retries is logged by ps-server; `monitor-status.sh --alert` turns that log line into a webhook alert ([40.3 Monitoring and alerting](40-03-monitoring-and-alerting.md)).
+  - Unknown strategy types are logged and skipped.
+- Signed-PDF receive-back buffer (Padsign Manager / virtual printer): when the `"filesystem"` strategy is enabled (receive-back deployments set `DOCUMENT_ROUTING.enabled: true` + the filesystem strategy `enabled: true`, writing to the bind-mounted `/signed-output`), the written PDF also becomes a pickup buffer the Manager polls back. Endpoints (API key; per-company `REGISTER_PDF_API_KEYS` entries scope a key to one company, see [18.5](18-05-cloud-flow-apiregisterpdf.md)): `GET /api/signedPdf/pending?email=&company=` → `GET /api/signedPdf?docid=` (local filename from the `X-Padsign-Filename` header) → `POST /api/signedPdf/ack` (deletes the buffered copy). The buffer is ack-driven with no time-expiry; its index is rebuilt from on-disk `<file>.meta.json` sidecars at startup. Full design in psapp `documentation/document-routing-spec.md` → *Receive-back buffer & per-company delivery*.
 
 Customer Data lookup (virtual-printer flow)
 - `CUSTOMER_DATA_API_URL`, `CUSTOMER_DATA_API_KEY`, `CUSTOMER_DATA_API_KEY_HEADER`: external customer data service called by ps-server when `POST /api/registerPDF` receives `source=virtual-printer`. The server scans page 1 of the PDF (position-independent text-layer extraction via `pdfjs-dist`) for two barcode-backed identifiers:
   - `customerId` (5-digit) → `GET {URL}{customerId}` with the configured header resolves a customer name, stored as `signerName` for the visual signature (`Signed by: <resolved name>`).
-  - `documentNumber` (6-digit) → exposed as `{documentNumber}` in the filesystem routing `pathTemplate`, so signed files are named like `100542_2026.04.22_14_38_36.pdf`.
+  - `documentNumber` (3 to 7 digits) → exposed as `{documentNumber}` in the filesystem routing `pathTemplate`, so signed files are named like `100542_2026.04.22_14_38_36.pdf`.
   Feature is disabled until `CUSTOMER_DATA_API_KEY` is non-empty. Default key header: `api_key`.
 - `CUSTOMER_DATA_CACHE_TTL_MS`: in-memory cache TTL for customer lookups. Default: `3600000` (1 hour).
 - `CUSTOMER_DATA_TIMEOUT_MS`: HTTP timeout per request. Default: `10000`.
 - `CUSTOMER_DATA_RETRIES`: retry count for transient 5xx / timeout errors. Default: `2`.
 - Signer name composition: `CustomerFirstName + " " + CustomerLastName` for individuals, or `CustomerLastName` alone for organizations (empty first name).
-- Filesystem `pathTemplate` tokens extended with `{documentNumber}`, `{signerName}`, `{customerId}`, and the `ss` seconds format; `{date:...}` output is sanitized so `HH:mm:ss` becomes `HH_mm_ss`. Default template: `{company}/{email}/{date:YYYY-MM}/{documentNumber}_{date:YYYY.MM.DD_HH:mm:ss}.pdf` — the `{email}` segment yields the dual-mode layout (signers sharing `company=Acme` land under `/Acme/<email>/…`; a unique `company=Acme-Branch` gets its own top-level folder).
+- Filesystem `pathTemplate` tokens extended with `{documentNumber}`, `{signerName}`, `{customerId}`, and the `ss` seconds format; `{date:...}` output is sanitized so `HH:mm:ss` becomes `HH_mm_ss`. Default template: `{company}/{email}/{date:YYYY-MM}/{documentNumber}_{date:YYYY.MM.DD_HH:mm:ss}.pdf` - the `{email}` segment yields the dual-mode layout (signers sharing `company=Acme` land under `/Acme/<email>/…`; a unique `company=Acme-Branch` gets its own top-level folder).
 - Non-blocking: if the barcode is missing, the customer is not found, or the API is down, signing proceeds with the default fallback (email or name+surname) and the upload is not rejected. Filename falls back to `unknown_<date>.pdf`.
 
 ---

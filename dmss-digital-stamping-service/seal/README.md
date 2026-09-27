@@ -1,9 +1,21 @@
 # Demo seal certificate
 
-**This is a DEMO self-signed certificate. Do NOT use for production signatures.**
+> **Type:** how-to  -  **Audience:** operator, developer
+> **Last verified:** 2026-09-27 against main d553db4
+
+What the shipped demo keystore is, how to replace it with a real certificate
+and check that the stamping service serves it, and how the demo file was
+generated. It does not cover turning local e-sealing on or off (`STAMP_MODE`,
+the `local-eseal` compose profile) or the full production setup; see
+`documentation/04-enabling-local-e-sealing.md` and
+`documentation/04-06-production-setup-deploying-with-your-own-key-and-certificate.md`
+in the deployment repo.
+
+**This is a DEMO self-signed certificate. Do NOT use it for production signatures.**
 
 The `seal.p12` PKCS12 keystore in this folder is shipped so that local e-sealing
-works out of the box right after `--enable-local-eseal` deployment. It contains
+works out of the box once it is enabled (`--enable-local-eseal` in the
+deployment scripts, or `COMPOSE_PROFILES=local-eseal` locally). It contains
 an RSA-2048 self-signed certificate:
 
 | Property      | Value                                                            |
@@ -25,13 +37,47 @@ an RSA-2048 self-signed certificate:
 3. Replace `seal.p12` with your file.
 4. If the password differs from `changeit`, update `password:` in
    `../application.yml`.
-5. Start it back up: `docker compose up -d dmss-digital-stamping-service`
-6. Verify: `curl -fsS http://localhost:8084/api/signing/certificate/for/TrustLynx`
-   should return a `cert` field whose decoded subject matches your new cert.
+5. Start it back up: `docker compose --profile local-eseal up -d dmss-digital-stamping-service`
+6. Verify, as below.
+
+### Verifying the served certificate
+
+The stamping service has no host port by design (it would collide with a
+USB-token signer on host port 8084), and its image has no `curl`, so query it
+from `dmss-container-and-signature-services`, which reaches it over the
+Docker network and does have `curl`. The service returns the certificate as
+hex-encoded DER in the `cert` field. Run from the directory that holds
+`docker-compose.yml`; the host needs `python3` and `openssl`:
+
+```bash
+docker compose exec -T dmss-container-and-signature-services curl -fsS \
+    http://dmss-digital-stamping-service:8084/api/signing/certificate/for/TrustLynx \
+    | python3 -c "import sys,json; sys.stdout.buffer.write(bytes.fromhex(json.load(sys.stdin)['cert']))" \
+    | openssl x509 -inform DER -noout -subject -issuer -dates
+```
+
+Replace `TrustLynx` with the company name from `../application.yml` if you
+changed it. The printed subject must match your new certificate. If it still
+shows `CN=Trustlynx Local Seal Demo`, the swap did not take effect: check the
+file path and that the container actually restarted.
+
+Then sign a document with local mode enabled and check ps-server's log:
+
+```bash
+docker compose logs ps-server | grep -E '\[stamp\] mode=local|Stamp response status|continuing without stamp'
+```
+
+A working seal shows `[stamp] mode=local url=...` followed by
+`Stamp response status: 200`. A `[stamp] upstream unavailable, continuing
+without stamp` line means the seal failed with a 5xx and the document was
+left unsealed. The signing UI still completes in that case, so the log is
+the place to check.
+
+## Requirements for real signatures
 
 Real signatures generally also require:
 
-- A trusted CA chain (B_BES profile works as-is; LT / LTA / PAdES_BASELINE_LT
+- A trusted CA chain (the B_BES profile works as-is; LT / LTA / PAdES_BASELINE_LT
   profiles need timestamping and OCSP - wire those in via
   `container-signature-service`'s digidoc4j config, not here).
 - Coordination with the appropriate `documentsigningprofiles.json` entry in
@@ -40,10 +86,9 @@ Real signatures generally also require:
 
 ## How the shipped seal.p12 was generated
 
-This is purely informational - you do NOT need to regenerate. But if
-your demo keystore expires (after 2028-08-13) or you want a fresh demo
-identity for a different evaluation purpose, here's the exact recipe
-that produced the shipped file:
+You do not need to regenerate it. If the demo keystore expires (after
+2028-08-13) or you want a fresh demo identity, this is the recipe that
+produced the shipped file:
 
 ```bash
 # 1. Generate a self-signed RSA-2048 cert + matching unencrypted PEM key.
@@ -71,7 +116,7 @@ keytool -list -keystore seal.p12 -storepass changeit
 rm seal_key.pem seal_cert.pem
 ```
 
-Production keystores follow a similar shape, but the key + cert come
-from a real CA rather than `openssl req -x509`. See the deployment
-guide's "Production setup: deploying with your own key and certificate"
-section for the production recipes.
+Production keystores follow a similar shape, but the key + cert come from a
+real CA rather than `openssl req -x509`. See
+`documentation/04-06-production-setup-deploying-with-your-own-key-and-certificate.md`
+in the deployment repo for the production recipes.

@@ -4,6 +4,9 @@ Branding and UI
 - `PS_PAGE_TITLE`: Window title and logo alt text. Default: `"TrustLynx"`.
 - `PS_LOGO_PATH`: Path to logo used in header. Default: `"/portal/logo.png"`.
 - `PS_DEFAULT_LOGO_PATH`: Fallback logo if `PS_LOGO_PATH` missing. Default: `"/portal/logo.png"`.
+- `PS_LOGO_WIDTH`, `PS_LOGO_HEIGHT`: Logo size, any CSS length (`"30"`, `"120px"`, `"50%"`). Empty means the stylesheet decides.
+- `PS_LOGO_WIDTH_IDLE`, `PS_LOGO_HEIGHT_IDLE`, `PS_LOGO_WIDTH_ACTIVE`, `PS_LOGO_HEIGHT_ACTIVE`: Per-screen overrides for the idle screen and for the signing screen. An empty value falls back to `PS_LOGO_WIDTH` / `PS_LOGO_HEIGHT`.
+- `PS_SIGNATURE_BUTTON_FONT_SIZE`: CSS font size for the signature pad's buttons. Empty keeps the default.
 - `SHOW_USER_DATA_BOX`: Toggle small user-info box for authenticated users. Default: `false`.
 - `SHOW_SIGNER_NAME`: When `true`, the SPA renders the resolved signer name (returned by the CustomerData lookup, see server `CUSTOMER_DATA_*` config) above the signature canvas, e.g. `Signer: Stephen Graham`. Lets the user confirm identity before signing. Designed for the virtual-printer flow where the signer is identified by a barcode on the printed document. Default: `false`. Enable per-deployment by setting to `true` only for clients using this flow.
 
@@ -22,6 +25,7 @@ Data polling and backend endpoints
 - `PS_API_DEMO_UPLOAD`: DEMO upload endpoint. Default: `"/api/demo/upload"`.
 - `PS_API_DEMO_UPLOAD_VERSION`: DEMO upload new version endpoint. Default: `"/api/demo/upload/version"`.
 - `PS_API_DEMO_FILL_BY_DOCID`: DEMO fill-by-doc endpoint. Default: `"/api/demo/fill-by-docid"`.
+- `PS_API_FILL_PDF_DEMO`: Form-fill endpoint the SPA falls back to when the other fill paths fail; stores the filled PDF as a new version of the document. Default: `"/api/fillPDFDemo"`.
 
 PDF rendering, download, and signature overlay
 - `PS_DOWNLOAD_API`: Archive service base used by the viewer to open PDFs in readonly mode. Final URL: `PS_DOWNLOAD_API + <docId> + "/download"`. Default: `"https://padsign.trustlynx.com/archive/api/document/"`.
@@ -49,7 +53,7 @@ Form fields
 
 Localization and text
 - `DEFAULT_LANGUAGE`: Default language code for UI and date formatting. Default: `"LV"`.
-- `LV_MONTHS_LIST` / `EN_MONTHS_LIST`: Month names used to build `getCurrentDate()` texts placed into PDF fields. Not relevant for cloud instance.
+- `LV_MONTHS_LIST` / `EN_MONTHS_LIST`: Unused by the current client; safe to leave as shipped.
 - `TRANSLATIONS`: String resources for UI and notifications in `LV` and `EN`. Update to localize texts.
 - Signature visual labels in visual-sign payload:
 - `SIGNATURE_LABEL_SIGNER`, `SIGNATURE_LABEL_DATE`: Localized labels used in `pdfSignatureVisuals.signatureText` (for example, `Signer/Date` vs `Parakstitajs/Datums`).
@@ -61,8 +65,9 @@ Localization and text
 Workflow toggles and callbacks
 - `RUN_STAMPING_REQUEST`: When `true`, triggers a backend call to stamp the PDF after signing. Default: `false`.
 - `DEMO_MODE`: Enables/disables DEMO behavior (`ENABLE`/`DISABLE`). Default: `"DISABLE"`.
-- `PDF_SIGNING_STATUS_CALLBACK`: **Deprecated** - replaced by server-side `DOCUMENT_ROUTING` webhook strategy in `config.js`. Previously an external webhook URL for client-side notification. Default: `"https://example.com/api/signing-status"`.
-- `PDF_SIGNING_STATUS_CALLBACK_ENABLED`: **Deprecated** - replaced by server-side `DOCUMENT_ROUTING` webhook strategy. Default: `false`.
+- `DEMO_MAX_FILE_SIZE_MB`: Largest PDF the demo upload accepts in the browser (default `10`). Keep it equal to the server's `DEMO_MAX_FILE_SIZE_MB` in `config.js`, which enforces the same limit.
+- `PDF_SIGNING_STATUS_CALLBACK`: **Unused** by the current client - replaced by the server-side `DOCUMENT_ROUTING` webhook strategy in `config.js`. Previously an external webhook URL for client-side notification. Default: `"https://example.com/api/signing-status"`.
+- `PDF_SIGNING_STATUS_CALLBACK_ENABLED`: **Unused** by the current client - replaced by the server-side `DOCUMENT_ROUTING` webhook strategy. Default: `false`.
 
 ---
 

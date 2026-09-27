@@ -2,7 +2,7 @@
  * PadSign Deployment Wizard — visual system
  * Palette sourced directly from config/TLlogo.png and a live inspection of
  * https://trustlynx.com (computed CSS custom properties). Do not invent new
- * brand colors here — see docs/superpowers/... design brief for the source.
+ * brand colors here; those two are the source of truth for the palette.
  */
 
 :root {
