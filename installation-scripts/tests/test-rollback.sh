@@ -25,7 +25,7 @@ set -euo pipefail
 # start costs 50-150 ms there, and one upgrade.sh or rollback.sh run starts
 # several hundred. Each PASS/FAIL line shows its seconds. A slow run is not a
 # hang, so do not wrap it in a short `timeout`: the watchdog
-# (lib/watchdog.sh) stops it after TEST_WATCHDOG_SECS (default 1200) and
+# (lib/watchdog.sh) stops it after TEST_WATCHDOG_SECS (default 3600 there) and
 # prints what was still running.
 #
 # Exit codes: 0 all passed, 1 a case failed, 2 missing dependency,

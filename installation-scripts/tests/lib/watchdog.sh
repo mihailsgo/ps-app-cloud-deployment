@@ -14,7 +14,10 @@
 # processes are gone (on Windows, rm cannot remove a directory a live process
 # still runs in), so its throwaway copy is removed.
 #
-#   TEST_WATCHDOG_SECS  the limit in seconds (default 1200); 0 turns it off.
+#   TEST_WATCHDOG_SECS  the limit in seconds; 0 turns it off. Default: 600
+#                       on Linux, where the slowest suite takes under a
+#                       minute, and 3600 under Git Bash, where
+#                       test-rollback.sh took 1772 s on a busy machine.
 #
 # It also makes a stop from outside (`timeout`, Ctrl-C) run the suite's EXIT
 # trap to the end, even with the timer off (see _wd_signalled). A TERM sent
@@ -24,8 +27,9 @@
 #
 # The default is far above a normal run. Under Git Bash every process start
 # costs 50-150 ms, and a suite starts thousands, so a suite takes minutes
-# there (test-rollback.sh 7 to 12) and seconds on Linux. A slow run is not a
-# hang, and a short outside `timeout` makes it look like one.
+# there (test-rollback.sh 7 to 12, more when the machine is busy) and
+# seconds on Linux. A slow run is not a hang, and a short outside `timeout`
+# makes it look like one.
 #
 # Lists and stops processes through /proc (Linux, Git Bash/MSYS). Under Git
 # Bash it also asks Windows (powershell.exe) for the Windows programs under
@@ -140,6 +144,7 @@ _wd_run() {  # <suite pid> <suite name> <limit>
     done < <(_wd_windows_only "$swin" "${wins[@]}")
   fi
   (( ${#pids[@]} + ${#natives[@]} )) || echo "  (no process under it: the suite itself is blocked, e.g. in a read)" >&2
+  echo "  If it was only slow (a busy machine), run it again with a larger TEST_WATCHDOG_SECS." >&2
 
   # USR1 first: the suite runs its trap as soon as the command it waits for
   # ends, so it never goes on to the next case. It then waits for this
@@ -190,7 +195,9 @@ _wd_signalled() {  # <exit code>
 }
 
 watchdog_start() {  # [default limit in seconds]
-  local limit="${TEST_WATCHDOG_SECS:-${1:-1200}}" prev
+  local default=600 limit prev
+  [[ -r "/proc/$$/winpid" ]] && default=3600   # Git Bash
+  limit="${TEST_WATCHDOG_SECS:-${1:-$default}}"
   if [[ ! "$limit" =~ ^[0-9]+$ ]]; then
     echo "ERROR: TEST_WATCHDOG_SECS must be a whole number of seconds (0 turns the watchdog off), got '${limit}'" >&2
     exit 2
