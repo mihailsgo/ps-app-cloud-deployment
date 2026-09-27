@@ -132,6 +132,37 @@ else
   fail_case "blocked read (rc=${rc})" "$out"
 fi
 
+# Git Bash only: a Windows program started by another Windows program (the
+# Microsoft Store python3 alias starts python3.13.exe this way) has no /proc
+# entry. Stopping its parent leaves it running with the $(...) pipe open, and
+# the suite waits for it. The watchdog finds it in the Windows process list.
+if [[ -r "/proc/$$/winpid" ]] && command -v powershell.exe >/dev/null 2>&1; then
+  win_running() {  # <text> -> Windows pids whose command line contains <text>
+    powershell.exe -NoProfile -NonInteractive -Command \
+      "Get-CimInstance Win32_Process | Where-Object { \$_.CommandLine -like '*$1*' -and \$_.Name -ne 'powershell.exe' } | ForEach-Object { \$_.ProcessId }" \
+      < /dev/null 2>/dev/null | tr -d '\r'
+  }
+  fake_suite stuck-native 'set +e
+out="$(cmd //c "ping -n 919 127.0.0.1 >nul & echo done")"; rc=$?
+set -e
+echo "checked rc=$rc" > "$tmp/../stuck-native.next"'
+  t0=$SECONDS
+  run_suite stuck-native TEST_WATCHDOG_SECS=3
+  took=$((SECONDS - t0))
+  out="$(cat "${work}/stuck-native.out")"
+  left="$(win_running "ping -n 919")"
+  # shellcheck disable=SC2086 # one pid per word
+  [[ -n "$left" ]] && /usr/bin/kill -f -W $left 2>/dev/null
+  if [[ $rc -eq 124 && ! -e "${work}/stuck-native.next" && ! -d "${work}/stuck-native.tmp" && -z "$left" && $took -lt 60 ]] \
+     && grep -qE '^ +[0-9]+ \(Windows\) .*ping +-n 919' <<< "$out"; then
+    ok_case "Git Bash: a Windows process /proc does not list is named and stopped too"
+  else
+    fail_case "native Windows process (rc=${rc}, ${took}s, still running: ${left:-none})" "$out"
+  fi
+else
+  echo "  SKIP the Windows-process case (not Git Bash)"
+fi
+
 # An outside `timeout` sends TERM to the suite and then to its whole process
 # group, the watchdog included. The second TERM used to cut the EXIT trap
 # short under Git Bash; on Linux, the background watchdog made bash skip it
