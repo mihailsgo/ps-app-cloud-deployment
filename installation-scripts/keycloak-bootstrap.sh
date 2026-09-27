@@ -120,13 +120,13 @@ if [[ "$skip_test_user" != "true" ]]; then
   # are required by Keycloak 26's user profile - without them the first
   # browser login stops at VERIFY_PROFILE (see smoke-user.sh).
   kc_exec "
-    TEST_UID=\$(/opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username=${test_user} --fields id --format csv | tail -n 1 | tr -d '\r\"')
+    TEST_UID=\$(/opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username=${test_user} -q exact=true --fields id --format csv | tail -n 1 | tr -d '\r\"')
     if [ -n \"\$TEST_UID\" ] && [ \"\$TEST_UID\" != \"id\" ]; then
       /opt/keycloak/bin/kcadm.sh delete users/\$TEST_UID -r ${realm} >/dev/null
     fi
     /opt/keycloak/bin/kcadm.sh create users -r ${realm} -s username=${test_user} -s enabled=true -s email='${test_email}' -s firstName=Test -s lastName=User >/dev/null
   " >/dev/null
-  test_uid="$(kc_csv_last "/opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username=${test_user} --fields id --format csv")"
+  test_uid="$(kc_csv_last "/opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username=${test_user} -q exact=true --fields id --format csv")"
   kc_set_password "${realm}" "${test_uid}" "${test_pass}" >/dev/null
   kc_exec "/opt/keycloak/bin/kcadm.sh add-roles -r ${realm} --uusername ${test_user} --rolename '${company_role}'" >/dev/null
 fi
@@ -209,14 +209,14 @@ if [[ -n "$users_csv" ]]; then
     fi
 
     kc_exec "
-      /opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username='${username}' --fields id,username | grep -q '\"id\"' || \
+      /opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username='${username}' -q exact=true --fields id,username | grep -q '\"id\"' || \
       /opt/keycloak/bin/kcadm.sh create users -r ${realm} -s username='${username}' -s enabled=true >/dev/null || \
-      { /opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username='${username}' --fields id,username | grep -q '\"id\"' || \
+      { /opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username='${username}' -q exact=true --fields id,username | grep -q '\"id\"' || \
         { echo \"ERROR: could not create or verify user '${username}' (see kcadm error above)\" >&2; exit 1; }; }
     " >/dev/null
 
     uid="$(
-      kc_exec "/opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username='${username}' --fields id --format csv | tail -n 1" | tr -d '\r"'
+      kc_exec "/opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username='${username}' -q exact=true --fields id --format csv | tail -n 1" | tr -d '\r"'
     )"
 
     kc_set_password "${realm}" "${uid}" "${password}" >/dev/null

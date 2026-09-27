@@ -202,7 +202,7 @@ fi
 # smoke-user.sh's disposable logins instead. Its absence is the
 # recommended state, not a failure.
 unset exit_code
-test_uid="$(kc_exec "/opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username=test --fields id --format csv | tail -n 1" | tr -d '\r')"
+test_uid="$(kc_exec "/opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username=test -q exact=true --fields id --format csv | tail -n 1" | tr -d '\r')"
 if [[ -z "$test_uid" || "$test_uid" == "id" ]]; then
   ok "no shared 'test' user (recommended for production - use smoke-user.sh for smoke tests)"
 else

@@ -9,9 +9,9 @@ those customizations explicit so upgrades do not lose them.
 
 After a reboot Docker restarts containers by their `restart:` policy, in no
 particular order and without the dependency waits of
-[9.9](09-09-health-checks-and-startup.md). Keycloak, nginx and ps-client
-(`restart: unless-stopped`) stay down if they were stopped with
-`docker compose stop` before the reboot. Install one systemd unit that runs
+[9.9](09-09-health-checks-and-startup.md). Every service uses
+`restart: unless-stopped`, so any service stopped with `docker compose stop`
+before the reboot stays down. Install one systemd unit that runs
 `docker compose up -d` from the deployment directory at boot.
 
 The unit ships as `installation-scripts/assets/padsign.service.example`:

@@ -65,9 +65,11 @@ and the `.git` directory.
 
 The protection is who can reach port 8443 and who holds the token:
 
-- **Keep port 8443 closed** in the host and network firewall and use the SSH tunnel from
-  [3.1](03-01-starting-the-wizard.md). The port is published on all host interfaces, so the
-  firewall is what keeps it private ([2.3 Network and firewall](02-03-network-and-firewall.md)).
+- **Keep port 8443 on loopback** and use the SSH tunnel from [3.1](03-01-starting-the-wizard.md).
+  By default the port is published on `127.0.0.1` only, so the network cannot reach it. If you set
+  `WIZARD_BIND_ADDRESS` in `.env` to open it on a network interface, a network firewall in front of
+  the host is what keeps it private: Docker-published ports bypass host firewalls such as `ufw`
+  ([2.3 Network and firewall](02-03-network-and-firewall.md)).
 - **Treat the token as a credential.** Anyone who can run `docker logs` on the host can read it.
 - **Stop the wizard when you are done**: `docker compose --profile wizard stop wizard` from
   `/opt/padsign`. Otherwise `restart: unless-stopped` brings it back after a reboot.

@@ -105,7 +105,7 @@ fi
 # reason (see keycloak-bootstrap.sh's test-user recreate block).
 find_user_id() {
   local uname="$1" uid
-  uid="$(kc_csv_last "/opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username=${uname} --fields id --format csv")"
+  uid="$(kc_csv_last "/opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username=${uname} -q exact=true --fields id --format csv")"
   if [[ -z "$uid" || "$uid" == "id" ]]; then
     return 1
   fi

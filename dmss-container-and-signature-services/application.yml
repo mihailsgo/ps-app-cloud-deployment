@@ -254,7 +254,11 @@ logging:
     console: '%d{yyyy-MM-dd HH:mm:ss.SSS} [%X{traceId}/%X{spanId}] %-5p [%t] %logger{36} - %msg%n'
   #    console: '%d{yyyy-MM-dd HH:mm:ss.SSS} [%X{X-Session-ID}/%X{X-Request-ID}] %-5p [%t] %logger{36} - %msg%n'
   level:
-    root: debug
+    # Framework logging at info: at debug every Spring and HTTP-client
+    # internal is logged, which fills the disk.
+    # ee.digitalmind stays at debug: dmss-seal-smoke.sh reads its
+    # "Signature level from request" line.
+    root: info
     ee:
       digitalmind: debug
 #http proxy settings

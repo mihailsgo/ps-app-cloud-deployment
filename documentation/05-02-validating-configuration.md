@@ -40,7 +40,7 @@ model.
 | Check | Result |
 |---|---|
 | `API_PROTECT_LOGS_ENABLED` is true (ps-server would log raw bearer tokens) | FAIL |
-| A `config.js` credential still holds the value shipped in this public repository, or the `CHANGE_ME` placeholder: `REGISTER_PDF_API_KEY`, `SESSION_SECRET`, the Keycloak backend client secret, `STAMP_API_KEY`, `STAMP_COMPANY_SECRET` | WARN, with the fix. The two `STAMP_*` fields are OK while `STAMP_MODE` is `"local"`, which does not use them. (`STAMP_COMPANY_ID` is not checked; set it together with the other two.) |
+| A `config.js` credential still holds the value shipped in this public repository, or the `CHANGE_ME` placeholder: `REGISTER_PDF_API_KEY`, `SESSION_SECRET`, the Keycloak backend client secret, `STAMP_API_KEY`, `STAMP_COMPANY_ID`, `STAMP_COMPANY_SECRET` | WARN, with the fix. The three `STAMP_*` fields are OK while `STAMP_MODE` is `"local"`, which does not use them. |
 | The visual-PDF signing CA (`dmss-container-and-signature-services/dmssrootca.p12`) is the demo CA shipped in the repository | WARN: run `configure-host.sh --host <host> --generate-ca`, then restart `dmss-container-and-signature-services`. The installer generates one per deployment |
 | That CA keystore is missing or does not open with the password in its `application.yml` | FAIL |
 | `dmss-archive-services` has JWT checking enabled with the shipped secret | FAIL |
@@ -50,8 +50,12 @@ model.
 | A TLS key in `nginx/certs/` is world-readable | FAIL |
 | The nginx redirect from `/` to `/portal/` is missing | FAIL |
 
-**Port bindings.** Only `nginx` and `wizard` may publish a port on all interfaces. Any other service
-published on a non-loopback address is a FAIL ([2.3 Network and firewall](02-03-network-and-firewall.md)).
+**Port bindings.** Only `nginx` may publish a port on all interfaces. The `wizard` binds to
+`127.0.0.1` by default; when `WIZARD_BIND_ADDRESS` in `.env` publishes it on a non-loopback address,
+that is a WARN, because it holds the Docker socket and Docker-published ports bypass host firewalls
+([3.1](03-01-starting-the-wizard.md#reaching-the-wizard-without-a-tunnel-wizard_bind_address)). Any
+other service published on a non-loopback address is a FAIL
+([2.3 Network and firewall](02-03-network-and-firewall.md)).
 
 **Hostname consistency** (with `--host`). These must all name your host: `server_name` in
 `nginx/nginx.conf`, `KEYCLOAK_URL` in `constants.json`, `auth-server-url` in `config.js`, and

@@ -346,6 +346,10 @@ for name, svc in sorted((data.get('services') or {}).items()):
       [[ -z "$svc" ]] && continue
       if [[ "$loopback" == "1" ]]; then
         ok "${svc}: host port ${published} bound to ${host_ip} (loopback-only)"
+      elif [[ "$svc" == wizard ]]; then
+        # Allowed (WIZARD_BIND_ADDRESS in .env), but it holds the Docker
+        # socket and Docker's published ports bypass host firewalls.
+        warn "wizard: host port ${published} bound to ${host_ip:-all interfaces} (WIZARD_BIND_ADDRESS) - it holds the Docker socket, and Docker-published ports bypass host firewalls such as ufw. Keep it on 127.0.0.1 and use an SSH tunnel unless this network is trusted (documentation/03-01-starting-the-wizard.md)"
       elif [[ -n "${PORT_ALLOWLIST_NONLOOPBACK[$svc]:-}" ]]; then
         ok "${svc}: host port ${published} bound to all interfaces (allow-listed: ${PORT_ALLOWLIST_NONLOOPBACK[$svc]})"
       else

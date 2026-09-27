@@ -42,8 +42,10 @@ Then install them:
 ```
 
 `--host` is the current hostname. Pass the new files from where they are
-(for example `installation-scripts/certs/`), not `nginx/certs/<host>.crt`
-itself, which is where they are copied to. `--allow-encrypted-key` accepts an
+(for example `installation-scripts/certs/`); they are copied to
+`nginx/certs/<host>.crt` / `.key`. If you already placed the renewed files
+there yourself, pass those paths: the copy is skipped and the rest of the
+run (checks, nginx restart) goes ahead as usual. `--allow-encrypted-key` accepts an
 encrypted key, which nginx cannot use without a passphrase; only use it if
 you decrypt the key another way before nginx starts.
 

@@ -93,7 +93,11 @@ if it is `true`. Turn it on only for a short auth-debugging session.
 - [ ] **Delete the `test` user.** `keycloak-bootstrap.sh` creates it in realm
   `padsign` with only the company role. In the admin console
   (`https://padsign.example.com/auth/admin/`), select realm `padsign`, go to
-  **Users**, open `test` and choose **Delete**. For later smoke tests, create
+  **Users**, open `test` and choose **Delete**. Or delete it from the host
+  with `KEYCLOAK_ADMIN_PASSWORD` exported as in
+  [8.1](08-01-automated-setup.md#disposable-smoke-test-users):
+  `./installation-scripts/smoke-user.sh delete --host padsign.example.com --username test --force`
+  (the lookup matches the username exactly). For later smoke tests, create
   a disposable login with `installation-scripts/smoke-user.sh` instead
   ([8.1](08-01-automated-setup.md#disposable-smoke-test-users)). After you
   delete it, `verify-keycloak.sh` reports `no shared 'test' user`.
@@ -111,8 +115,9 @@ if it is `true`. Turn it on only for a short auth-debugging session.
 
 - [ ] **Only ports 80 and 443 are reachable from outside.** In
   `docker-compose.yml`, Keycloak (8080) and the DMSS archive and
-  container-signature services (86, 84) are bound to `127.0.0.1`. ps-server,
-  the fallback archive and the stamping service publish no host port.
+  container-signature services (86, 84) and the wizard (8443) are bound to
+  `127.0.0.1`. ps-server, the fallback archive and the stamping service
+  publish no host port.
   `validate-config.sh` fails if any internal service binds to a non-loopback
   interface. Still enforce this with a host or cloud firewall:
   [2.3 Network and firewall](02-03-network-and-firewall.md).
@@ -139,8 +144,11 @@ The wizard container mounts `/var/run/docker.sock`, which gives it
 root-equivalent access to the host. Details:
 [3.3 How the wizard works](03-03-how-the-wizard-works.md).
 
-- [ ] **Never expose port 8443 publicly.** Block it at the firewall and reach
-  the wizard through an SSH tunnel ([3.1](03-01-starting-the-wizard.md)).
+- [ ] **Never expose port 8443 publicly.** Leave `WIZARD_BIND_ADDRESS` unset
+  in `.env`, so the port stays on `127.0.0.1`, and reach the wizard through
+  an SSH tunnel ([3.1](03-01-starting-the-wizard.md)). If you set it for a
+  trusted admin network, restrict 8443 in a network firewall: Docker-published
+  ports bypass `ufw`. `validate-config.sh` warns while it is set.
 - [ ] **Stop it when you finish:** `docker compose stop wizard`. It has
   `restart: unless-stopped`, so otherwise it comes back after a host reboot.
   Stopping it also clears the credentials it keeps in memory for **Retry**.

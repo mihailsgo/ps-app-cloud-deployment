@@ -124,9 +124,10 @@ echo ""
 echo "Shipped values:"
 out="$(python3 "${pristine}/${hygiene}" shipped "${pristine}/config/config.js")"
 n="$(grep -c '^WARN' <<< "$out")"
-if [[ "$n" == 5 ]] && grep -q 'REGISTER_PDF_API_KEY' <<< "$out" && grep -q 'SESSION_SECRET' <<< "$out" \
-   && grep -q 'backend client secret' <<< "$out" && grep -q 'STAMP_API_KEY' <<< "$out" && grep -q 'STAMP_COMPANY_SECRET' <<< "$out"; then
-  ok_case "every credential the checkout ships is a placeholder or in secret_hygiene.py's published list (5)"
+if [[ "$n" == 6 ]] && grep -q 'REGISTER_PDF_API_KEY' <<< "$out" && grep -q 'SESSION_SECRET' <<< "$out" \
+   && grep -q 'backend client secret' <<< "$out" && grep -q 'STAMP_API_KEY' <<< "$out" \
+   && grep -q 'STAMP_COMPANY_ID' <<< "$out" && grep -q 'STAMP_COMPANY_SECRET' <<< "$out"; then
+  ok_case "every credential the checkout ships is a placeholder or in secret_hygiene.py's published list (6)"
 else
   fail_case "secret_hygiene.py's published sha256 list does not cover the committed config.js (update FIELDS)" "$out"
 fi

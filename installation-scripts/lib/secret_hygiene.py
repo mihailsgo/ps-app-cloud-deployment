@@ -83,12 +83,16 @@ FIELDS = [
      r"""^\s*["']?STAMP_API_KEY["']?\s*:\s*(?P<q>["'])(?P<v>[^"'\n]*)(?P=q)""",
      {"4455f71d8673905b28b19fa65f02f607b878d615ecdcaf3566cbb79e2948a6f5"},
      None),
+    ("STAMP_COMPANY_ID",
+     r"""^\s*["']?STAMP_COMPANY_ID["']?\s*:\s*(?P<q>["'])(?P<v>[^"'\n]*)(?P=q)""",
+     {"9233adc47d00ea560fac0113c2c7569857912b2e9058e4e583018623377ed2c2"},
+     None),
     ("STAMP_COMPANY_SECRET",
      r"""^\s*["']?STAMP_COMPANY_SECRET["']?\s*:\s*(?P<q>["'])(?P<v>[^"'\n]*)(?P=q)""",
      {"d0e3a7a61c343e8c2cfc8cf07dd63ce147a86e3da907bf51802f3758b14fe0f3"},
      None),
 ]
-EXTERNAL_STAMP_FIELDS = {"STAMP_API_KEY", "STAMP_COMPANY_SECRET"}
+EXTERNAL_STAMP_FIELDS = {"STAMP_API_KEY", "STAMP_COMPANY_ID", "STAMP_COMPANY_SECRET"}
 # What config/config.js ships in place of a credential that is not ours to
 # choose. Never a working value.
 PLACEHOLDER_VALUE = "CHANGE_ME"

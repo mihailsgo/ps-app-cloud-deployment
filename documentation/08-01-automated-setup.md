@@ -110,7 +110,9 @@ unset KEYCLOAK_ADMIN_PASSWORD
   terminal it cannot be recovered: delete the user and run `create` again
   interactively.
 - `delete` refuses usernames that do not start with `smoke-` unless you add
-  `--force`. Deleting a user that does not exist counts as success.
+  `--force`. Deleting a user that does not exist counts as success. The
+  username must match exactly, so `--username test --force` deletes the demo
+  `test` user and no other account.
 - The user gets a first and last name, as Keycloak 26's user profile
   requires. Without them the first browser login would stop at an "Update
   your account information" form.

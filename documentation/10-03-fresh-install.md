@@ -36,7 +36,7 @@ so running the script again is safe.
 | File | Change |
 |---|---|
 | `dmss-digital-stamping-service/` | Copies the demo `application.yml`, `seal/seal.p12` and `seal/README.md` from `installation-scripts/assets/dmss-digital-stamping-service/`. It uses `cp -n`, so a file already in place, such as your own keystore, is never overwritten. |
-| `docker-compose.yml` | The shipped file already defines `dmss-digital-stamping-service`, gated by `profiles: ["local-eseal"]`. It stays unchanged. The script inserts the service only if a customised compose file does not have it. |
+| `docker-compose.yml` | The shipped file already defines `dmss-digital-stamping-service`, gated by `profiles: ["local-eseal"]`. It stays unchanged. The script inserts the service only if a customised compose file does not have it, with the release's approved, digest-pinned image from `release/approved-digests.json` ([14.6](14-06-image-approval-and-digest-pinning.md)). |
 | `docker-compose.yml` | Adds `SPRING_SECURITY_USER_NAME=user` and `SPRING_SECURITY_USER_PASSWORD=changeit` to the `environment:` list of `dmss-container-and-signature-services`. `ps-server` then has a fixed Basic-auth login for it. Without these, the service creates a random password every time it starts. |
 | `dmss-container-and-signature-services/application.yml` | Changes `digital-stamping-service.baseUrl` from `http://host.docker.internal:8084/api` to `http://dmss-digital-stamping-service:8084/api`. |
 | `config/config.js` | Inserts `STAMP_MODE: "local"` and a `STAMP_LOCAL` block (`url` ending in `/profile/LocalDemo`, `username: "user"`, `password: "changeit"`, `timeoutMs: 30000`). If `STAMP_MODE` is already there, it only changes the value to `"local"`. |
