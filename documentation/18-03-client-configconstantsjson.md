@@ -30,7 +30,7 @@ Data polling and backend endpoints
 PDF rendering, download, and signature overlay
 - `PS_DOWNLOAD_API`: Archive service base used by the viewer to open PDFs in readonly mode. Final URL: `PS_DOWNLOAD_API + <docId> + "/download"`. Default: `"https://padsign.trustlynx.com/archive/api/document/"`.
 - `PDF_TEST_PATH`: Base URL to static templates for interactive mode. Viewer uses `PDF_TEST_PATH + "_" + <lng> + ".pdf"` (e.g., `/portal/template_LV.pdf`). Default: `"https://padsign.trustlynx.com/template"` (override to your SPA path if hosting templates with the client). API is not relevant for cloud instance.
-- `PDF_RENDER_SYNCFUSION_SECRET_KEY`: Syncfusion viewer license key used at runtime. Default: present key in repo (replace with your own license key).
+- `PDF_RENDER_SYNCFUSION_SECRET_KEY`: Syncfusion viewer license key used at runtime. Default: present key in repo (replace with your own license key). A key only licenses the Syncfusion versions it was issued for, so it has to match the `ps-client` image: `8.40` and older run Syncfusion 27, `8.41` and later Syncfusion 34 (a 34.x key, valid for 8 major versions from 34). A mismatch does not break signing, but the viewer shows a license banner over the document. The browser receives this value with every page load, so it is not a secret in the usual sense. Moving across that boundary: [5.2](05-02-upgrade-to-the-current-release.md#new-syncfusion-key-for-ps-client-841).
 - `PDF_SIGNATURE_X`: X position for visual signature overlay (px units, service-specific). Default: `-250`.
 - `PDF_SIGNATURE_Y`: Y position for visual signature overlay. Default: `-100`.
 - `PDF_SIGNATURE_ZOOM`: Scale for signature image in overlay. Default: `100`.

@@ -49,6 +49,12 @@ failing until the tag is approved and pinned:
 > Check [1. Release Snapshot](01-release-snapshot.md) and the callout in
 > [5.2](05-02-upgrade-to-the-current-release.md) before upgrading.
 
+> Moving `ps-client` from `8.40` or older to `8.41` or later? The new PDF
+> viewer (Syncfusion 34) needs a new license key in `config/constants.json`,
+> which `upgrade.sh` does not edit, and `git stash pop` conflicts on it. Do
+> [5.2, New Syncfusion key](05-02-upgrade-to-the-current-release.md#new-syncfusion-key-for-ps-client-841)
+> between the pull and `upgrade.sh`, or the pads show a license banner.
+
 > Upgrading across several releases, or enabling local e-sealing at the same
 > time? [4.4 Existing deployment (upgrade an already-deployed instance)](04-04-existing-deployment-upgrade-an-already-deployed-instance.md)
 > is the complete phase-by-phase walkthrough — preview, upgrade, verification,

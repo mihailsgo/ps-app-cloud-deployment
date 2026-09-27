@@ -42,6 +42,14 @@ git clone --branch "$NEXT_TAG" <repo-url> "$NEXT" && cd "$NEXT"
   (42.4 C4). C4 also repoints `$CURRENT` at the new directory, so the boot
   unit (*Starting the stack at boot*, below) starts the new release after
   the next reboot. The unit file itself stays as it is.
+- The release that moves `ps-client` to `8.41` (Syncfusion 34) changes the
+  license key in `config/constants.json`, which the overlay carries because
+  the hostname in it differs from the release. `rebase` then reports a
+  conflict on the key line and the neighbouring `PDF_TEST_PATH`: keep the
+  release's key and the overlay's `PDF_TEST_PATH`, then `rehash`
+  ([5.2, New Syncfusion key](05-02-upgrade-to-the-current-release.md#new-syncfusion-key-for-ps-client-841)).
+  Rolling back to a release directory on `8.40` or older is fine: its own
+  overlay copy still has the old key.
 - A release that changes `nginx/nginx.conf` reaches the host through
   `rebase`, because the overlay carries its own copy. See *A release change
   to nginx.conf* below (v1.0.47 raises the `/api/` timeout).

@@ -148,7 +148,12 @@ Resolve each conflicted file by hand:
   shows, never back into the tracked file;
 - **take the new release's version** of everything else: new keys, comments,
   healthchecks, and the `image:` lines (those are the release's approved
-  pins, the tags you then pass to `upgrade.sh`).
+  pins, the tags you then pass to `upgrade.sh`);
+- **`PDF_RENDER_SYNCFUSION_SECRET_KEY` in `config/constants.json`** takes the
+  release's value too (unless you use your own Syncfusion license). It
+  conflicts together with the neighbouring `PDF_TEST_PATH`, so keep the
+  release's key line and this host's `PDF_TEST_PATH` line; see
+  [5.2, New Syncfusion key](05-02-upgrade-to-the-current-release.md#new-syncfusion-key-for-ps-client-841).
 
 Then remove the markers, unstage, and drop the entry `pop` kept:
 

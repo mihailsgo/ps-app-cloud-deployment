@@ -76,6 +76,10 @@ All checks passed.
 
 A rollback to a pin no committed release ever approved (an `--allow-unapproved` hotfix) still FAILs, with the reason. `check-digest-drift.sh` prints the same finding as a `WARNING`, not as drift. The next successful `upgrade.sh` removes the marker entries whose pins it replaced.
 
+### Rolling ps-client back across the Syncfusion 34 boundary
+
+`config/constants.json` is not restored, and it holds the viewer's Syncfusion license key, which has to match the client image (`8.40` and older: Syncfusion 27, `8.41` and later: Syncfusion 34). A rollback from `8.41+` to `8.40` or older therefore leaves the new key in place, and the old viewer shows a license banner over the document. Put the old key back by hand, as in [5.2 Rollback](05-02-upgrade-to-the-current-release.md#rollback), then `docker compose restart ps-client`.
+
 ### Restoring by hand
 
 When `rollback.sh` refuses (a recorded digest no release file, git history or local image can name) or there is no snapshot, pin the image by hand. Take the digest from the snapshot's `manifest.json` (`sudo cat .rollback-snapshots/<name>/manifest.json`, `image_digests`) or from `deployment-evidence.json.previous`, find its tag with `git log -p -- release/approved-digests.json`, or with `docker pull mihailsgordijenko/ps-server@<digest>` and then `docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' mihailsgordijenko/ps-server@<digest>`, write `mihailsgordijenko/ps-server:<tag>@<digest>` into `docker-compose.yml`, and run `docker compose up -d ps-server ps-client`.

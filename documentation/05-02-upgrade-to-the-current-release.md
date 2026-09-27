@@ -40,6 +40,19 @@ alone is safe and changes no behaviour until you enable routing.
 > deletes `signed-output/{company}/{email}/...` files), so plan for that
 > directory to grow. See [1. Release Snapshot](01-release-snapshot.md).
 
+> **Moving `ps-client` past `8.40`? It needs a new Syncfusion license key.**
+> `ps-client:8.41` and later run the Syncfusion 34 PDF viewer
+> ([psapp-saas#65](https://github.com/mihailsgo/psapp-saas/pull/65)), and a
+> Syncfusion key only licenses the versions it was issued for. With the key
+> `8.40` and older use (issued for 27.x), the new viewer shows *"The included
+> Syncfusion® key and package versions do not match"* across the top of the
+> document, over the demo bar. The key is `PDF_RENDER_SYNCFUSION_SECRET_KEY`
+> in the bind-mounted `config/constants.json`, which `upgrade.sh` never edits,
+> so it has to be in place before you run it. See
+> [New Syncfusion key for ps-client 8.41+](#new-syncfusion-key-for-ps-client-841)
+> below. Rolling the client back to `8.40` or older needs the old key back
+> ([Rollback](#rollback)).
+
 > **Bootstrapped before v1.0.42?** Your `docker-compose.yml` then carries the
 > Keycloak admin password inline, and the release's `docker-compose.yml` reads
 > it from `.env` instead. Move it before you pull, or the stash of your local
@@ -49,6 +62,58 @@ alone is safe and changes no behaviour until you enable routing.
 > `SESSION_SECRET` are never rotated by an upgrade.
 
 ---
+
+## New Syncfusion key for ps-client 8.41+
+
+Only when the tag you are moving `ps-client` to is `8.41` or later and the
+host runs `8.40` or older. Do this after the `git pull` and before
+`upgrade.sh`.
+
+The release that pins `ps-client:8.41` ships the new key in
+`config/constants.json`. On a bootstrapped host, `git stash pop` after the
+pull **conflicts** on it: the key line sits next to `PDF_TEST_PATH`, which
+`bootstrap.sh` / `configure-host.sh` set to this host's hostname, and git
+treats two changed neighbouring lines as one conflict:
+
+```
+<<<<<<< Updated upstream
+    "PDF_RENDER_SYNCFUSION_SECRET_KEY": "<the release's new key>",
+    "PDF_TEST_PATH": "https://padsign.trustlynx.com/template",
+=======
+    "PDF_RENDER_SYNCFUSION_SECRET_KEY": "<the old key>",
+    "PDF_TEST_PATH": "https://<this host>/template",
+>>>>>>> Stashed changes
+```
+
+Keep the **upper** key line and the **lower** `PDF_TEST_PATH` line, remove the
+rest, then finish the pop as
+[4.4 Phase 1](04-04-existing-deployment-upgrade-an-already-deployed-instance.md#phase-1---update-the-deployment-scripts-and-configs)
+describes (`git restore --staged .`, `git stash drop`). Check that the key is
+now the release's:
+
+```bash
+git diff -- config/constants.json | grep SYNCFUSION   # expect no output
+```
+
+- **Your own Syncfusion license** instead of the repo's key: generate a 34.x
+  key in your Syncfusion account (*License & Downloads* > *Get License Key*,
+  version `34.x.x`) and put that in instead. Then the `grep` above shows your
+  key, which is expected.
+- **Overlay-managed host** ([42](42-host-reconciliation-runbook.md)): the overlay carries its own
+  `constants.json`, so `overlay.sh rebase` reports the same conflict in
+  `$NEW_OVERLAY/files/config/constants.json`. Resolve it the same way, then
+  `overlay.sh rehash --overlay "$NEW_OVERLAY"`
+  ([42.6](42-06-living-with-an-overlay.md#upgrading-to-a-new-release)).
+
+`upgrade.sh` recreates `ps-client`, so the container picks the edited file up.
+Afterwards, check what the pads are served and reload a pad page (no banner):
+
+```bash
+curl -s https://<host>/portal/constants.json | grep SYNCFUSION   # the new key
+```
+
+The key is valid for 8 Syncfusion major versions from 34, so later client
+releases keep it.
 
 ## Step 1 — bump the images
 
@@ -148,6 +213,18 @@ digest and exits 1 if they do not. Afterwards `validate-config.sh` reports the
 restored pins as a rollback (WARN), because an earlier committed revision of
 `release/approved-digests.json` approved them; see
 [40.4](40-04-rollback.md#validate-configsh-after-a-rollback).
+
+`rollback.sh` never touches `config/constants.json`. If the rollback takes
+`ps-client` from `8.41` or later back to `8.40` or older, put the old
+Syncfusion key back, or the old viewer shows the license banner instead. The
+key the release replaced is in this repo's history:
+
+```bash
+git log -p -S PDF_RENDER_SYNCFUSION_SECRET_KEY -- config/constants.json | grep '^-.*SYNCFUSION'
+# the first line is the key 8.40 and older use; edit it into
+# config/constants.json, then:
+docker compose restart ps-client
+```
 
 If no snapshot exists (a deployment upgraded before `rollback.sh` existed, or
 `.rollback-snapshots/` was pruned/lost), reconstruct manually: look up the
