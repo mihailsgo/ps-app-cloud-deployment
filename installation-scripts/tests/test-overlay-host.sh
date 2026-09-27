@@ -2,15 +2,15 @@
 set -uo pipefail
 
 # ============================================================================
-# Tests for two overlay-host follow-ups (psapp-saas#7):
+# Tests for two overlay-host follow-ups:
 #
 #   - upgrade.sh's signed-output migration reads the stores from the
 #     EFFECTIVE compose model: on an overlay-managed checkout signed-output/
 #     and docs/ are mounted from outside the checkout (compose.overlay.yml),
 #     and --plan-only used to report [WILL APPLY] signed-output there on
-#     every run (runbook 42.6 says to expect no pending migration);
+#     every run (an overlay host expects no pending migration);
 #   - overlay.sh drop removes a captured file (a DEVIATIONS.md entry marked
-#     OBSOLETE, 42.3 O4) with its MANIFEST.json record, and rehash reports a
+#     OBSOLETE) with its MANIFEST.json record, and rehash reports a
 #     file the manifest lists but that is gone instead of a traceback.
 #
 # Usage:
@@ -307,7 +307,7 @@ check "drop on a directory that is not an overlay: exit 2" bash -c '[[ "$1" == 2
 # ── apply/verify: DMSS application.yml and htpasswd modes ──────────────────
 # overlay.sh apply used to copy them with the captured host mode (0775 on
 # the demo host) and htpasswd with 0644, readable by every local user
-# (psapp-saas#7). Needs Linux file modes: chmod on a Windows checkout is a no-op.
+#. Needs Linux file modes: chmod on a Windows checkout is a no-op.
 if [[ "$(uname -s)" == Linux ]]; then
   echo ""
   echo "apply/verify: secret-bearing service files:"

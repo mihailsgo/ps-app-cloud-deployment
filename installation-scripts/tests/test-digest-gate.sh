@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ============================================================================
 # Tests for the image digest gate (lib/digest_gate.py via lib/digests.sh) and
-# upgrade.sh's approved-tag refusal (psapp-saas#11).
+# upgrade.sh's approved-tag refusal.
 #
 # Usage:
 #   ./installation-scripts/tests/test-digest-gate.sh

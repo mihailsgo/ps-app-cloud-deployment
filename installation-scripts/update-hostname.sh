@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ============================================================================
 # PadSign Update Hostname — change the deployed hostname on an ALREADY-LIVE
-# stack (deployment-wizard Settings feature, see documentation/37-*).
+# stack (deployment-wizard Settings feature, see documentation/09-operations.md).
 #
 # Usage:
 #   ./installation-scripts/update-hostname.sh \
@@ -56,17 +56,18 @@ Usage:
 Required:
   --host         New hostname for the deployment
   --admin-pass   The CURRENT Keycloak admin password (used to log in to
-                 Keycloak, not to change it — see documentation/37-05-*).
+                 Keycloak, not to change it — see documentation/08-03-admin-password-and-break-glass.md).
                  Or set KEYCLOAK_ADMIN_PASSWORD instead, which keeps it out
                  of the process list.
 
 Optional:
   --cert-crt/--cert-key   New TLS certificate for the new hostname. If
-                          omitted, a cert must already exist at
-                          nginx/certs/<new-host>.{crt,key} (e.g. a wildcard
-                          cert placed there ahead of time) — configure-host.sh
-                          always points nginx at the new hostname's cert
-                          path, so nginx will fail to start without one.
+                          omitted, it is taken from the staging path
+                          installation-scripts/certs/<new-host>.{crt,key}
+                          (e.g. a wildcard cert placed there ahead of time),
+                          which must exist — configure-host.sh always points
+                          nginx at the new hostname's cert path, so nginx
+                          will fail to start without one.
   --admin-user            Keycloak admin username (default: admin)
   --realm                 Keycloak realm name (default: padsign)
   --allow-self-signed     Currently informational only (pre-flight cert

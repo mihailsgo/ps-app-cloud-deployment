@@ -63,7 +63,7 @@ Edits in-place (with .bak backup):
 --generate-secrets: replace REGISTER_PDF_API_KEY and SESSION_SECRET in
   config/config.js with random values if they still hold the values shipped
   in this public repository. A value already changed is never touched, so
-  re-running is safe. Values are never printed; documentation/18-05 shows
+  re-running is safe. Values are never printed; documentation/07-05-register-pdf-api.md shows
   how to read the API key for the Virtual Printer. bootstrap.sh passes this.
 
 --generate-ca: replace the visual-PDF signing CA
@@ -283,7 +283,7 @@ if [[ "$generate_secrets" == "true" ]]; then
       echo "  Generated a random ${field} in config/config.js (the shipped one is public; value not shown)"
     done <<< "$generated"
     if grep -qx 'REGISTER_PDF_API_KEY' <<< "$generated"; then
-      echo "    Virtual Printer / API clients need it - read it with the command in documentation/18-05"
+      echo "    Virtual Printer / API clients need it - read it with the command in documentation/07-05-register-pdf-api.md"
     fi
   else
     echo "  REGISTER_PDF_API_KEY / SESSION_SECRET already changed from the shipped values - kept"

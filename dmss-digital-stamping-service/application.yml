@@ -8,7 +8,7 @@ spring:
     virtual:
       enabled: true
 
-# The prebuilt trustlynx/digital-stamping-service:24.0.3.0 image ships an
+# The prebuilt trustlynx/digital-stamping-service image ships an
 # application.yml in its jar that contains a `management.endpoints.enable: true`
 # typo (the correct property is `enabled-by-default`). With SPRING_CONFIG_LOCATION
 # that override would silently kill all actuator endpoints except health. We
@@ -41,8 +41,10 @@ stamping:
   companies:
     # Single demo company matching the existing `TrustLynx` profile baked into
     # container-signature's documentsigningprofiles.json. Its esealCompany is
-    # "TrustLynx", so a request to /api/eseal/document/profile/TrustLynx will
-    # resolve here without any JSON edits.
+    # "TrustLynx", so both profiles that seal as this company resolve here
+    # without any JSON edits. With the demo keystore use the LocalDemo profile
+    # (B_BES): the TrustLynx profile defaults to LT, which needs a TSA
+    # (documentation/10-08-tsa-and-ocsp-for-lt-and-lta.md).
     - name: "TrustLynx"
       providers:
         - name: P12

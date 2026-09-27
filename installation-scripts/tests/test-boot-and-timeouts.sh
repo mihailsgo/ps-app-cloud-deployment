@@ -3,7 +3,7 @@ set -uo pipefail
 
 # ============================================================================
 # Tests for three gaps found when the demo host's EC2 instance was stopped
-# and started (psapp-saas#7, #12):
+# and started:
 #
 #   - host boot/cron hooks: overlay.sh capture and verify list the systemd
 #     units, cron entries, rc.local and init scripts that name the old
@@ -117,7 +117,7 @@ check "nginx /api/ proxy_read_timeout (${api_timeout:-unset}s) > ps-server's wor
 
 unit="${src_root}/installation-scripts/assets/padsign.service.example"
 u="$(grep -vE '^\s*#' "$unit" 2>/dev/null | tr -d '\r')"
-check "boot unit: WorkingDirectory is the padsign-current symlink" has "$u" "WorkingDirectory=/opt/trustlynx/padsign-current"
+check "boot unit: WorkingDirectory is the /opt/padsign checkout" has "$u" "WorkingDirectory=/opt/padsign"
 check "boot unit: no -f/--file (it would ignore the overlay's COMPOSE_FILE)" bash -c '! grep -qE "docker compose.*(\s-f|--file)" <<< "$1"' _ "$u"
 check "boot unit: never 'down' (it removes the containers)" bash -c '! grep -qE "docker compose[^\"]*\bdown\b" <<< "$1"' _ "$u"
 check "boot unit: ExecStop is 'docker compose stop'" has "$u" "ExecStop=/usr/bin/docker compose stop"
@@ -219,7 +219,7 @@ out="$(cd "$new" && bash installation-scripts/overlay.sh capture --baseline "$N"
 check "capture exits 0 (hooks are WARNs, not failures)" test "$rc" = 0
 check "WARN: the enabled padsign.service references the old checkout" \
   has_re "$out" "WARN /etc/systemd/system/padsign.service \(systemd unit, enabled \(multi-user.target.wants\)\): references the old checkout"
-check "... it says what to do (42.4 C4)" has "$out" "repoint it at the new checkout or disable it in the cut-over window (42.4 C4)"
+check "... it says what to do" has "$out" "repoint it at the new checkout or disable it in the cut-over window (documentation/09-11-start-at-boot-backups-and-customized-hosts.md)"
 check "WARN: padsign.service passes -f (ignores the overlay's COMPOSE_FILE)" \
   has "$out" "WARN /etc/systemd/system/padsign.service: passes -f/--file to docker compose"
 check "... and its lines are listed" has "$out" "line 10: ExecStartPre=/usr/bin/docker compose -f ${O}/docker-compose.yml down"
@@ -271,11 +271,11 @@ sec="$(section "$out")"
 check "verify without --live (C5/C6): still flags hooks naming the directory the overlay was captured from" \
   has_re "$sec" "WARN /var/spool/cron/crontabs/deploy .*references the old checkout"
 
-# Repoint, as 42.4 C4 does: the release's boot unit over the old one, the
+# Repoint, as a cut-over does: the release's boot unit over the old one, the
 # cron job through the symlink, the rest removed.
 if $linux; then
   ln -s "$old" "$current"
-  sed "s#/opt/trustlynx/padsign-current#${current}#" "$unit" > "$hr/etc/systemd/system/padsign.service"
+  sed "s#WorkingDirectory=/opt/padsign#WorkingDirectory=${current}#" "$unit" > "$hr/etc/systemd/system/padsign.service"
   out="$(cd "$new" && bash installation-scripts/overlay.sh verify --overlay "$(native "$ovl")" 2>&1)"
   check "the new unit while padsign-current still points at the old checkout: WARN, via the symlink" \
     has_re "$(section "$out")" "WARN /etc/systemd/system/padsign.service .*references the old checkout ${old} \(via ${current}\)"
@@ -283,7 +283,7 @@ if $linux; then
   cur="$current"
 else
   cur="$N"
-  sed "s#/opt/trustlynx/padsign-current#${cur}#" "$unit" > "$hr/etc/systemd/system/padsign.service"
+  sed "s#WorkingDirectory=/opt/padsign#WorkingDirectory=${cur}#" "$unit" > "$hr/etc/systemd/system/padsign.service"
 fi
 cp "$hr/etc/systemd/system/padsign.service" "$hr/etc/systemd/system/multi-user.target.wants/padsign.service"
 sed -i "s#cd ${O}#cd ${cur}#" "$hr/etc/cron.d/padsign-monitor"

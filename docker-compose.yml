@@ -4,7 +4,7 @@ services:
     environment:
       - KEYCLOAK_ADMIN=admin
       # Keycloak's master-realm admin password. Keycloak reads it ONLY on its
-      # first boot against an empty keycloak_data volume (documentation/17-01),
+      # first boot against an empty keycloak_data volume (documentation/07-06-environment-variables.md),
       # and it is never written into this tracked file: bootstrap.sh stores it
       # as KEYCLOAK_FIRST_BOOT_ADMIN_PASSWORD in the git-ignored, mode-600 .env
       # next to it. Unset, it falls back to the demo default "admin", which
@@ -26,7 +26,6 @@ services:
     # Loopback-only: reached externally via nginx (/auth/), by service name, on the
     # Docker network. Bound to the host at 127.0.0.1 only for local `curl localhost:8080`
     # diagnostics. The bootstrap scripts never use the host port (docker compose exec).
-    # See psapp-saas#13.
     ports:
       - "127.0.0.1:8080:8080"
     restart: unless-stopped
@@ -47,8 +46,8 @@ services:
     restart: always
     # Loopback-only: nginx reaches this by service name on the Docker network
     # (see nginx/nginx.conf `/archive/api/`). Bound to the host at 127.0.0.1 only for
-    # the direct operator diagnostics in documentation/04-04 and 04-07 (curl
-    # localhost:86/... run on the host, or via SSH tunnel). See psapp-saas#13.
+    # the direct operator diagnostics in documentation/10-04 and 10-07 (curl
+    # localhost:86/... run on the host, or via SSH tunnel).
     ports:
       - '127.0.0.1:86:8090'
     volumes:
@@ -75,8 +74,8 @@ services:
     restart: always
     # Loopback-only: nginx reaches this by service name on the Docker network
     # (see nginx/nginx.conf `/container/api/`). Bound to the host at 127.0.0.1 only for
-    # the direct operator diagnostics in documentation/04-04 and 04-07 (curl
-    # localhost:84/... run on the host, or via SSH tunnel). See psapp-saas#13.
+    # the direct operator diagnostics in documentation/10-04 and 10-07 (curl
+    # localhost:84/... run on the host, or via SSH tunnel).
     ports:
       - '127.0.0.1:84:8092'
     volumes:
@@ -156,7 +155,7 @@ services:
     restart: always
     # No host port mapping: only called internally, by service name, by
     # dmss-archive-services and dmss-container-and-signature-services. Nothing
-    # in this repo (config, scripts, docs) reaches it via the host. See psapp-saas#13.
+    # in this repo (config, scripts, docs) reaches it via the host.
     volumes:
       - './dmss-archive-services-fallback:/dmss-archive-services-fallback'
       - './docs:/docs'
@@ -174,7 +173,7 @@ services:
     container_name: ps-server
     # No host port mapping: nginx reaches this by service name on the Docker
     # network (see nginx/nginx.conf `/api/`). Nothing else in this repo needs
-    # a host-level path to it. See psapp-saas#13.
+    # a host-level path to it.
     restart: always
     depends_on:
       keycloak:
@@ -271,12 +270,12 @@ services:
   # `docker compose` commands this container spawns (via the mounted socket,
   # talking to the HOST daemon) resolve their own relative bind mounts
   # against a path the host actually has, instead of some path that only
-  # exists inside this container's filesystem. See documentation/36-*.
+  # exists inside this container's filesystem. See documentation/03-*.
   #
   # First-ever privileged container in this stack: /var/run/docker.sock
   # grants root-equivalent host access. The real security boundary is who
   # can reach its HTTPS port and who holds the token it prints to
-  # `docker logs` on every start — see documentation/36-05.
+  # `docker logs` on every start — see documentation/03-03-how-the-wizard-works.md.
   # ─────────────────────────────────────────────────────────────────────────
   wizard:
     image: mihailsgordijenko/padsign-wizard:0.1.1@sha256:a0301d7d721bf321652bc636db1738c3383732e37543fe1d84e89613f9dc91e8

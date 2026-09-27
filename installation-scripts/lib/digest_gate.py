@@ -11,7 +11,7 @@ Called by lib/digests.sh (never directly by an operator). Two subcommands:
       files COMPOSE_FILE names (shell environment first, then .env, exactly
       like compose itself), or docker-compose.yml plus an auto-loaded
       docker-compose.override.yml when COMPOSE_FILE is unset. That is how an
-      environment overlay (installation-scripts/overlay.sh, documentation/42)
+      environment overlay (installation-scripts/overlay.sh, documentation/09-11-start-at-boot-backups-and-customized-hosts.md)
       adds or replaces images, so a gate that reads docker-compose.yml alone
       never sees them.
 

@@ -1,9 +1,9 @@
 """Environment overlay: capture a deployed host's per-environment state into a
 protected directory OUTSIDE the checkout, re-apply it onto a clean baseline
 checkout, and verify the result. Driven by installation-scripts/overlay.sh;
-see documentation/42-host-reconciliation-runbook.md for the operator flow.
+see documentation/09-11-start-at-boot-backups-and-customized-hosts.md for the operator flow.
 
-Design constraints (psapp-saas#7):
+Design constraints:
   * Never modifies the source (live) directory during capture.
   * Never reads, moves, copies or rewrites signed-document storage
     (signed-output/, docs/). Storage stays exactly where it is; the overlay
@@ -328,7 +328,7 @@ def normalise_services(model, dir_prefixes):
 
 
 # Read by Keycloak only on its FIRST boot against an EMPTY data volume (see
-# documentation/14-07). On a host with an existing realm they change nothing,
+# documentation/08-03-admin-password-and-break-glass.md). On a host with an existing realm they change nothing,
 # so a difference is reported as information, never as behaviour drift. The
 # admin credential itself lives in the Keycloak volume + the secret manager.
 FIRST_BOOT_ONLY_ENV = {"KEYCLOAK_ADMIN", "KEYCLOAK_ADMIN_PASSWORD",
@@ -421,7 +421,7 @@ def named_volume_names(model):
 # after the cut-over (same compose project name) and started the OLD stack,
 # whose Keycloak then ran on a database the newer Keycloak had already
 # migrated. capture and verify list every hook that names the old directory
-# or runs docker compose, so the cut-over (42.4 C4) repoints or disables it.
+# or runs docker compose, so the cut-over (documentation/09-11-start-at-boot-backups-and-customized-hosts.md) repoints or disables it.
 # Read-only. A location that is missing is skipped; one that is not readable
 # is named in the report.
 
@@ -472,7 +472,7 @@ def _under(t, d):
 
 def _dir_ref(token, d):
     """'path' if token names d or something under it, 'symlink' if it only
-    resolves there (e.g. /opt/trustlynx/padsign-current -> d), else None."""
+    resolves there (e.g. /opt/padsign -> d), else None."""
     t = _norm(token)
     if _under(t, _norm(d)) or _under(t, _real(d)):
         return "path"
@@ -724,8 +724,8 @@ def report_host_hooks(r, hooks, not_scanned, old_dirs, checkout=None):
             via = f" (via {', '.join(h['via_symlink'])})" if h["via_symlink"] else ""
             r.warn(f"{where}: references the old checkout {', '.join(h['references_old'])}{via}. After the cut-over, "
                    "a job that starts the stack from there brings the OLD stack back (same compose project, same "
-                   "Keycloak volume), and one that runs its scripts stops working at 42.4 C7 - repoint it at the "
-                   "new checkout or disable it in the cut-over window (42.4 C4)")
+                   "Keycloak volume), and one that runs its scripts stops working once the old tree is removed - repoint it at the "
+                   "new checkout or disable it in the cut-over window (documentation/09-11-start-at-boot-backups-and-customized-hosts.md)")
         elif h["runs_compose"] and h["references_checkout"]:
             r.ok(f"{where}: runs docker compose for this checkout")
         elif h["runs_compose"]:
@@ -737,7 +737,7 @@ def report_host_hooks(r, hooks, not_scanned, old_dirs, checkout=None):
         if h["compose_file_flag"]:
             r.warn(f"{h['path']}: passes -f/--file to docker compose. On an overlay-managed checkout that ignores "
                    "COMPOSE_FILE in .env, so compose.overlay.yml (storage mounts, image overrides) is left out - "
-                   "use the boot unit in documentation/42-06 instead")
+                   "use the boot unit in documentation/09-11-start-at-boot-backups-and-customized-hosts.md instead")
         if h["down_volumes"]:
             r.warn(f"{h['path']}: runs `docker compose down` with -v/--volumes, which deletes named volumes, "
                    "the Keycloak data volume included")
@@ -748,7 +748,7 @@ def report_host_hooks(r, hooks, not_scanned, old_dirs, checkout=None):
     for s in not_scanned:
         r.info(f"not scanned: {s}")
     r.info(f"scanned: {HOOK_SCANNED}. These are host files, outside the checkout and the overlay: "
-           "on a rebuilt host, re-create the ones you keep (documentation/42-06).")
+           "on a rebuilt host, re-create the ones you keep (documentation/09-11-start-at-boot-backups-and-customized-hosts.md).")
 
 
 # ── capture ─────────────────────────────────────────────────────────────────
@@ -963,7 +963,7 @@ def cmd_capture(args):
                             manifest["not_captured"].append({
                                 "path": f".env {k}",
                                 "reason": "first-boot-only Keycloak admin password - the credential lives in the "
-                                          "Keycloak volume and your secret manager (documentation/17-01)"})
+                                          "Keycloak volume and your secret manager (documentation/07-06-environment-variables.md)"})
                             continue
                         keys.append(k)
                         lines.append(s)
@@ -1079,7 +1079,7 @@ def cmd_capture(args):
 
         # Host boot/cron hooks: outside the tree, never captured, but a hook
         # that starts the stack from `live` brings the OLD stack back at the
-        # first reboot after the cut-over (42.4 C4).
+        # first reboot after the cut-over (documentation/09-11-start-at-boot-backups-and-customized-hosts.md).
         hooks, hooks_not_scanned = host_hooks(
             [live], storage=[s.get("source") for s in (manifest.get("storage") or {}).values() if s.get("type") == "bind"])
         manifest["host_hooks"] = {"hooks": hooks, "not_scanned": hooks_not_scanned}
@@ -1146,7 +1146,7 @@ def write_compose_starter(out, storage, live_model):
         "# Merged ON TOP of the release's docker-compose.yml via COMPOSE_FILE in the",
         "# checkout's .env (overlay.sh apply writes that). Compose merges override",
         "# files key by key: volumes by container target path, environment by",
-        "# variable name, image/command by replacement. See documentation/42-03.",
+        "# variable name, image/command by replacement. See documentation/09-11-start-at-boot-backups-and-customized-hosts.md.",
         "#",
         "# Generated by `overlay.sh capture`. It contains ONLY the signed-document",
         "# storage mounts, pointing at where the documents already are on this host,",
@@ -1237,7 +1237,7 @@ def write_deviations(out, manifest, deviations, compose_notes):
         "this overlay: capture does not carry them and apply does not install them. A hook that still starts",
         "the stack from the old directory runs at the next boot and brings the OLD stack back (same compose",
         "project, same Keycloak volume). Record a decision for each: repoint it at the new checkout, or disable",
-        "it, in the cut-over window (42.4 C4). On a rebuilt host, re-create the ones you keep (42.6, *Host-level",
+        "it, in the cut-over window (documentation/09-11-start-at-boot-backups-and-customized-hosts.md). On a rebuilt host, re-create the ones you keep (documentation/09-11-start-at-boot-backups-and-customized-hosts.md, *Host-level",
         "state the overlay does not carry*). Lines are redacted, and URLs are cut after the host.",
         "",
     ]
@@ -1552,7 +1552,7 @@ def cmd_verify(args):
             # the overlay has not caught up with: the next apply would put the
             # OLD certificate back.
             r.warn(f"nginx/certs/{name} differs from the overlay's copy - after a renewal, re-capture "
-                   "the overlay (documentation/42-06) so a later apply does not reinstall the old one")
+                   "the overlay (documentation/09-11-start-at-boot-backups-and-customized-hosts.md) so a later apply does not reinstall the old one")
         else:
             r.ok(f"nginx/certs/{name} matches the overlay")
 
@@ -1579,7 +1579,7 @@ def cmd_verify(args):
 
     print("\n== Host boot and cron hooks (systemd, cron, rc.local, init scripts - host files, not in the overlay) ==")
     # The directory the overlay was captured from and the --live one are
-    # "old" unless they are this checkout (a re-capture from it, 42.6).
+    # "old" unless they are this checkout (a re-capture from it, documentation/09-11-start-at-boot-backups-and-customized-hosts.md).
     old_dirs = []
     for d in (args.live, m.get("source_dir")):
         if not d:
@@ -1766,13 +1766,13 @@ def cmd_rehash(args):
         for label, e in missing:
             print(f"  FAIL {label} is listed in MANIFEST.json but is missing from the overlay")
         print()
-        print("  Nothing was re-recorded. Either restore the file(s) (from the overlay's backup, 42.3 O5),")
+        print("  Nothing was re-recorded. Either restore the file(s) (from the overlay's backup),")
         missing_files = [e["path"] for label, e in missing if label.startswith("files/")]
         if missing_files:
             print("  or, if the entry is OBSOLETE and should leave the overlay, drop it:")
             print(f"    ./installation-scripts/overlay.sh drop --overlay {overlay} {' '.join(missing_files)}")
         if any(label.startswith("certs/") for label, _ in missing):
-            print("  A missing certificate must be restored or re-captured (documentation/42-06, Certificate renewal).")
+            print("  A missing certificate must be restored or re-captured (documentation/09-11-start-at-boot-backups-and-customized-hosts.md, Certificate renewal).")
         return 1
     changed = 0
     for label, p, e in entries:
@@ -1816,7 +1816,7 @@ def _prune_empty_dirs(path, stop):
 
 def cmd_drop(args):
     """Remove captured files from an overlay: the DEVIATIONS.md entries the
-    change ticket marks OBSOLETE (runbook 42.3 O4). For each path: deletes
+    change ticket marks OBSOLETE (documentation/09-11-start-at-boot-backups-and-customized-hosts.md). For each path: deletes
     files/<path> (and base/<path>, the release copy kept for merges), removes
     its MANIFEST.json record, and appends a note to DEVIATIONS.md. All or
     nothing: if any path is not a captured file, nothing is changed."""
@@ -1835,11 +1835,11 @@ def cmd_drop(args):
     if unknown:
         for raw, p in unknown:
             if p in cert_paths or p.startswith("certs/") or p.startswith("nginx/certs/"):
-                why = "a certificate - not dropped this way; re-capture after a certificate change (documentation/42-06)"
+                why = "a certificate - not dropped this way; re-capture after a certificate change (documentation/09-11-start-at-boot-backups-and-customized-hosts.md)"
             elif p in ("env", ".env") or p in (m.get("env_keys") or []):
                 why = ".env values are not files of the overlay - edit the overlay's env file"
             elif p in ("compose.overlay.yml", "docker-compose.yml"):
-                why = "compose differences are dropped by editing compose.overlay.yml (42.3 O4)"
+                why = "compose differences are dropped by editing compose.overlay.yml (documentation/09-11-start-at-boot-backups-and-customized-hosts.md)"
             else:
                 why = "not a file captured in MANIFEST.json"
             print(f"  FAIL {raw}: {why}")
@@ -1890,7 +1890,7 @@ def cmd_drop(args):
     print()
     print("  If this overlay is already applied to a checkout, the dropped files are still there: restore")
     print("  the release's version (`git checkout -- <path>` for an override, delete an extra file), then")
-    print("  `overlay.sh apply --force` and `overlay.sh verify`. See documentation/42-03 O4.")
+    print("  `overlay.sh apply --force` and `overlay.sh verify`. See documentation/09-11-start-at-boot-backups-and-customized-hosts.md.")
     return 0
 
 

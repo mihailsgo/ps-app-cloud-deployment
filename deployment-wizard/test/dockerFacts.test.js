@@ -7,7 +7,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { readLatestKnownTags } = require('../lib/dockerFacts');
 
-test('readLatestKnownTags() extracts tags from documentation/01-release-snapshot.md', () => {
+test('readLatestKnownTags() reads the approved tags from release/approved-digests.json', () => {
   const tags = readLatestKnownTags();
   assert.equal(tags.serverTag, '9.9');
   assert.equal(tags.clientTag, '1.1');

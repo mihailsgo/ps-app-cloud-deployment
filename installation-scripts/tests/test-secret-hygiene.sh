@@ -2,7 +2,7 @@
 set -uo pipefail
 
 # ============================================================================
-# Tests for the fresh-install secret hygiene (psapp-saas#6, #7):
+# Tests for the fresh-install secret hygiene:
 #
 #   - configure-host.sh --generate-secrets replaces the public shipped
 #     REGISTER_PDF_API_KEY / SESSION_SECRET, once, and never prints them;

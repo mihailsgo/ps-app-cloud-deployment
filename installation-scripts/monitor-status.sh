@@ -25,7 +25,7 @@ set -euo pipefail
 # and can compute restart deltas and buffer growth between runs. Report mode
 # never reads or writes it.
 #
-# See documentation/40-03-monitoring-and-alerting.md for thresholds, the
+# See documentation/09-10-monitoring-and-alerting.md for thresholds, the
 # payload format and how to point it at Slack/Teams/any HTTP receiver.
 # ============================================================================
 

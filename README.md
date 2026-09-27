@@ -1,141 +1,128 @@
-# PadSign 2.0 Application
+# PadSign deployment package
 
-This repository deploys [PadSign](https://github.com/mihailsgo/psapp-saas) 2.0 - a web-based PDF document signing application by TrustLynx. The documentation below is the operator guide for installing, upgrading, configuring, and troubleshooting the deployment stack.
+This repository installs and runs **PadSign 2.0**, TrustLynx's web-based PDF signing solution, on
+your own Linux host with Docker Compose. It contains everything the stack needs at run time
+(the compose file, configuration, nginx, Keycloak setup) and the scripts that install, upgrade,
+validate and roll it back. The application itself ships as signed, digest-pinned Docker images.
 
-## Quick Start
+## Install in five steps
 
-**New here?** The [Deployment Wizard](documentation/36-deployment-wizard.md) is a guided browser UI that walks you through installing PadSign step by step, with inline TLS-certificate validation and live deploy progress — no command-line experience required. See [36.2 Starting the wizard](documentation/36-02-starting-the-wizard.md) to launch it, or [36.8 Visual walkthrough](documentation/36-08-visual-walkthrough.md) for a screenshots-first guide.
+The **Deployment Wizard** is the easiest way: a browser UI that checks your certificate, installs
+the stack and shows live progress. Before you start, prepare the host, a DNS name and a TLS
+certificate as described in [2. Prerequisites](documentation/02-prerequisites.md).
 
-Prefer the command line? [3. Quick Start (New Deployment)](documentation/03-quick-start-new-deployment.md) covers the same install via `bootstrap.sh` directly.
+1. **Get the release** you were given by TrustLynx into `/opt/padsign`:
 
-Either way, read [9. Prerequisites](documentation/09-prerequisites.md) and [11.1 TLS Prerequisites](documentation/11-01-tls-prerequisites-for-installation-scripts.md) first — both paths need a prepared host and a staged TLS certificate.
+   ```bash
+   sudo mkdir -p /opt/padsign && sudo chown "$USER": /opt/padsign
+   git clone --branch <release-tag> https://gitlab.com/trustlynx-public/padsign-2.0.git /opt/padsign
+   ```
+
+2. **Start the wizard** from that directory:
+
+   ```bash
+   cd /opt/padsign && docker compose --profile wizard up -d wizard
+   ```
+
+3. **Copy the access token** from its start-up banner:
+
+   ```bash
+   docker logs padsign-wizard
+   ```
+
+4. **Open the wizard** through an SSH tunnel from your workstation, then browse to
+   `https://localhost:8443`:
+
+   ```bash
+   ssh -L 8443:localhost:8443 <user>@<your-padsign-host>
+   ```
+
+5. **Follow the steps** in the browser: hostname, certificate, features, review, deploy. The full
+   guide with screenshots is [3. Install with the Deployment Wizard](documentation/03-install-with-the-wizard.md).
+
+**Prefer a terminal?** One script does the same install:
+[4. Install from the command line](documentation/04-install-from-the-command-line.md)
+(`installation-scripts/bootstrap.sh`).
+
+**After the install**, log in and check the deployment
+([5. First login and verification](documentation/05-first-login-and-verification.md)), then work
+through [6. Production hardening](documentation/06-production-hardening.md) before real use.
 
 ## Documentation
 
-1. [Release Snapshot](documentation/01-release-snapshot.md)
-2. [Overview](documentation/02-overview.md)
-3. [Quick Start (New Deployment)](documentation/03-quick-start-new-deployment.md)
-   - [3.1 What bootstrap does (step by step)](documentation/03-01-what-bootstrap-does-step-by-step.md)
-   - [3.2 Bootstrap parameters](documentation/03-02-bootstrap-parameters.md)
-4. [Enabling local e-sealing](documentation/04-enabling-local-e-sealing.md)
-   - [4.1 Concepts and glossary](documentation/04-01-concepts-and-glossary.md)
-   - [4.2 Architecture deep-dive](documentation/04-02-architecture-deep-dive.md)
-   - [4.3 Initial deployment (fresh install)](documentation/04-03-initial-deployment-fresh-install.md)
-   - [4.4 Existing deployment (upgrade an already-deployed instance)](documentation/04-04-existing-deployment-upgrade-an-already-deployed-instance.md)
-   - [4.5 Switching modes after install](documentation/04-05-switching-modes-after-install.md)
-   - [4.6 Production setup: deploying with your own key and certificate](documentation/04-06-production-setup-deploying-with-your-own-key-and-certificate.md)
-   - [4.7 Adding a new signing profile end-to-end](documentation/04-07-adding-a-new-signing-profile-end-to-end.md)
-   - [4.8 Wiring TSA and OCSP for LT and LTA signature profiles](documentation/04-08-wiring-tsa-and-ocsp-for-lt-and-lta-signature-profiles.md)
-   - [4.9 Verifying it works](documentation/04-09-verifying-it-works.md)
-   - [4.10 Verifying signatures end-to-end (beyond the stack)](documentation/04-10-verifying-signatures-end-to-end-beyond-the-stack.md)
-5. [Upgrading an Existing Deployment](documentation/05-upgrading-an-existing-deployment.md)
-   - [5.1 What upgrade does (step by step)](documentation/05-01-what-upgrade-does-step-by-step.md)
-   - [5.2 Upgrade to the current release (authenticated PDF download + signed-PDF receive-back)](documentation/05-02-upgrade-to-the-current-release.md)
-6. [Validating Configuration](documentation/06-validating-configuration.md)
-   - [6.1 What validate-config checks](documentation/06-01-what-validate-config-checks.md)
-7. [Architecture](documentation/07-architecture.md)
-8. [Application Overview](documentation/08-application-overview.md)
-   - [8.1 How this solution works](documentation/08-01-how-this-solution-works.md)
-9. [Prerequisites](documentation/09-prerequisites.md)
-10. [Prerequisites (Quick Checklist)](documentation/10-prerequisites-quick-checklist.md)
-11. [Domain and TLS Certificates](documentation/11-domain-and-tls-certificates.md)
-    - [11.1 TLS Prerequisites (For Installation Scripts)](documentation/11-01-tls-prerequisites-for-installation-scripts.md)
-    - [11.2 Monitoring the Served Certificate](documentation/11-02-monitoring-the-served-certificate.md)
-12. [Running the Stack](documentation/12-running-the-stack.md)
-13. [Configuration](documentation/13-configuration.md)
-14. [Keycloak Setup](documentation/14-keycloak-setup.md)
-    - [14.1 Start Keycloak Container](documentation/14-01-start-keycloak-container.md)
-    - [14.2 Automated Setup (Recommended)](documentation/14-02-automated-setup-recommended.md)
-    - [14.3 Access Keycloak Admin Panel (Manual / Verification)](documentation/14-03-access-keycloak-admin-panel-manual-verification.md)
-    - [14.4 Create Realm (Manual)](documentation/14-04-create-realm-manual.md)
-    - [14.5 Create Client for Frontend (Manual)](documentation/14-05-create-client-for-frontend-manual.md)
-    - [14.6 Create Client for Backend (Manual)](documentation/14-06-create-client-for-backend-manual.md)
-    - [14.7 Break-glass: recovering when no Keycloak credential works at all](documentation/14-07-break-glass-admin-recovery.md)
-    - [14.8 Token audience for introspection (Keycloak 26.4.12+ / 26.6.2+)](documentation/14-08-token-audience-for-introspection.md)
-15. [Client Configuration](documentation/15-client-configuration.md)
-    - [15.1 Update Constants File](documentation/15-01-update-constants-file.md)
-    - [15.2 Environment Variables (Optional)](documentation/15-02-environment-variables-optional.md)
-16. [Server Configuration](documentation/16-server-configuration.md)
-    - [16.1 Update Server Config](documentation/16-01-update-server-config.md)
-    - [16.2 Replace Client Secret](documentation/16-02-replace-client-secret.md)
-17. [Environment Variables](documentation/17-environment-variables.md)
-    - [17.1 Keycloak Container Environment Variables](documentation/17-01-keycloak-container-environment-variables.md)
-    - [17.2 Client Environment Variables](documentation/17-02-client-environment-variables.md)
-18. [Configuration Constants Reference](documentation/18-configuration-constants-reference.md)
-    - [18.1 Cloud Essentials (TL;DR)](documentation/18-01-cloud-essentials-tldr.md)
-    - [18.2 How configuration is loaded](documentation/18-02-how-configuration-is-loaded.md)
-    - [18.3 Client: config/constants.json](documentation/18-03-client-configconstantsjson.md)
-    - [18.4 Server: config/config.js](documentation/18-04-server-configconfigjs.md)
-    - [18.5 Cloud Flow: /api/registerPDF](documentation/18-05-cloud-flow-apiregisterpdf.md)
-    - [18.6 Changing values safely](documentation/18-06-changing-values-safely.md)
-    - [18.7 Quick verification](documentation/18-07-quick-verification.md)
-    - [18.8 Notes](documentation/18-08-notes.md)
-    - [18.9 Debug Steps](documentation/18-09-debug-steps.md)
-19. [Testing the Integration](documentation/19-testing-the-integration.md)
-    - [19.1 Build and Deploy](documentation/19-01-build-and-deploy.md)
-    - [19.2 Test Authentication Flow](documentation/19-02-test-authentication-flow.md)
-    - [19.3 Verify Configuration](documentation/19-03-verify-configuration.md)
-20. [Troubleshooting](documentation/20-troubleshooting.md)
-    - [20.1 Common Issues](documentation/20-01-common-issues.md)
-21. [Troubleshooting (Integration and Auth)](documentation/21-troubleshooting-integration-and-auth.md)
-22. [Security and Route Protection](documentation/22-security-and-route-protection.md)
-23. [Data Flow](documentation/23-data-flow.md)
-24. [Production Deployment](documentation/24-production-deployment.md)
-    - [24.1 Deployment Checklist (Recommended)](documentation/24-01-deployment-checklist-recommended.md)
-    - [24.2 Environment Variables](documentation/24-02-environment-variables.md)
-    - [24.3 SSL Certificates](documentation/24-03-ssl-certificates.md)
-    - [24.4 Database Persistence](documentation/24-04-database-persistence.md)
-25. [Production Hardening](documentation/25-production-hardening.md)
-26. [Local Development Tips](documentation/26-local-development-tips.md)
-27. [Security Considerations](documentation/27-security-considerations.md)
-28. [File Map and References](documentation/28-file-map-and-references.md)
-29. [Notes on Security](documentation/29-notes-on-security.md)
-30. [FAQ](documentation/30-faq.md)
-    - [30.1 How does the solution handle a large number of documents sent at the same time (or almost at the same time)?](documentation/30-01-how-does-the-solution-handle-a-large-number-of-documents-sent-at-the-same-time-or-almost-at-the-same-time.md)
-    - [30.2 How are errors handled if `ps-server` is not available when `registerPDF` is called?](documentation/30-02-how-are-errors-handled-if-ps-server-is-not-available-when-registerpdf-is-called.md)
-    - [30.3 How are repeated or parallel document-processing scenarios handled (same document in multiple sessions, repeated signing attempts)?](documentation/30-03-how-are-repeated-or-parallel-document-processing-scenarios-handled-same-document-in-multiple-sessions-repeated-signing-attempts.md)
-    - [30.4 What software is used on tablets, and what is available there?](documentation/30-04-what-software-is-used-on-tablets-and-what-is-available-there.md)
-    - [30.5 What is the integration flow from a 3rd-party system, and what response is returned after signing?](documentation/30-05-what-is-the-integration-flow-from-a-3rd-party-system-and-what-response-is-returned-after-signing.md)
-    - [30.6 What is the final signed document format, and how does signature/stamp appear?](documentation/30-06-what-is-the-final-signed-document-format-and-how-does-signaturestamp-appear.md)
-31. [Support](documentation/31-support.md)
-32. [Additional Resources](documentation/32-additional-resources.md)
-33. [PSAPP Solution Architecture](documentation/33-psapp-solution-architecture.md)
-34. [Appendix](documentation/34-appendix.md)
-    - [34.1 Deployment and integration architecture](documentation/34-01-deployment-and-integration-architecture.md)
-    - [34.2 Signing and stamping execution flow](documentation/34-02-signing-and-stamping-execution-flow.md)
-    - [34.3 Very high-level component view](documentation/34-03-very-high-level-component-view.md)
-35. [Receive-back deployment runbook (signed PDF → desktop)](documentation/35-receive-back-deployment-runbook.md)
-36. [Deployment Wizard (Optional Browser UI)](documentation/36-deployment-wizard.md)
-    - [36.1 Concepts and access model](documentation/36-01-concepts-and-access-model.md)
-    - [36.2 Starting the wizard](documentation/36-02-starting-the-wizard.md)
-    - [36.3 Fresh-install walkthrough](documentation/36-03-fresh-install-walkthrough.md)
-    - [36.4 Upgrade walkthrough](documentation/36-04-upgrade-walkthrough.md)
-    - [36.5 Security considerations](documentation/36-05-security-considerations.md)
-    - [36.6 Troubleshooting the wizard](documentation/36-06-troubleshooting-the-wizard.md)
-    - [36.7 Relationship to the CLI scripts](documentation/36-07-relationship-to-the-cli-scripts.md)
-    - [36.8 Visual walkthrough (screenshots)](documentation/36-08-visual-walkthrough.md)
-    - [36.9 Previewing configuration changes](documentation/36-09-previewing-configuration-changes.md)
-37. [Settings (Post-Go-Live Changes)](documentation/37-settings-post-go-live-changes.md)
-    - [37.1 Concepts and what Settings covers](documentation/37-01-concepts-and-what-settings-covers.md)
-    - [37.2 Changing hostname after go-live](documentation/37-02-changing-hostname-after-go-live.md)
-    - [37.3 Renewing the TLS certificate](documentation/37-03-renewing-the-tls-certificate.md)
-    - [37.4 Toggling features after go-live](documentation/37-04-toggling-features-after-go-live.md)
-    - [37.5 Known gap: Keycloak admin password rotation](documentation/37-05-known-gaps-keycloak-admin-password-rotation.md)
-38. [AI Agent Deployment Skill](documentation/38-ai-agent-deployment-skill.md)
-39. [Release Procedure](documentation/39-release-procedure.md)
-40. [Reliability: Health Checks, Post-Deploy Validation, Monitoring, Rollback](documentation/40-reliability-and-rollback.md)
-    - [40.1 Health Checks and Startup Order](documentation/40-01-health-checks-and-startup-order.md)
-    - [40.2 Post-Deploy Validation](documentation/40-02-post-deploy-validation.md)
-    - [40.3 Monitoring and Alerting](documentation/40-03-monitoring-and-alerting.md)
-    - [40.4 Rollback](documentation/40-04-rollback.md)
-    - [40.5 Production-Safe Signing Smoke Test](documentation/40-05-production-safe-signing-smoke-test.md)
-41. [Baseline/Overlay Reconciliation](documentation/41-baseline-overlay-reconciliation.md)
-42. [Host Reconciliation Runbook: Keycloak Admin Recovery and Baseline + Overlay Migration](documentation/42-host-reconciliation-runbook.md)
-    - [42.1 Before you start](documentation/42-01-before-you-start.md)
-    - [42.2 Keycloak admin access and the disposable smoke identity](documentation/42-02-keycloak-admin-access-and-smoke-identity.md)
-    - [42.3 Capturing the environment overlay](documentation/42-03-capturing-the-environment-overlay.md)
-    - [42.4 Cut-over and post-checks](documentation/42-04-cut-over-and-post-checks.md)
-    - [42.5 Rollback](documentation/42-05-rollback.md)
-    - [42.6 Living with an overlay: upgrades, value changes, certificates, rebuilds](documentation/42-06-living-with-an-overlay.md)
-    - [42.7 Evidence and sign-off](documentation/42-07-evidence-and-sign-off.md)
+1. [Overview](documentation/01-overview.md)
+   - [1.1 Architecture](documentation/01-01-architecture.md)
+   - [1.2 How signing works](documentation/01-02-how-signing-works.md)
+2. [Prerequisites](documentation/02-prerequisites.md)
+   - [2.1 Host and software](documentation/02-01-host-and-software.md)
+   - [2.2 DNS and TLS certificates](documentation/02-02-dns-and-tls-certificates.md)
+   - [2.3 Network and firewall](documentation/02-03-network-and-firewall.md)
+3. [Install with the Deployment Wizard](documentation/03-install-with-the-wizard.md) (recommended)
+   - [3.1 Starting the wizard](documentation/03-01-starting-the-wizard.md)
+   - [3.2 Walkthrough](documentation/03-02-walkthrough.md)
+   - [3.3 How the wizard works](documentation/03-03-how-the-wizard-works.md)
+   - [3.4 Troubleshooting the wizard](documentation/03-04-troubleshooting-the-wizard.md)
+4. [Install from the command line](documentation/04-install-from-the-command-line.md)
+   - [4.1 What bootstrap does](documentation/04-01-what-bootstrap-does.md)
+   - [4.2 Bootstrap parameters](documentation/04-02-bootstrap-parameters.md)
+5. [First login and verification](documentation/05-first-login-and-verification.md)
+   - [5.1 First login](documentation/05-01-first-login.md)
+   - [5.2 Validating configuration](documentation/05-02-validating-configuration.md)
+   - [5.3 Post-deploy checks](documentation/05-03-post-deploy-checks.md)
+   - [5.4 Signing smoke test](documentation/05-04-signing-smoke-test.md)
+6. [Production hardening](documentation/06-production-hardening.md)
+   - [6.1 Route protection](documentation/06-01-route-protection.md)
+7. [Configuration reference](documentation/07-configuration-reference.md)
+   - [7.1 Essentials](documentation/07-01-essentials.md)
+   - [7.2 How configuration is loaded](documentation/07-02-how-configuration-is-loaded.md)
+   - [7.3 Client: config/constants.json](documentation/07-03-client-constants-json.md)
+   - [7.4 Server: config/config.js](documentation/07-04-server-config-js.md)
+   - [7.5 The /api/registerPDF integration API](documentation/07-05-register-pdf-api.md)
+   - [7.6 Environment variables and .env](documentation/07-06-environment-variables.md)
+8. [Keycloak](documentation/08-keycloak.md)
+   - [8.1 Automated setup](documentation/08-01-automated-setup.md)
+   - [8.2 Token audience for introspection](documentation/08-02-token-audience.md)
+   - [8.3 Admin password and break-glass recovery](documentation/08-03-admin-password-and-break-glass.md)
+   - [8.4 Manual setup (fallback only)](documentation/08-04-manual-setup.md)
+9. [Operations](documentation/09-operations.md)
+   - [9.1 Changing the hostname](documentation/09-01-changing-hostname.md)
+   - [9.2 Renewing the TLS certificate](documentation/09-02-renewing-the-tls-certificate.md)
+   - [9.3 Monitoring the served certificate](documentation/09-03-monitoring-the-served-certificate.md)
+   - [9.4 Toggling features](documentation/09-04-toggling-features.md)
+   - [9.5 Upgrading](documentation/09-05-upgrading.md)
+   - [9.6 What upgrade does](documentation/09-06-what-upgrade-does.md)
+   - [9.7 Previewing upgrade changes](documentation/09-07-previewing-upgrade-changes.md)
+   - [9.8 Rollback](documentation/09-08-rollback.md)
+   - [9.9 Health checks and startup](documentation/09-09-health-checks-and-startup.md)
+   - [9.10 Monitoring and alerting](documentation/09-10-monitoring-and-alerting.md)
+   - [9.11 Start at boot, backups and customized hosts](documentation/09-11-start-at-boot-backups-and-customized-hosts.md)
+10. [Local e-sealing](documentation/10-local-e-sealing.md)
+    - [10.1 Concepts and glossary](documentation/10-01-concepts-and-glossary.md)
+    - [10.2 Architecture](documentation/10-02-architecture.md)
+    - [10.3 Fresh install](documentation/10-03-fresh-install.md)
+    - [10.4 Existing deployment](documentation/10-04-existing-deployment.md)
+    - [10.5 Switching modes](documentation/10-05-switching-modes.md)
+    - [10.6 Production key and certificate](documentation/10-06-production-key-and-certificate.md)
+    - [10.7 Adding a signing profile](documentation/10-07-adding-a-signing-profile.md)
+    - [10.8 TSA and OCSP for LT and LTA](documentation/10-08-tsa-and-ocsp-for-lt-and-lta.md)
+    - [10.9 Verifying it works](documentation/10-09-verifying-it-works.md)
+    - [10.10 Verifying signatures end-to-end](documentation/10-10-verifying-signatures-end-to-end.md)
+11. [Document routing and receive-back](documentation/11-document-routing-and-receive-back.md)
+12. [Troubleshooting](documentation/12-troubleshooting.md)
+    - [12.1 Common issues](documentation/12-01-common-issues.md)
+13. [FAQ](documentation/13-faq.md)
+    - [13.1 How are many documents sent at (almost) the same time handled?](documentation/13-01-many-documents-at-once.md)
+    - [13.2 What happens if ps-server is unavailable when `registerPDF` is called?](documentation/13-02-ps-server-unavailable.md)
+    - [13.3 How are repeated or parallel processing of the same document handled?](documentation/13-03-repeated-and-parallel-processing.md)
+    - [13.4 What software is used on the tablets?](documentation/13-04-tablet-software.md)
+    - [13.5 What is the integration flow from a third-party system, and what comes back after signing?](documentation/13-05-third-party-integration-flow.md)
+    - [13.6 What is the format of the signed document, and how do the signature and seal appear?](documentation/13-06-signed-document-format.md)
+14. [Reference](documentation/14-reference.md)
+    - [14.1 File map](documentation/14-01-file-map.md)
+    - [14.2 Deployment and integration architecture](documentation/14-02-deployment-and-integration-architecture.md)
+    - [14.3 Release snapshot](documentation/14-03-release-snapshot.md)
+    - [14.4 AI agent deployment skill](documentation/14-04-ai-agent-deployment-skill.md)
+    - [14.5 Support](documentation/14-05-support.md)
+    - [14.6 Image approval and digest pinning](documentation/14-06-image-approval-and-digest-pinning.md)
 
+Release notes: [CHANGELOG.md](CHANGELOG.md).

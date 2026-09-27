@@ -73,5 +73,9 @@ no-git-assets/
 # Written by overlay.sh apply: which overlay was applied to this checkout
 .overlay-applied.json
 
+# The Deployment Wizard's Save & Exit progress (may hold the hostname and
+# options chosen for a half-finished install)
+.wizard-saved-progress.json
+
 # Python bytecode from installation-scripts/lib/*.py
 __pycache__/

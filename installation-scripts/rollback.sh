@@ -310,7 +310,7 @@ if [[ ${#refusals[@]} -gt 0 ]]; then
   echo "" >&2
   echo "Refusing to roll back: restoring docker-compose.yml's pin instead could leave the" >&2
   echo "stack on the release you are rolling back from. Nothing was changed. Restore by hand" >&2
-  echo "(documentation/40-04-rollback.md, 'Restoring by hand'), or pick another snapshot with --to." >&2
+  echo "(documentation/09-08-rollback.md, 'Restoring by hand'), or pick another snapshot with --to." >&2
   exit 1
 fi
 echo "This restores docker-compose.yml's image tags and config/config.js to"
@@ -348,7 +348,7 @@ for c in "${ROLLBACK_COMPONENTS[@]}"; do
     echo "  ${c} -> ${tgt_tag[$c]}@${tgt_digest[$c]}"
   else
     sed -i -E "s|mihailsgordijenko/${c}:[0-9.]*(@sha256:[0-9a-f]+)?|mihailsgordijenko/${c}:${tgt_tag[$c]}|" "$compose_yml"
-    echo "  ${c} -> ${tgt_tag[$c]} (no digest in this snapshot - re-pin manually, see documentation/39-release-procedure.md)"
+    echo "  ${c} -> ${tgt_tag[$c]} (no digest in this snapshot - re-pin manually, see documentation/14-06-image-approval-and-digest-pinning.md)"
   fi
 done
 

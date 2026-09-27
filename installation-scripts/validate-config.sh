@@ -188,7 +188,7 @@ else
   bad "docs directory ${docs_dir} (environment-overlay mount) is missing - restore or re-point the mount"
 fi
 
-# --- Secret hygiene (psapp-saas#6, #7) ---
+# --- Secret hygiene ---
 # Nothing here prints a secret value - only field names and file modes.
 echo ""
 echo "Secret hygiene:"
@@ -249,7 +249,7 @@ if [[ -f "$archive_yml" ]] && awk '/^  jwt:/{on=1; next} on && /^  [^ ]/{on=0} o
 fi
 
 # Keycloak's bootstrap admin password is read only on Keycloak's first boot
-# against an empty volume (documentation/14-07). A real value in the TRACKED
+# against an empty volume (documentation/08-03-admin-password-and-break-glass.md). A real value in the TRACKED
 # docker-compose.yml still leaks: into `git diff`, into the stash objects of
 # a stash/pull/pop upgrade, and to every local user (the file is 644). The
 # release reads it from .env (KEYCLOAK_FIRST_BOOT_ADMIN_PASSWORD) instead.
@@ -257,13 +257,13 @@ admin_state="$(python3 "${repo_root}/installation-scripts/lib/secret_hygiene.py"
 admin_var="$(awk '{print $2}' <<< "$admin_state")"
 case "$admin_state" in
   inline)
-    warn "docker-compose.yml, a tracked file, carries the Keycloak admin password inline (value not shown) - it shows in git diff, in git stash objects and to every local user. Move it to .env: documentation/17-01" ;;
+    warn "docker-compose.yml, a tracked file, carries the Keycloak admin password inline (value not shown) - it shows in git diff, in git stash objects and to every local user. Move it to .env: documentation/07-06-environment-variables.md" ;;
   inline-default)
-    warn "docker-compose.yml still carries KEYCLOAK_ADMIN_PASSWORD=admin (used only on Keycloak's first boot against an empty volume - see documentation/14-07)" ;;
+    warn "docker-compose.yml still carries KEYCLOAK_ADMIN_PASSWORD=admin (used only on Keycloak's first boot against an empty volume - see documentation/08-03-admin-password-and-break-glass.md)" ;;
   "placeholder "*" default")
-    warn "Keycloak's first-boot admin password falls back to the demo default admin: ${admin_var} is not set in .env (used only on Keycloak's first boot against an empty volume - see documentation/14-07; bootstrap.sh sets it)" ;;
+    warn "Keycloak's first-boot admin password falls back to the demo default admin: ${admin_var} is not set in .env (used only on Keycloak's first boot against an empty volume - see documentation/08-03-admin-password-and-break-glass.md; bootstrap.sh sets it)" ;;
   "placeholder "*" empty")
-    warn "Keycloak's first-boot admin password is empty: ${admin_var} is not set in .env (see documentation/17-01)" ;;
+    warn "Keycloak's first-boot admin password is empty: ${admin_var} is not set in .env (see documentation/07-06-environment-variables.md)" ;;
   "placeholder "*" set")
     ok "Keycloak's first-boot admin password is read from ${admin_var} (.env), not stored in the tracked docker-compose.yml" ;;
   absent)
@@ -310,7 +310,7 @@ else
   bad "nginx root→/portal/ redirect missing"
 fi
 
-# --- Port bindings (psapp-saas#13) ---
+# --- Port bindings ---
 # Internal services must never bind to a non-loopback host interface — nginx is
 # the only intended public ingress. A service is allowed to publish on all
 # interfaces only if it's on this allow-list (documented exception); everything
@@ -320,7 +320,7 @@ echo ""
 echo "Port bindings:"
 declare -A PORT_ALLOWLIST_NONLOOPBACK=(
   [nginx]="public HTTPS/HTTP ingress — the only intended entrypoint"
-  [wizard]="opt-in, profile-gated deployment UI; own HTTPS+token controls, see documentation/36-05"
+  [wizard]="opt-in, profile-gated deployment UI; own HTTPS+token controls, see documentation/03-03-how-the-wizard-works.md"
 )
 
 port_config_json="$(compose_config --format json 2>/dev/null || echo "")"
@@ -412,7 +412,9 @@ client_tag="$(grep -oP 'mihailsgordijenko/ps-client:\K[0-9.]+' "${repo_root}/doc
 ok "ps-server: ${server_tag}"
 ok "ps-client: ${client_tag}"
 
-# Check that the release snapshot doc matches (if present). A pin rollback.sh
+# Check that the tags match the release this checkout ships: the ps-server /
+# ps-client tag release/approved-digests.json approves (the file
+# documentation/14-03-release-snapshot.md describes). A pin rollback.sh
 # restored and verified (.rollback-applied.json) differs from the release on
 # purpose: a WARN here, and the digest gate below decides whether that pin
 # was ever approved.
@@ -427,16 +429,17 @@ snapshot_tag_mismatch() {  # <component> <release snapshot tag> <docker-compose 
     bad "Release snapshot $1 ($2) != docker-compose ($3)"
   fi
 }
-snapshot_doc="${repo_root}/documentation/01-release-snapshot.md"
-if [[ -f "$snapshot_doc" ]]; then
-  snap_server="$(grep -oPm1 'mihailsgordijenko/ps-server:\K[0-9.]+' "$snapshot_doc" 2>/dev/null || echo "")"
-  if [[ -n "$snap_server" && "$snap_server" != "$server_tag" ]]; then
-    snapshot_tag_mismatch ps-server "$snap_server" "$server_tag"
-  fi
-  snap_client="$(grep -oPm1 'mihailsgordijenko/ps-client:\K[0-9.]+' "$snapshot_doc" 2>/dev/null || echo "")"
-  if [[ -n "$snap_client" && "$snap_client" != "$client_tag" ]]; then
-    snapshot_tag_mismatch ps-client "$snap_client" "$client_tag"
-  fi
+release_tag() {  # <component>: the tag release/approved-digests.json approves, or nothing
+  python3 -c 'import json, sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["images"].get(sys.argv[2], {}).get("tag", ""))' \
+    "${repo_root}/release/approved-digests.json" "$1" 2>/dev/null | tr -d '\r'
+}
+snap_server="$(release_tag ps-server)"
+if [[ -n "$snap_server" && "$snap_server" != "$server_tag" ]]; then
+  snapshot_tag_mismatch ps-server "$snap_server" "$server_tag"
+fi
+snap_client="$(release_tag ps-client)"
+if [[ -n "$snap_client" && "$snap_client" != "$client_tag" ]]; then
+  snapshot_tag_mismatch ps-client "$snap_client" "$client_tag"
 fi
 
 # --- Image digest pinning ---
@@ -444,10 +447,10 @@ fi
 # COMPOSE_FILE overlay, every profile enabled - must be pinned by immutable
 # sha256 digest, and that digest must be approved: by
 # release/approved-digests.json, or on an overlay host by the overlay's own
-# approved-digests.json (documentation/42-03). A tag-only pin, an unreviewed
+# approved-digests.json (documentation/09-11-start-at-boot-backups-and-customized-hosts.md). A tag-only pin, an unreviewed
 # digest and an image nobody approved all fail here. The checks live in
 # lib/digest_gate.py so check-digest-drift.sh applies the identical rules.
-# See documentation/39-release-procedure.md.
+# See documentation/14-06-image-approval-and-digest-pinning.md.
 echo ""
 echo "Image digest pinning:"
 # shellcheck source=lib/digests.sh

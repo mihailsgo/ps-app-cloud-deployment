@@ -20,7 +20,7 @@
 # --users must never end up in this file.
 #
 # Also records "unapproved_override": the image tags upgrade.sh deployed
-# with --allow-unapproved (psapp-saas#11). The sourcing script sets
+# with --allow-unapproved. The sourcing script sets
 # $deployment_evidence_unapproved_override to one
 # "<image><TAB><tag><TAB><approved tag or ->" line per tag it let through; an
 # entry from an earlier snapshot is carried forward for as long as

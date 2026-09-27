@@ -7,8 +7,8 @@ What the shipped demo keystore is, how to replace it with a real certificate
 and check that the stamping service serves it, and how the demo file was
 generated. It does not cover turning local e-sealing on or off (`STAMP_MODE`,
 the `local-eseal` compose profile) or the full production setup; see
-`documentation/04-enabling-local-e-sealing.md` and
-`documentation/04-06-production-setup-deploying-with-your-own-key-and-certificate.md`
+`documentation/10-local-e-sealing.md` and
+`documentation/10-06-production-key-and-certificate.md`
 in the deployment repo.
 
 **This is a DEMO self-signed certificate. Do NOT use it for production signatures.**
@@ -34,9 +34,13 @@ an RSA-2048 self-signed certificate:
    inside the keystore should be `seal` (or update `alias:` in
    `../application.yml` to match).
 2. Stop the stamping service: `docker compose stop dmss-digital-stamping-service`
-3. Replace `seal.p12` with your file.
-4. If the password differs from `changeit`, update `password:` in
-   `../application.yml`.
+3. Copy your file next to `seal.p12` under its own name (for example
+   `company-seal.p12`) and point `keystore:` in `../application.yml` at it
+   (`file:/seal/company-seal.p12`). Do not overwrite `seal.p12`: it is a
+   tracked file, so an overwritten copy is swept up by `git stash` / `git pull`
+   during an upgrade. Full procedure:
+   `documentation/10-06-production-key-and-certificate.md`.
+4. Set `password:` in `../application.yml` to your keystore's password.
 5. Start it back up: `docker compose --profile local-eseal up -d dmss-digital-stamping-service`
 6. Verify, as below.
 
@@ -118,5 +122,5 @@ rm seal_key.pem seal_cert.pem
 
 Production keystores follow a similar shape, but the key + cert come from a
 real CA rather than `openssl req -x509`. See
-`documentation/04-06-production-setup-deploying-with-your-own-key-and-certificate.md`
+`documentation/10-06-production-key-and-certificate.md`
 in the deployment repo for the production recipes.

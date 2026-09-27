@@ -19,7 +19,7 @@
 # because the uid changes under us:
 #
 #   - ps-server:  root in every image up to 3.29 (node:18-alpine, no USER);
-#                 uid 1000 (`node`) from the Node 24 image on (psapp-saas#14).
+#                 uid 1000 (`node`) from the Node 24 image on.
 #   - dmss-archive-services-fallback:  `spring` was 999:1000 up to 24.0.5 and
 #                 is 10001:10001 in 24.1.7 (confirmed with
 #                 `docker run --rm --entrypoint id <image>` on both).
@@ -49,7 +49,7 @@
 #
 # Before this file, bootstrap.sh and upgrade.sh each carried a `chmod 777`
 # copy of this logic; 777 only ever widened host-side exposure of what can be
-# real signed customer documents (documentation/35-receive-back-deployment-runbook.md).
+# real signed customer documents (documentation/11-document-routing-and-receive-back.md).
 #
 # Expects "$repo_root" to be set by the sourcing script.
 
@@ -185,7 +185,7 @@ resolve_dmss_fallback_gid() {
 # ── Where the two stores are: the effective compose model's mounts ─────────
 #
 # Normally ./signed-output and ./docs in the checkout. An environment overlay
-# (overlay.sh, documentation/42) or a docker-compose.override.yml can mount
+# (overlay.sh, documentation/09-11-start-at-boot-backups-and-customized-hosts.md) or a docker-compose.override.yml can mount
 # them from somewhere else instead - where the documents already are - and
 # then ${repo_root}/signed-output is a directory nothing mounts. Checking or
 # creating that one reported "signed-output/ missing" on every overlay host
@@ -253,7 +253,7 @@ in_tree_store_missing() {  # after signed_output_mount / docs_mount
 # in-tree directory is created and re-owned as before. A named volume has no
 # host directory. A directory outside the checkout (overlay storage) is left
 # exactly as it is: its ownership is part of the overlay procedure
-# (documentation/42-04 C2), and validate-config.sh checks it.
+# (documentation/09-11-start-at-boot-backups-and-customized-hosts.md), and validate-config.sh checks it.
 ensure_store_for_image() {  # <repository> <mode> <label>, after signed_output_mount / docs_mount
   case "$storage_how" in
     volume)
@@ -299,7 +299,7 @@ backup_owner_only() {  # <file>
 # stamping credentials, so it should not be world-readable. But ps-server has
 # to be able to read it, or it crash-loops with EACCES on its next start.
 # While ps-server ran as root (up to 3.29) `chmod o-rwx` was enough; the
-# Node 24 image (3.30, psapp-saas#14) runs as uid 1000, and a root:root 640
+# Node 24 image (3.30) runs as uid 1000, and a root:root 640
 # config.js locks it out (seen on a real 3.30 install). So the file keeps its
 # owner (whoever edits it), gets the image's gid as its group, and mode 640.
 #
@@ -428,7 +428,7 @@ secure_config_js() {  # [--strict]
     # Still world-readable, and deliberately not restricted.
     echo "  config/config.js: left at mode $(file_mode "$f"): $(id -un 2>/dev/null || echo "uid ${me}") is not root, uid ${uid} or in group ${gid},"
     echo "    so a later script edit would drop the group and lock ps-server out. Run the installation"
-    echo "    scripts as root or as a member of group ${gid} to have it restricted (documentation/22)."
+    echo "    scripts as root or as a member of group ${gid} to have it restricted (documentation/06-production-hardening.md, 5. Files and permissions)."
   else
     echo "  config/config.js: mode $(file_mode "$f"), readable by ${ref} (${ids})"
   fi
@@ -518,7 +518,7 @@ config_js_access_report() {
       "$(file_mode "$f")" "$ref"
   else
     # Who can apply it for you: never configure-host.sh on an overlay-managed
-    # checkout, which is not edited in place (documentation/42-06).
+    # checkout, which is not edited in place (documentation/09-11-start-at-boot-backups-and-customized-hosts.md).
     local who="configure-host.sh does this for you when run as root or as a member of group ${gid}"
     [[ -f "${repo_root}/.overlay-applied.json" ]] && who="overlay.sh apply does this for you when run as root"
     printf 'WARN\tconfig/config.js is world-readable (mode %s) and holds credentials. Fix: %s - %s runs as %s and then reads it through group %s (chmod o-rwx alone would lock it out unless the file already belongs to that uid or group). %s\n' \
@@ -539,7 +539,7 @@ config_js_access_report() {
 #
 # overlay.sh apply used to copy these with the mode captured from the host
 # (0775 for the container-signature application.yml on the demo host) and
-# htpasswd with 0644, so every local user could read them (psapp-saas#7).
+# htpasswd with 0644, so every local user could read them.
 # Same model as config.js: the group becomes the gid the reader runs as, the
 # mode 640, and the result is checked by reading the file from inside the
 # image.
