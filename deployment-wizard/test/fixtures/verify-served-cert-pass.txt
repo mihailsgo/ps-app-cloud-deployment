@@ -1,6 +1,6 @@
 PadSign Served-Certificate Verifier
   Host:     padsign.example.com  (derived from nginx/nginx.conf)
-  On disk:  /opt/psapp/nginx/certs/padsign.example.com.crt  (derived from nginx/nginx.conf)
+  On disk:  /opt/padsign/nginx/certs/padsign.example.com.crt  (derived from nginx/nginx.conf)
   Endpoint: localhost:443  (default)
 ================================================
 

@@ -21,6 +21,10 @@ set -uo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$root" || exit 2
+# Git Bash rewrites any argument that starts with / (a pattern such as
+# /opt/psapp included) into a Windows path, which silently matches nothing.
+# No effect on Linux.
+export MSYS2_ARG_CONV_EXCL='*'
 for c in git python3; do
   command -v "$c" >/dev/null 2>&1 || { echo "ERROR: $c is required" >&2; exit 2; }
 done
