@@ -304,6 +304,70 @@ check "drop without a path: usage error, exit 2" test "$rc" = 2
 out="$(ovl_sh drop --overlay "$(native "${work}/no-such-overlay")" config/config.js)"; rc=$?
 check "drop on a directory that is not an overlay: exit 2" bash -c '[[ "$1" == 2 ]] && grep -q "MANIFEST.json not found" <<< "$2"' _ "$rc" "$out"
 
+# ── apply/verify: DMSS application.yml and htpasswd modes ──────────────────
+# overlay.sh apply used to copy them with the captured host mode (0775 on
+# the demo host) and htpasswd with 0644, readable by every local user
+# (psapp-saas#7). Needs Linux file modes: chmod on a Windows checkout is a no-op.
+if [[ "$(uname -s)" == Linux ]]; then
+  echo ""
+  echo "apply/verify: secret-bearing service files:"
+  csig=dmss-container-and-signature-services/application.yml
+  live2="${work}/live2"
+  g clone -q "$rel" "$live2"
+  printf '# host client secret\n' >> "$live2/$csig"
+  chmod 775 "$live2/$csig"
+  mkdir -p "$live2/nginx/certs"
+  printf 'dmss:$apr1$fake$hash\n' > "$live2/nginx/certs/htpasswd"
+  printf -- '-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n' > "$live2/nginx/certs/padsign.test.local.crt"
+  ovl2="${work}/overlay-secrets"
+  (cd "$live2" && bash installation-scripts/overlay.sh capture --baseline "$rel" --from "$live2" --out "$ovl2" >/dev/null 2>&1)
+  new2="${work}/new2"
+  g clone -q "$rel" "$new2"
+  out="$(cd "$new2" && bash installation-scripts/overlay.sh apply --overlay "$ovl2" 2>&1)"; rc=$?
+  mygid="$(id -g)"
+  check "apply: exit 0" test "$rc" = 0
+  check "... the 0775 host copy of $csig lands as 0640, group = the reader's gid" \
+    bash -c '[[ "$(stat -c "%a %g" "$1")" == "640 $2" ]] && grep -q "OK   $3: group $2, mode 640 - readable by" <<< "$4"' _ "$new2/$csig" "$mygid" "$csig" "$out"
+  check "... htpasswd lands as 0640 (was 0644), read as the image's nginx user" \
+    bash -c '[[ "$(stat -c "%a" "$1")" == 640 ]] && grep -q "OK   nginx/certs/htpasswd: group .* (user nginx)" <<< "$2"' _ "$new2/nginx/certs/htpasswd" "$out"
+  check "... a release application.yml the overlay does not carry is left as git has it" \
+    test "$(stat -c %a "$new2/dmss-archive-services/application.yml")" = "$(stat -c %a "$rel/dmss-archive-services/application.yml")"
+  check "... and git status shows only the carried file" \
+    test "$(git -C "$new2" status --porcelain --untracked-files=no | awk '{print $2}')" = "$csig"
+  check "... the certificate stays 0644" test "$(stat -c %a "$new2/nginx/certs/padsign.test.local.crt")" = 644
+  check "... the reader's ids were read for the image's nginx user" grep -qF -- ':$(id -g "$0")" nginx' "$STUB_LOG"
+  out="$(cd "$new2" && bash installation-scripts/overlay.sh verify --overlay "$ovl2" 2>&1)"
+  check "verify: reports $csig and htpasswd as not world-readable" \
+    bash -c 'grep -q "OK   $2 is not world-readable (mode 640)" <<< "$1" && grep -q "OK   nginx/certs/htpasswd is not world-readable" <<< "$1"' _ "$out" "$csig"
+  chmod 644 "$new2/$csig"
+  out="$(cd "$new2" && bash installation-scripts/overlay.sh verify --overlay "$ovl2" 2>&1)"
+  check "verify: a world-readable $csig is a WARN" grep -q "WARN $csig is world-readable (mode 644)" <<< "$out"
+
+  # A reader uid:gid this user can neither be nor chgrp to: apply must not
+  # restrict (that would lock the service out), and says so...
+  new3="${work}/new3"
+  g clone -q "$rel" "$new3"
+  out="$(cd "$new3" && STUB_IDS="$(( $(id -u) + 1 )):65534" bash installation-scripts/overlay.sh apply --overlay "$ovl2" 2>&1)"
+  check "apply as a non-member of the reader's group: mode left, WARN" \
+    bash -c '[[ "$(stat -c %a "$1")" == 775 ]] && grep -q "WARN $2: left world-readable (mode 775)" <<< "$3"' _ "$new3/$csig" "$csig" "$out"
+  # ...and a copy the reader cannot read at all fails apply before the cut-over.
+  chmod 600 "$ovl2/files/$csig"
+  python3 - "$ovl2/MANIFEST.json" "$csig" <<'PY'
+import json, sys
+p, rel = sys.argv[1], sys.argv[2]
+m = json.load(open(p))
+for e in m["files"]:
+    if e["path"] == rel:
+        e["mode"] = "0o600"
+json.dump(m, open(p, "w"), indent=2)
+PY
+  new4="${work}/new4"
+  g clone -q "$rel" "$new4"
+  out="$(cd "$new4" && STUB_IDS="$(( $(id -u) + 1 )):65534" bash installation-scripts/overlay.sh apply --overlay "$ovl2" 2>&1)"; rc=$?
+  check "apply: a copy the reader cannot read is a FAIL with the fix, exit 1" \
+    bash -c '[[ "$1" == 1 ]] && grep -q "FAIL $2: .* cannot read it (mode 600). Fix: sudo chgrp 65534 $2" <<< "$3"' _ "$rc" "$csig" "$out"
+fi
+
 echo ""
 echo "================================"
 echo "${pass} passed, ${failed} failed"

@@ -327,13 +327,15 @@ ids_can_read() {  # <uid> <gid> <file>
   return 1
 }
 
-# Reads <file> as <image-ref>'s own user, from inside a one-shot container
-# with no network. Returns 0 readable, 1 permission denied, 2 could not check.
-file_readable_by_image() {  # <file> <image-ref>
-  local out
+# Reads <file> as <image-ref>'s own user (or as <user> in that image), from
+# inside a one-shot container with no network. Returns 0 readable, 1
+# permission denied, 2 could not check.
+file_readable_by_image() {  # <file> <image-ref> [<user>]
+  local out user=()
   [[ -n "$2" ]] || return 2
+  [[ -n "${3:-}" ]] && user=(--user "$3")
   command -v docker >/dev/null 2>&1 || return 2
-  out="$(docker run --rm --pull missing --network none -v "${1}:/padsign-probe:ro" --entrypoint sh "$2" \
+  out="$(docker run --rm --pull missing --network none "${user[@]}" -v "${1}:/padsign-probe:ro" --entrypoint sh "$2" \
     -c 'cat /padsign-probe >/dev/null 2>&1 && echo READABLE || echo DENIED' 2>/dev/null | tr -d '\r')"
   case "$out" in
     READABLE) return 0 ;;
@@ -523,3 +525,107 @@ config_js_access_report() {
       "$(file_mode "$f")" "$fix" "$ref" "$ids" "$gid" "$who"
   fi
 }
+
+# ── Other secret-bearing files a container reads ────────────────────────────
+#
+# config/config.js is not the only credential file a container reads through
+# a bind mount. "<path> <compose service> [<user in the image>]", one per line:
+#
+#   - the DMSS application.yml files hold client secrets, keystore passwords
+#     and API keys;
+#   - nginx/certs/htpasswd holds the Basic-auth hashes for the archive and
+#     container APIs. nginx's worker processes check it on every request, and
+#     they run as the image's `nginx` user, not as the container's root.
+#
+# overlay.sh apply used to copy these with the mode captured from the host
+# (0775 for the container-signature application.yml on the demo host) and
+# htpasswd with 0644, so every local user could read them (psapp-saas#7).
+# Same model as config.js: the group becomes the gid the reader runs as, the
+# mode 640, and the result is checked by reading the file from inside the
+# image.
+service_secret_files() {
+  cat <<'LIST'
+dmss-container-and-signature-services/application.yml dmss-container-and-signature-services
+dmss-archive-services/application.yml dmss-archive-services
+dmss-archive-services-fallback/application.yml dmss-archive-services-fallback
+dmss-digital-stamping-service/application.yml dmss-digital-stamping-service
+nginx/certs/htpasswd nginx nginx
+LIST
+}
+
+# Prints the image the effective compose model runs for <service>, or nothing.
+service_image_ref() {  # <service>
+  command -v python3 >/dev/null 2>&1 || return 0
+  python3 "${repo_root}/installation-scripts/lib/digest_gate.py" images "$repo_root" 2>/dev/null \
+    | tr -d '\r' | awk -F'\t' -v s="$1" '$1 == s { print $2; exit }'
+}
+
+# Prints "<uid>:<gid>" of <user> in <image-ref> (the image's own user when
+# <user> is empty), or returns 1 if that can't be determined.
+image_user_ids() {  # <image-ref> [<user>]
+  local ids
+  [[ -n "${2:-}" ]] || { image_runtime_ids "$1"; return; }
+  command -v docker >/dev/null 2>&1 || return 1
+  ids="$(docker run --rm --pull missing --network none --entrypoint sh "$1" \
+    -c 'echo "$(id -u "$0"):$(id -g "$0")"' "$2" 2>/dev/null | tr -d '\r')"
+  [[ "$ids" =~ ^[0-9]+:[0-9]+$ ]] || return 1
+  printf '%s' "$ids"
+}
+
+# Can <uid>:<gid> (as <user> in <image-ref>) read <file>? Bits first, then
+# the image itself when the bits say no. Returns like file_readable_by_image.
+reader_can_read() {  # <file> <uid> <gid> <image-ref> [<user>]
+  ids_can_read "$2" "$3" "$1" && return 0
+  file_readable_by_image "$1" "$4" "${5:-}"
+}
+
+# overlay.sh apply: restricts <path> to its reader as described above. Never
+# widens the mode. Prints one "<OK|WARN|FAIL><TAB><message>" line; FAIL
+# means the reader cannot read the file (the service would fail to start or,
+# for htpasswd, answer 500) and carries the fix.
+secure_service_file() {  # <path> <service> [<user>]
+  local rel="$1" svc="$2" user="${3:-}" f="${repo_root}/$1" ref ids uid gid me who rc=0
+  [[ -f "$f" ]] || return 0
+  ref="$(service_image_ref "$svc")"
+  who="${ref:-the ${svc} image}${user:+ (user ${user})}"
+  if [[ -z "$ref" ]] || ! ids="$(image_user_ids "$ref" "$user")"; then
+    printf 'WARN\t%s: could not determine which uid %s reads it as - mode left as is (%s)\n' "$rel" "$who" "$(file_mode "$f")"
+    return 0
+  fi
+  uid="${ids%%:*}"; gid="${ids##*:}"; me="$(id -u)"
+  if [[ "$uid" == 0 ]]; then
+    chmod o-rwx "$f" 2>/dev/null || true
+  elif [[ "$me" == 0 || "$me" == "$uid" ]] || user_in_group "$gid"; then
+    chgrp "$gid" "$f" 2>/dev/null && chmod 640 "$f" 2>/dev/null || true
+  fi
+  reader_can_read "$f" "$uid" "$gid" "$ref" "$user" || rc=$?
+  if [[ "$rc" == 1 ]]; then
+    printf 'FAIL\t%s: %s runs as %s and cannot read it (mode %s). Fix: sudo chgrp %s %s && sudo chmod 640 %s\n' \
+      "$rel" "$who" "$ids" "$(file_mode "$f")" "$gid" "$rel" "$rel"
+  elif other_can_read "$f"; then
+    printf 'WARN\t%s: left world-readable (mode %s) - run overlay.sh apply as root to restrict it to group %s\n' "$rel" "$(file_mode "$f")" "$gid"
+  else
+    printf 'OK\t%s: group %s, mode %s - readable by %s (%s), not by other users\n' "$rel" "$(stat -c '%g' "$f" 2>/dev/null || stat -f '%g' "$f")" "$(file_mode "$f")" "$who" "$ids"
+  fi
+}
+
+# overlay.sh verify: the same check without changing anything.
+service_file_access_report() {  # <path> <service> [<user>]
+  local rel="$1" svc="$2" user="${3:-}" f="${repo_root}/$1" ref ids rc=0
+  [[ -f "$f" ]] || return 0
+  ref="$(service_image_ref "$svc")"
+  if [[ -n "$ref" ]] && ids="$(image_user_ids "$ref" "$user")"; then
+    reader_can_read "$f" "${ids%%:*}" "${ids##*:}" "$ref" "$user" || rc=$?
+    if [[ "$rc" == 1 ]]; then
+      printf 'FAIL\t%s cannot be read by %s%s (%s, mode %s). Fix: sudo chgrp %s %s && sudo chmod 640 %s\n' \
+        "$rel" "$ref" "${user:+ user ${user}}" "$ids" "$(file_mode "$f")" "${ids##*:}" "$rel" "$rel"
+      return 0
+    fi
+  fi
+  if other_can_read "$f"; then
+    printf 'WARN\t%s is world-readable (mode %s) and holds credentials - overlay.sh apply (as root) restricts it\n' "$rel" "$(file_mode "$f")"
+  else
+    printf 'OK\t%s is not world-readable (mode %s)\n' "$rel" "$(file_mode "$f")"
+  fi
+}
+
