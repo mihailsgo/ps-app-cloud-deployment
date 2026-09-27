@@ -80,3 +80,6 @@ All git-ignored.
 | `deployment-wizard/` | Source of the Deployment Wizard image. You run the published image, not this source ([3](03-install-with-the-wizard.md)). |
 | `documentation/` | This documentation. `README.md` lists every section. |
 | `AGENTS.md`, `.claude/skills/`, `.agents/skills/` | Guidance for AI coding assistants ([14.4](14-04-ai-agent-deployment-skill.md)). |
+| `LICENSE`, `SECURITY.md` | Licence terms, and how to report a security vulnerability. |
+| `installation-scripts/tests/` | Automated checks for the scripts, the documentation and the wizard. `run-all.sh` runs them all. |
+| `.github/`, `renovate.json` | TrustLynx's own CI and dependency-update automation for this repository. Nothing on your host uses them. |
