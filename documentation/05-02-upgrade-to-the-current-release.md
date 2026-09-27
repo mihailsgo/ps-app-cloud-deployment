@@ -34,7 +34,7 @@ alone is safe and changes no behaviour until you enable routing.
 > the documents stay pending on the server, nothing is lost. Before
 > upgrading, give each receive-back company its own key in
 > `REGISTER_PDF_API_KEYS` (config only, no Manager change; psapp's
-> `docs/document-routing-spec.md`, *Migrating to per-company keys*; capability
+> `documentation/document-routing-spec.md`, *Migrating to per-company keys*; capability
 > `per-company-api-keys`), or roll out a Manager build that sends `email` +
 > `company`. `3.30` also keeps the filesystem archive after ack (it no longer
 > deletes `signed-output/{company}/{email}/...` files), so plan for that
