@@ -10,17 +10,17 @@ Client essentials (constants.json)
 - `PDF_ZOOM_VALUE`, `MAX_ZOOM`, `MIN_ZOOM`, `DEFAULT_PAGE_SIZE`, `EXTRA_HEIGHT_MARGIN_PX`, `OPACITY_DELAY`
 - `CANVA_WIDTH`, `CANVA_HEIGHT`
 - `RUN_STAMPING_REQUEST` (optional)
-- ~~`PDF_SIGNING_STATUS_CALLBACK`, `PDF_SIGNING_STATUS_CALLBACK_ENABLED`~~ (deprecated - use server-side `DOCUMENT_ROUTING` webhook strategy instead)
+- ~~`PDF_SIGNING_STATUS_CALLBACK`, `PDF_SIGNING_STATUS_CALLBACK_ENABLED`~~ (unused by the current client - use the server-side `DOCUMENT_ROUTING` webhook strategy instead)
 - Branding: `PS_PAGE_TITLE`, `PS_LOGO_PATH`, `PS_DEFAULT_LOGO_PATH`, `SHOW_USER_DATA_BOX`
 - `SHOW_SIGNER_NAME` (optional, default `false`): show resolved signer name above signature canvas when paired with the virtual-printer + CustomerData lookup flow
 
 Server essentials (config.js)
 - `KEYCLOAK_CONFIG`, `ALLOWED_ORIGINS`, `PORT`
 - `REGISTER_PDF_API_KEY`
-- `ARCHIVE_API_BASE_URL`, `CONTAINER_API_BASE_URL`
+- `ARCHIVE_API_BASE_URL`
 - `CREATE_DOCUMENT_API_URL`, `DEFAULT_DOCUMENT_JSON`
 - `VISUAL_SIGNATURE_API_TEMPLATE`
-- `STAMP_API_URL` (optional, if e-seal integration is enabled)
+- `STAMP_MODE` (`"external"` default, or `"local"`), with `STAMP_API_URL` / `STAMP_API_KEY` / `STAMP_COMPANY_ID` / `STAMP_COMPANY_SECRET` for external mode or `STAMP_LOCAL` for local mode ([18.4](18-04-server-configconfigjs.md))
 - Resilience knobs for upload/signing stability:
 - `REGISTER_PDF_MAX_CONCURRENCY`, `REGISTER_PDF_QUEUE_MAX_SIZE`, `REGISTER_PDF_QUEUE_WAIT_MS`
 - `REGISTER_PDF_UPSTREAM_TIMEOUT_MS`, `REGISTER_PDF_UPSTREAM_RETRIES`
@@ -75,11 +75,14 @@ Server `config.js` (cloud-focused)
 ```js
 module.exports = {
   PORT: 3001,
-  CONTAINER_API_BASE_URL: "https://padsign.trustlynx.com/container/api/",
   ARCHIVE_API_BASE_URL: "https://padsign.trustlynx.com/archive/api/",
   CREATE_DOCUMENT_API_URL: "https://padsign.trustlynx.com/archive/api/document/create",
   VISUAL_SIGNATURE_API_TEMPLATE: "https://padsign.trustlynx.com/container/api/signing/visual/pdf/{docid}/sign",
+  STAMP_MODE: "external",
   STAMP_API_URL: "https://eseal.trustlynx.com/api/gateway/esealing/sign/api-key/DEMOCOMPANY",
+  STAMP_API_KEY: "<e-seal-api-key>",
+  STAMP_COMPANY_ID: "<e-seal-company-id>",
+  STAMP_COMPANY_SECRET: "<e-seal-company-secret>",
   ALLOWED_ORIGINS: [
     'https://padsign.trustlynx.com:5173',
     'https://padsign.trustlynx.com'
@@ -94,7 +97,8 @@ module.exports = {
     realm: "padsign",
     "auth-server-url": "https://padsign.trustlynx.com/auth",
     resource: "padsign-backend",
-    credentials: { secret: "<backend-client-secret>" }
+    credentials: { secret: "<backend-client-secret>" },
+    "bearer-only": true
   },
   REGISTER_PDF_API_KEY: "<strong-api-key>",
   REGISTER_PDF_UPSTREAM_TIMEOUT_MS: 15000,

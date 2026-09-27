@@ -12,11 +12,11 @@ flowchart LR
     direction LR
     NGINX[Portal / NGINX]:::core
     PSAPP[PSAPP Application<br/>ps-client and ps-server]:::core
-    DMSS[DMSS Services<br/>Archive Signature Fallback]:::core
+    DMSS[DMSS Services<br/>Archive Signature Fallback<br/>Stamping when e-sealing is local]:::core
     IDP[Keycloak]:::core
   end
 
-  ESeal[TL e-sealing service<br/>External STAMP_API_URL]:::ext
+  ESeal[TL e-sealing service<br/>External STAMP_API_URL<br/>when e-sealing is external]:::ext
   Trust[External trust services<br/>TSA OCSP Trust Lists]:::ext
 
   User --> NGINX
