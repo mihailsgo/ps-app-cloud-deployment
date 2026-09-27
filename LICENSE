@@ -1,0 +1,20 @@
+Copyright (c) TrustLynx. All rights reserved.
+
+This repository (the PadSign deployment package: scripts, configuration,
+documentation and the Deployment Wizard source) is proprietary software of
+TrustLynx. It is made available to TrustLynx customers and partners solely
+for installing, operating and maintaining PadSign under a valid agreement
+with TrustLynx, and on the terms of that agreement.
+
+No other right or licence is granted, whether by implication, estoppel or
+otherwise. You may not copy, modify, distribute, sublicense or sell this
+repository or any part of it, except as needed to deploy and operate PadSign
+under such an agreement.
+
+The PadSign container images and third-party components referenced by this
+repository are licensed under their own terms.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXCEPT AS
+EXPRESSLY AGREED IN WRITING WITH TRUSTLYNX.
+
+Contact: support@trustlynx.com
