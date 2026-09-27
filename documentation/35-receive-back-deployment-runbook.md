@@ -13,7 +13,7 @@ you have SSH + Docker + registry push access. **Do staging first, then prod.**
 > strategy populates that buffer; per-company webhook scoping; config knobs
 > (`USER_ENTRY_TTL_MS`=600000, `PAD_ARRIVAL_TIMEOUT_MS`, routing enabled, `{email}`
 > path token). The Padsign Manager (desktop) gains the polling client. Full
-> design: `psapp/docs/document-routing-spec.md` → *Receive-back buffer & per-company delivery*.
+> design: `psapp/documentation/document-routing-spec.md` → *Receive-back buffer & per-company delivery*.
 
 ---
 
@@ -36,7 +36,7 @@ reproducible. Changed files:
 **`psapp`** (build source):
 - new: `server/lib/signedPdfBuffer.js`, `server/test/test-signed-pdf-buffer.js`, `server/.dockerignore`
 - modified: `server/app.js`, `server/lib/documentRouting.js`, `config/config.js` (`{email}` token)
-- docs: `README.md`, `CLAUDE.md`, `docs/document-routing-spec.md`
+- docs: `README.md`, `CLAUDE.md`, `documentation/document-routing-spec.md`
 
 **`ps-app-cloud-deployment`** (runtime config):
 - modified: `config/config.js` (TTL=600000, `PAD_ARRIVAL_TIMEOUT_MS`, `DOCUMENT_ROUTING.enabled=true` + filesystem strategy on, `{email}` template, example per-company webhook)

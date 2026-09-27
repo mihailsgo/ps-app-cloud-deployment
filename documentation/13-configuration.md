@@ -27,7 +27,7 @@ Review and adjust these files before running:
   - Set `KEYCLOAK_CONFIG` for your realm and backend client secret.
   - Adjust CORS: `ALLOWED_ORIGINS` should include your portal origin(s).
   - Set directories: `DOCUMENT_OUTPUT_DIRECTORY`, `READONLY_PDF_DIRECTORY` to writable paths where required by your runtime.
-  - Signed-PDF receive-back (Padsign Manager / virtual printer): to let the Manager poll the signed PDF back to the originating desktop, set `DOCUMENT_ROUTING.enabled: true` and enable the `"filesystem"` strategy (writing to the bind-mounted `/signed-output`). After editing the bind-mounted `config/config.js`, run `docker compose restart ps-server` (Node caches `config.js`, so `up -d` alone is a no-op for this file). See `documentation/18-04-server-configconfigjs.md` and psapp `docs/document-routing-spec.md`.
+  - Signed-PDF receive-back (Padsign Manager / virtual printer): to let the Manager poll the signed PDF back to the originating desktop, set `DOCUMENT_ROUTING.enabled: true` and enable the `"filesystem"` strategy (writing to the bind-mounted `/signed-output`). After editing the bind-mounted `config/config.js`, run `docker compose restart ps-server` (Node caches `config.js`, so `up -d` alone is a no-op for this file). See `documentation/18-04-server-configconfigjs.md` and psapp `documentation/document-routing-spec.md`.
 
 - `config/constants.json` (PS Client)
   - Change `KEYCLOAK_URL`, `KEYCLOAK_REALM`, `KEYCLOAK_CLIENT_ID`, and redirect URIs to match your hostname and Keycloak setup.
