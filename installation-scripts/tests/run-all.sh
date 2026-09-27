@@ -46,7 +46,7 @@ for t in installation-scripts/tests/test-*.sh; do
   log="$(bash "$t" 2>&1)"; rc=$?
   summary="$(grep -E '[0-9]+ passed' <<< "$log" | tail -n 1)"
   record "$(basename "$t")${summary:+ - ${summary}}" "$rc"
-  [[ "$rc" == 0 ]] || grep -E '^\s+FAIL' <<< "$log" | head -n 20
+  [[ "$rc" == 0 ]] || grep -E '^\s+(FAIL|\|)' <<< "$log" | head -n 40
 done
 
 section "docker compose config"

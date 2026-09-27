@@ -102,11 +102,18 @@ echo "Public-repository hygiene:"
 out="$(git grep -nIE \
   -e 'psapp-saas' \
   -e 'github\.com/mihailsgo/(psapp|tl-)' \
-  -e '[A-Za-z]:\\Users\\' -e '/Users/[A-Za-z]' -e 'AppData[\\/]' \
+  -e '[A-Za-z]:[\\]Users[\\]' -e '/Users/[A-Za-z]' -e 'AppData[\\/]' \
   -e '/opt/psapp' -e '/opt/trustlynx' \
   -e '@gmail\.com' \
   -e '^-----BEGIN ([A-Z]+ )?PRIVATE KEY-----.?$' \
-  -- . ':!installation-scripts/tests/test-docs.sh' 2>/dev/null | cut -c1-200)"
+  -- . ':!installation-scripts/tests/test-docs.sh' 2>&1; echo "rc=$?")"
+# git grep: 1 = no match (good), 0 = matches, anything else = the search
+# itself failed (never read that as "clean").
+case "${out##*rc=}" in
+  1) out="" ;;
+  0) out="$(sed '$d' <<< "$out" | cut -c1-200)" ;;
+  *) out="git grep failed: $(sed '$d' <<< "$out")" ;;
+esac
 report "no private-repo links, personal paths, private keys or retired install paths" "$out"
 
 allowed_keystores="dmss-container-and-signature-services/dmssrootca.p12
