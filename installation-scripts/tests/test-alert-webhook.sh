@@ -31,7 +31,8 @@ set -uo pipefail
 # and logs curl's argv. Runs the scripts from this checkout, with every
 # --compose-dir and --state-dir in a throwaway directory.
 #
-# Exit codes: 0 all passed, 1 a case failed, 2 missing dependency.
+# Exit codes: 0 all passed, 1 a case failed, 2 missing dependency,
+# 124 the watchdog (lib/watchdog.sh) stopped it.
 # ============================================================================
 
 src_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -57,6 +58,9 @@ cleanup() {
   rm -rf "$work"
 }
 trap cleanup EXIT
+# shellcheck source=lib/watchdog.sh
+. "${src_root}/installation-scripts/tests/lib/watchdog.sh"
+watchdog_start
 
 native() { if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi; }
 sep=":"; command -v cygpath >/dev/null 2>&1 && sep=";"
