@@ -95,7 +95,7 @@ if __name__ == "__main__":
     # Self-test: `python3 installation-scripts/lib/redact.py`
     cases = {
         '    STAMP_API_KEY: "abcDEF123==",': '    STAMP_API_KEY: "<redacted>",',
-        '        "secret": "ZhFzSQ9mFvNs"': '        "secret": "<redacted>"',
+        '        "secret": "s3cr3tExAmPl"': '        "secret": "<redacted>"',
         "      - KEYCLOAK_ADMIN_PASSWORD=hunter2": "      - KEYCLOAK_ADMIN_PASSWORD=<redacted>",
         "      password: changeit": "      password: <redacted>",
         '          headers: { "Authorization": "Bearer abcdef123456" },': '          headers: { "Authorization": "<redacted>" },',

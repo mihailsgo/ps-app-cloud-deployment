@@ -40,6 +40,12 @@ secret value: only field names, states and file modes.
       line's indentation, list style and quoting. Prints "changed",
       "unchanged" (already a reference) or "absent".
 
+config/config.js now ships the credentials that are not ours to choose (the
+backend client secret, STAMP_API_KEY, STAMP_COMPANY_SECRET) as the
+placeholder CHANGE_ME; `shipped` reports a placeholder as not set. The hashes
+of the values earlier releases shipped stay listed, so a deployment still
+running on them is found.
+
 Why the shipped values are known by sha256 and not read from git HEAD: a
 host that commits its own config.js (documentation/04-04 allows "stash or
 commit") would otherwise have its real values taken for the shipped ones, and
@@ -83,6 +89,9 @@ FIELDS = [
      None),
 ]
 EXTERNAL_STAMP_FIELDS = {"STAMP_API_KEY", "STAMP_COMPANY_SECRET"}
+# What config/config.js ships in place of a credential that is not ours to
+# choose. Never a working value.
+PLACEHOLDER_VALUE = "CHANGE_ME"
 
 # The compose variable the release's docker-compose.yml reads Keycloak's
 # first-boot admin password from. Deliberately NOT KEYCLOAK_ADMIN_PASSWORD:
@@ -139,6 +148,21 @@ def cmd_shipped(config_js):
     host = os.environ.get("PADSIGN_HOST_HINT") or "<host>"
     found = 0
     for label, m, hashes, gen in field_values(text):
+        if m and m.group("v") == PLACEHOLDER_VALUE:
+            found += 1
+            if label in EXTERNAL_STAMP_FIELDS:
+                if local_stamp:
+                    print(f"OK	{label} is not set (placeholder), and unused here "
+                          "(STAMP_MODE is \"local\", so ps-server never sends it)")
+                else:
+                    print(f"WARN	{label} is not set (placeholder {PLACEHOLDER_VALUE}) - external e-sealing "
+                          "fails until you put the credential your e-sealing provider issued for this "
+                          "deployment in config/config.js, then docker compose restart ps-server")
+            else:
+                print(f"WARN	{label} is not set (placeholder {PLACEHOLDER_VALUE}) - bootstrap.sh writes the "
+                      "one Keycloak issues; ps-server cannot validate tokens until it is set "
+                      "(documentation/14-02)")
+            continue
         if not m or not m.group("v") or sha256(m.group("v")) not in hashes:
             continue
         found += 1

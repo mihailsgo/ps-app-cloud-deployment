@@ -177,7 +177,7 @@ fi
 
 # ── Step 3: Configure hostname ──
 echo "Step 3/8: Configuring files for hostname '${host}'..."
-configure_args=(--host "${host}" --company-role "${company_role}" --admin-user "${admin_user}" --generate-secrets)
+configure_args=(--host "${host}" --company-role "${company_role}" --admin-user "${admin_user}" --generate-secrets --generate-ca)
 [[ -n "$cert_crt" ]] && configure_args+=(--cert-crt "$cert_crt")
 [[ -n "$cert_key" ]] && configure_args+=(--cert-key "$cert_key")
 [[ "$enable_routing" == "true" ]] && configure_args+=(--enable-routing)

@@ -21,6 +21,7 @@ disable_routing="false"
 disable_demo="false"
 disable_local_eseal="false"
 generate_secrets="false"
+generate_ca="false"
 
 usage() {
   cat <<'EOF'
@@ -34,7 +35,7 @@ Usage:
     [--enable-routing | --disable-routing] \
     [--enable-demo | --disable-demo] \
     [--enable-local-eseal | --disable-local-eseal] \
-    [--generate-secrets]
+    [--generate-secrets] [--generate-ca]
 
 Edits in-place (with .bak backup):
   - nginx/nginx.conf: server_name, cert filenames, root→/portal/ redirect
@@ -65,6 +66,14 @@ Edits in-place (with .bak backup):
   re-running is safe. Values are never printed; documentation/18-05 shows
   how to read the API key for the Virtual Printer. bootstrap.sh passes this.
 
+--generate-ca: replace the visual-PDF signing CA
+  (dmss-container-and-signature-services/dmssrootca.p12) with one generated
+  for this deployment, if it is still a CA this public repository shipped
+  (its private key is public). Sets cakeystorepassword to a random value to
+  match. Signatures made afterwards chain to the new CA; documents already
+  signed are unchanged. Restart dmss-container-and-signature-services to
+  load it. bootstrap.sh passes this. lib/visual-pdf-ca.sh.
+
 --disable-routing/--disable-demo/--disable-local-eseal: symmetric complements
   to the --enable-* flags, for turning a feature back off on an
   already-deployed instance (deployment-wizard Settings feature). Pure file
@@ -94,6 +103,7 @@ while [[ $# -gt 0 ]]; do
     --disable-demo) disable_demo="true"; shift 1;;
     --disable-local-eseal) disable_local_eseal="true"; shift 1;;
     --generate-secrets) generate_secrets="true"; shift 1;;
+    --generate-ca) generate_ca="true"; shift 1;;
     -h|--help) usage; exit 0;;
     *) echo "ERROR: Unknown arg: $1" >&2; usage; exit 2;;
   esac
@@ -278,6 +288,22 @@ if [[ "$generate_secrets" == "true" ]]; then
   else
     echo "  REGISTER_PDF_API_KEY / SESSION_SECRET already changed from the shipped values - kept"
   fi
+fi
+
+# The visual-PDF signing CA this public repository ships has a public private
+# key. Replaced only while it is still a shipped one (lib/visual-pdf-ca.sh).
+if [[ "$generate_ca" == "true" ]]; then
+  # shellcheck source=lib/visual-pdf-ca.sh
+  source "${repo_root}/installation-scripts/lib/visual-pdf-ca.sh"
+  csig_dir="${repo_root}/dmss-container-and-signature-services"
+  backup "${csig_dir}/application.yml"
+  vpca_rc=0
+  vpca_generate "$repo_root" "$host" || vpca_rc=$?
+  case "$vpca_rc" in
+    0) echo "  Generated this deployment's visual-PDF signing CA (dmssrootca.p12; password not shown)";;
+    1) echo "  Visual-PDF signing CA is already this deployment's own - kept";;
+    *) echo "ERROR: could not generate the visual-PDF signing CA" >&2; exit 1;;
+  esac
 fi
 
 if [[ -n "$company_role" ]]; then

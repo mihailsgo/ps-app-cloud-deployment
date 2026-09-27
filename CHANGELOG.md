@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Security
+
+- **The visual-PDF signing CA is now generated per deployment.** Releases up to v1.0.48 shipped `dmss-container-and-signature-services/dmssrootca.p12` with its private key, so any copy of this repository could issue certificates under it. `bootstrap.sh` now replaces it on every fresh install (`configure-host.sh --generate-ca`, `installation-scripts/lib/visual-pdf-ca.sh`). The shipped file is now a CA labelled `PadSign DEMO Visual PDF CA - NOT FOR PRODUCTION`, with the same keystore password, so an existing `application.yml` keeps working.
+  - **Upgrade impact:** existing deployments keep their CA until you run `./installation-scripts/configure-host.sh --host <host> --generate-ca` and `docker compose restart dmss-container-and-signature-services`. `validate-config.sh` warns until then. Signatures made afterwards chain to the new CA. Documents signed before keep their certificate chain. If you imported the old CA into a PDF reader's trust store, import the new one.
+- **E-sealing credentials and the Keycloak backend client secret are no longer shipped.** `config/config.js` carries `CHANGE_ME` for `STAMP_API_KEY`, `STAMP_COMPANY_ID`, `STAMP_COMPANY_SECRET` and `KEYCLOAK_CONFIG.credentials.secret`. `bootstrap.sh` still writes the backend secret Keycloak issues. The e-sealing credentials come from your e-sealing provider. `validate-config.sh` reports each placeholder as not set, and still recognises the values earlier releases shipped.
+  - **Upgrade impact:** a deployment that used the shared demo e-sealing credentials must put its own in `config/config.js` (the demo credentials were public and can be withdrawn at any time), then `docker compose restart ps-server`. Deployments on local e-sealing (`STAMP_MODE: "local"`) are unaffected.
+- `validate-config.sh` fails a deployment that turns on `dmss-archive-services` JWT checking with the secret shipped in this repository.
+- Unused vendor redirect URLs and an SMS-provider account host in the container-signature `application.yml` were replaced with neutral values.
+- `.gitignore` allows exactly the two keystores the release ships instead of every `*.p12`.
+
 ## v1.0.48
 
 Secret-bearing files other than `config.js` were left readable by every local user on an overlay-managed host ([psapp-saas#7](https://github.com/mihailsgo/psapp-saas/issues/7), criterion 4). Found on the demo host during 42.4 C7 on 2026-09-27.
