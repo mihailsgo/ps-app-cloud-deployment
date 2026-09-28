@@ -1185,7 +1185,7 @@ cd "$repo_root"
 services=""
 [[ -n "$server_tag" ]] && services="$services ps-server"
 [[ -n "$client_tag" ]] && services="$services ps-client"
-if [[ "$enable_local_eseal" == true ]]    || docker compose ps --services --status running 2>/dev/null </dev/null | tr -d '' | grep -qx dmss-digital-stamping-service; then
+if [[ "$enable_local_eseal" == true ]]    || grep -qx dmss-digital-stamping-service < <(docker compose ps --services --status running 2>/dev/null </dev/null | tr -d '\r'); then
   # Pull / start the stamping service alongside any tagged images - and
   # whenever it already runs, so a release's change to its compose
   # definition (restart policy, logging, image) reaches it. `up -d` leaves
