@@ -120,14 +120,17 @@ from inside that image that it can read the file. If the group cannot be
 set, the file is made readable again and the fix is printed.
 
 **Step 5/6: Pulling images and restarting.**
-Pulls and recreates only the services the run changed: ps-server and/or
-ps-client, plus `dmss-digital-stamping-service` with
-`--enable-local-eseal`. With `--enable-local-eseal` it also recreates
+Pulls and recreates ps-server and/or ps-client, and
+`dmss-digital-stamping-service` when it runs or `--enable-local-eseal` is
+given. Services they depend on (Keycloak, the DMSS services) are recreated
+too when the release changed their definition in `docker-compose.yml`, for
+example their logging or restart policy; otherwise they keep running. With
+`--enable-local-eseal` it also recreates
 `dmss-container-and-signature-services` and ps-server so they pick up the
-new settings. Keycloak is recreated (and waited for) only if step 4d
-changed `KC_HOSTNAME`. nginx is restarted, or recreated if step 4d changed
-its alias. A failed pull or `docker compose up` ends the run as a failed
-upgrade (below).
+new settings. Keycloak is also recreated (and waited for) when step 4d
+changed `KC_HOSTNAME`. nginx is always recreated, which reloads
+`nginx.conf` and the certificates. A failed pull or `docker compose up`
+ends the run as a failed upgrade (below).
 
 **Step 6/6: Waiting for restarted services to be healthy.**
 Waits up to `--health-timeout` seconds (default 480) for every restarted

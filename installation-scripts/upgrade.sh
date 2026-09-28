@@ -1185,8 +1185,11 @@ cd "$repo_root"
 services=""
 [[ -n "$server_tag" ]] && services="$services ps-server"
 [[ -n "$client_tag" ]] && services="$services ps-client"
-if [[ "$enable_local_eseal" == true ]]; then
-  # Pull / start the stamping service alongside any tagged images.
+if [[ "$enable_local_eseal" == true ]]    || docker compose ps --services --status running 2>/dev/null </dev/null | tr -d '' | grep -qx dmss-digital-stamping-service; then
+  # Pull / start the stamping service alongside any tagged images - and
+  # whenever it already runs, so a release's change to its compose
+  # definition (restart policy, logging, image) reaches it. `up -d` leaves
+  # it alone when nothing changed.
   services="$services dmss-digital-stamping-service"
 fi
 # A failed upgrade is recorded as evidence, reported with the exact rollback
@@ -1233,13 +1236,11 @@ if [[ "$compose_hostname_recreate_keycloak" == true ]]; then
   kc_wait_ready || echo "  WARNING: Keycloak not ready yet after recreate. Check: docker compose logs keycloak" >&2
 fi
 
-# Also restart nginx to pick up any config changes — recreated instead when
-# its network alias changed, since a restart keeps the old definition.
-if [[ "$compose_hostname_recreate_nginx" == true ]]; then
-  docker compose up -d --no-deps --force-recreate nginx || upgrade_failed "could not recreate nginx"
-else
-  docker compose restart nginx 2>/dev/null || true
-fi
+# Recreate nginx, never just restart it: a restart keeps the container's old
+# definition, so a release's change to it (network alias, logging, restart
+# policy) would not apply. Recreating takes seconds and also reloads
+# nginx.conf and the certificates.
+docker compose up -d --no-deps --force-recreate nginx </dev/null || upgrade_failed "could not recreate nginx"
 
 # ── Step 6: Verify ──
 echo "Step 6/6: Waiting for restarted services to be healthy (up to ${health_timeout}s)..."
