@@ -31,7 +31,7 @@ host=""
 company_role=""
 realm="padsign"
 admin_user="${KEYCLOAK_ADMIN:-admin}"
-admin_pass="${KEYCLOAK_ADMIN_PASSWORD:-admin}"
+admin_pass="${KEYCLOAK_ADMIN_PASSWORD:-}"   # empty: each check uses the keycloak container's own
 signing_smoke=false
 signing_smoke_seal=false
 # psapp's dev-stack Playwright spec runs only when its path is
