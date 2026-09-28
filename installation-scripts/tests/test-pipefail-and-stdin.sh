@@ -27,7 +27,8 @@ set -euo pipefail
 # reads its stdin to EOF, as the real one does (checked against Compose
 # v2.38.2 on a real Linux engine).
 #
-# Exit codes: 0 all passed, 1 a case failed, 2 missing dependency.
+# Exit codes: 0 all passed, 1 a case failed, 2 missing dependency,
+# 124 the watchdog (lib/watchdog.sh) stopped it.
 # ============================================================================
 
 src_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -40,6 +41,9 @@ unset COMPOSE_FILE COMPOSE_PROFILES COMPOSE_PROJECT_NAME KEYCLOAK_ADMIN KEYCLOAK
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
+# shellcheck source=lib/watchdog.sh
+. "${src_root}/installation-scripts/tests/lib/watchdog.sh"
+watchdog_start
 repo="${work}/repo"
 mkdir -p "$repo"
 # Tracked files as they are on disk now (edits included, untracked excluded).

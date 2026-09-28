@@ -25,6 +25,9 @@ done
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
+# shellcheck source=lib/watchdog.sh
+. "${src_root}/installation-scripts/tests/lib/watchdog.sh"
+watchdog_start
 linux=false; [[ "$(uname -s)" == Linux ]] && linux=true
 
 pass=0

@@ -373,6 +373,15 @@ right now* only means the plan could not log in to Keycloak; export
 Then cut over from `$NEW` to `$NEXT` as in step 5 above. The previous
 release directory with the previous overlay is the rollback.
 
+The release that moves `ps-client` to `8.41` (Syncfusion 34) changes the
+licence key in `config/constants.json`, which the overlay carries because
+the hostname in it differs from the release. `rebase` then reports a
+conflict on the key line and the neighbouring `PDF_TEST_PATH`: keep the
+release's key and the overlay's `PDF_TEST_PATH`, then `rehash`
+([9.5, New Syncfusion key](09-05-upgrading.md#new-syncfusion-key-for-ps-client-841)).
+Rolling back to a release directory on `8.40` or older is fine: its own
+overlay copy still has the old key.
+
 ## Changing a value in the overlay
 
 For example rotating `REGISTER_PDF_API_KEY`, changing a webhook URL, or
