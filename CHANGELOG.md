@@ -32,6 +32,7 @@ Release notes for the PadSign deployment package, newest first; versions follow 
 
 ### Fixed
 
+- `verify-keycloak.sh` (and so `postdeploy-check.sh`) logs in with the password the Keycloak container was started with when `KEYCLOAK_ADMIN_PASSWORD` is not set, instead of the demo default `admin`, which failed on every deployment `bootstrap.sh` set up.
 - `upgrade.sh` recreates nginx (and the stamping service when it runs) instead of only restarting nginx, so a release's change to their compose definition - such as log rotation - reaches them.
 - The Deployment Wizard's sign-in accepts an access token pasted with surrounding spaces or a line break, instead of reporting it invalid. Takes effect with the next wizard image.
 - The Keycloak scripts (`keycloak-bootstrap.sh`, `smoke-user.sh`, `verify-keycloak.sh`) look users up by exact username. Before, a lookup for `test` could match another user whose name contains `test`. `smoke-user.sh delete --username test --force` removes the demo user.
