@@ -16,9 +16,20 @@ set -euo pipefail
 # has an older release approving ps-server 3.28 / ps-client 8.39 - the same
 # shape as a deployment that ran `git pull` to the current release. `docker`
 # and `cosign` are stubs (below) that simulate containers and images in a
-# state directory, so nothing is pulled, started or contacted.
+# state directory, so nothing is pulled, started or contacted. The scripts
+# get no stdin and a 15 s health wait: every simulated service is healthy at
+# once, so a wait that does not end at once fails in seconds instead of
+# running into the scripts' 480 s default.
 #
-# Exit codes: 0 all passed, 1 a case failed, 2 missing dependency.
+# Under Git Bash on Windows this takes minutes, not seconds: every process
+# start costs 50-150 ms there, and one upgrade.sh or rollback.sh run starts
+# several hundred. Each PASS/FAIL line shows its seconds. A slow run is not a
+# hang, so do not wrap it in a short `timeout`: the watchdog
+# (lib/watchdog.sh) stops it after TEST_WATCHDOG_SECS (default 3600 there) and
+# prints what was still running.
+#
+# Exit codes: 0 all passed, 1 a case failed, 2 missing dependency,
+# 124 the watchdog stopped it.
 # ============================================================================
 
 src_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -35,6 +46,9 @@ if [[ "${TEST_ROLLBACK_KEEP:-}" == 1 ]]; then
 else
   trap 'chmod -R u+rwX "$work" 2>/dev/null; rm -rf "$work"' EXIT
 fi
+# shellcheck source=lib/watchdog.sh
+. "${src_root}/installation-scripts/tests/lib/watchdog.sh"
+watchdog_start
 repo="${work}/repo"
 mkdir -p "$repo"
 (cd "$src_root" && git ls-files -z --cached --others --exclude-standard) \
@@ -44,9 +58,10 @@ if command -v cygpath >/dev/null 2>&1; then repo_native="$(cygpath -m "$repo")";
 
 pass=0
 failed=0
-ok_case()   { pass=$((pass + 1)); printf '  PASS %s\n' "$1"; }
+case_t0=$SECONDS   # each result line shows the seconds since the previous one
+ok_case()   { pass=$((pass + 1)); printf '  PASS %s (%ss)\n' "$1" "$((SECONDS - case_t0))"; case_t0=$SECONDS; }
 fail_case() {
-  failed=$((failed + 1)); printf '  FAIL %s\n' "$1"
+  failed=$((failed + 1)); printf '  FAIL %s (%ss)\n' "$1" "$((SECONDS - case_t0))"; case_t0=$SECONDS
   if [[ -n "${2:-}" ]]; then printf '%s\n' "$2" | sed 's/^/       | /'; fi
   return 0
 }
@@ -108,24 +123,57 @@ cat > "${stubs}/docker" <<'EOF'
 # Simulated docker: images in $DSTATE/images.tsv
 #   <id> <repository> <digest> <version label or -> <local tag or -> <local yes|no>
 # and one file per compose service in $DSTATE/ctr/<svc>: "<cid> <ref> <image id>".
+# Only bash builtins below: no $(...), awk, grep or sed. upgrade.sh and
+# rollback.sh call docker ~35 times per run, and under Git Bash each process
+# start costs 50-150 ms, so a helper pipeline in here cost the suite ~2 min.
 echo "docker $*" >> "${DSTATE}/calls.log"
 images="${DSTATE}/images.tsv"
-find_image() {  # <id | repo@digest | repo:tag> -> the images.tsv row of a LOCAL image
-  local q="$1"
-  awk -v q="$q" '$6 == "yes" && ($1 == q || $2 "@" $3 == q || ($5 != "-" && $2 ":" $5 == q)) { print; exit }' "$images"
+find_image() {  # <id | repo@digest | repo:tag> -> $row: the images.tsv row of a LOCAL image
+  local q="$1" id repo digest label tag here
+  row=""
+  while read -r id repo digest label tag here; do
+    [[ "$here" == yes ]] || continue
+    if [[ "$id" == "$q" || "${repo}@${digest}" == "$q" || ( "$tag" != - && "${repo}:${tag}" == "$q" ) ]]; then
+      row="${id} ${repo} ${digest} ${label} ${tag} ${here}"; return 0
+    fi
+  done < "$images"
 }
-ctr_of_cid() { grep -l "^$1 " "${DSTATE}"/ctr/* 2>/dev/null | head -1; }
-compose_ref() {  # <svc> -> the image reference docker-compose.yml (cwd) pins
-  sed -nE "s#.*(mihailsgordijenko/$1:[^'\" ]+).*#\1#p" docker-compose.yml | tr -d '\r' | head -1
+ctr_of_cid() {  # <cid> -> $ctr: the $DSTATE/ctr/<svc> file of that container
+  local f c
+  ctr=""
+  for f in "${DSTATE}"/ctr/*; do
+    [[ -f "$f" ]] || continue
+    read -r c _ < "$f"
+    [[ "$c" == "$1" ]] && { ctr="$f"; return 0; }
+  done
 }
-ref_row() {  # <ref> [any] -> images.tsv row for a reference (digest wins over tag)
-  local ref="$1" repo digest tag
-  repo="${ref%%@*}"; repo="${repo%:*}"
-  if [[ "$ref" == *@* ]]; then digest="${ref#*@}"
-    awk -v r="$repo" -v d="$digest" -v all="${2:-}" '$2 == r && $3 == d && (all != "" || $6 == "yes") { print; exit }' "$images"
-  else tag="${ref##*:}"
-    awk -v r="$repo" -v t="$tag" -v all="${2:-}" '$2 == r && $5 == t && (all != "" || $6 == "yes") { print; exit }' "$images"
-  fi
+compose_ref() {  # <svc> -> $ref: the image reference docker-compose.yml (cwd) pins
+  local line re=".*(mihailsgordijenko/$1:[^'\" ]+)"
+  ref=""
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%$'\r'}"
+    [[ "$line" =~ $re ]] && { ref="${BASH_REMATCH[1]}"; return 0; }
+  done < docker-compose.yml
+}
+ref_row() {  # <ref> [any] -> $row: the images.tsv row for a reference (digest wins over tag)
+  local want="$1" all="${2:-}" r d="" t="" id repo digest label tag here
+  r="${want%%@*}"; r="${r%:*}"
+  if [[ "$want" == *@* ]]; then d="${want#*@}"; else t="${want##*:}"; fi
+  row=""
+  while read -r id repo digest label tag here; do
+    [[ "$repo" == "$r" && ( -n "$all" || "$here" == yes ) ]] || continue
+    if [[ ( -n "$d" && "$digest" == "$d" ) || ( -z "$d" && "$tag" == "$t" ) ]]; then
+      row="${id} ${repo} ${digest} ${label} ${tag} ${here}"; return 0
+    fi
+  done < "$images"
+}
+mark_local() {  # <image id>: the image is now on the host (last column "yes")
+  local line out=""
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ "${line%% *}" == "$1" ]] && line="${line% *} yes"
+    out+="${line}"$'\n'
+  done < "$images"
+  printf '%s' "$out" > "$images"
 }
 case "$1" in
   compose)
@@ -134,29 +182,35 @@ case "$1" in
     case "$sub" in
       version) echo "Docker Compose version v2.99.0-stub"; exit 0;;
       ps)
-        [[ " $* " == *" -q "* ]] || { ls "${DSTATE}/ctr"; exit 0; }
+        if [[ " $* " != *" -q "* ]]; then
+          for f in "${DSTATE}"/ctr/*; do [[ -f "$f" ]] && printf '%s\n' "${f##*/}"; done
+          exit 0
+        fi
         svc="${*: -1}"
-        [[ -f "${DSTATE}/ctr/${svc}" ]] && cut -d' ' -f1 "${DSTATE}/ctr/${svc}"
+        if [[ -f "${DSTATE}/ctr/${svc}" ]]; then read -r cid _ < "${DSTATE}/ctr/${svc}"; echo "$cid"; fi
         exit 0;;
       pull)
         for svc in "$@"; do
           [[ "$svc" == -* ]] && continue
-          ref="$(compose_ref "$svc")"; [[ -z "$ref" ]] && continue
-          row="$(ref_row "$ref" any)"
+          compose_ref "$svc"; [[ -z "$ref" ]] && continue
+          ref_row "$ref" any
           [[ -z "$row" ]] && { echo "Error: pull access denied or manifest unknown for ${ref}" >&2; exit 1; }
-          id="${row%% *}"
-          awk -v id="$id" 'BEGIN{OFS=" "} $1 == id { $6 = "yes" } { print }' "$images" > "${images}.new" && mv "${images}.new" "$images"
+          mark_local "${row%% *}"
         done
         exit 0;;
       up)
         [[ "${STUB_UP_NOOP:-}" == 1 ]] && exit 0
         for svc in "$@"; do
           [[ "$svc" == -* ]] && continue
-          ref="$(compose_ref "$svc")"; [[ -z "$ref" ]] && continue
-          row="$(ref_row "$ref")"
+          compose_ref "$svc"; [[ -z "$ref" ]] && continue
+          ref_row "$ref"
           [[ -z "$row" ]] && { echo "Error: no such image ${ref}" >&2; exit 1; }
-          if [[ -f "${DSTATE}/ctr/${svc}" && "$(cut -d' ' -f2 "${DSTATE}/ctr/${svc}")" == "$ref" ]]; then continue; fi
-          n=$(( $(cat "${DSTATE}/counter" 2>/dev/null || echo 0) + 1 )); echo "$n" > "${DSTATE}/counter"
+          if [[ -f "${DSTATE}/ctr/${svc}" ]]; then
+            read -r _ running _ < "${DSTATE}/ctr/${svc}"
+            [[ "$running" == "$ref" ]] && continue
+          fi
+          n=0; [[ -f "${DSTATE}/counter" ]] && read -r n < "${DSTATE}/counter"
+          n=$((n + 1)); echo "$n" > "${DSTATE}/counter"
           echo "cid${n}x${svc} ${ref} ${row%% *}" > "${DSTATE}/ctr/${svc}"
         done
         exit 0;;
@@ -165,10 +219,9 @@ case "$1" in
     esac;;
   inspect)
     fmt=""; [[ "$2" == --format ]] && { fmt="$3"; shift 2; }
-    target="$2"
-    f="$(ctr_of_cid "$target")"
-    [[ -z "$f" ]] && exit 1
-    read -r cid ref id < "$f"
+    ctr_of_cid "$2"
+    [[ -z "$ctr" ]] && exit 1
+    read -r cid ref id < "$ctr"
     case "$fmt" in
       *Config.Image*) echo "$ref";;
       '{{.Image}}') echo "$id";;
@@ -180,7 +233,7 @@ case "$1" in
   image)
     [[ "$2" == inspect ]] || exit 1
     fmt=""; [[ "$3" == --format ]] && { fmt="$4"; shift 2; }
-    row="$(find_image "$3")"
+    find_image "$3"
     [[ -z "$row" ]] && { echo "Error: No such image: $3" >&2; exit 1; }
     read -r id repo digest label tag local <<< "$row"
     case "$fmt" in
@@ -194,7 +247,9 @@ case "$1" in
     exit 0;;
   ps)
     for f in "${DSTATE}"/ctr/*; do
-      [[ -f "$f" ]] && printf '  %s: %s (Up, healthy)\n' "$(basename "$f")" "$(cut -d' ' -f2 "$f")"
+      [[ -f "$f" ]] || continue
+      read -r _ ref _ < "$f"
+      printf '  %s: %s (Up, healthy)\n' "${f##*/}" "$ref"
     done
     exit 0;;
   *) exit 1;;
@@ -249,7 +304,12 @@ for key in sys.argv[2:]:
 print("|".join(out))
 PY
 }
-in_repo() { (cd "$repo" && PATH="${stubs}:${PATH}" "$@" 2>&1); }
+# The scripts under test never get stdin: one that reads it (a prompt, a
+# `docker compose exec -T` without </dev/null) fails instead of waiting on
+# the terminal the suite was started from.
+in_repo() { (cd "$repo" && PATH="${stubs}:${PATH}" "$@" 2>&1 < /dev/null); }
+# Every real upgrade.sh / rollback.sh run: see the header.
+hw=(--health-timeout 15)
 gate() {
   (
     repo_root="$repo_native"
@@ -292,7 +352,7 @@ else
 fi
 
 set +e
-out="$(in_repo bash installation-scripts/upgrade.sh --server-tag "$new_srv_tag" --client-tag "$new_cli_tag")"; rc=$?
+out="$(in_repo bash installation-scripts/upgrade.sh "${hw[@]}" --server-tag "$new_srv_tag" --client-tag "$new_cli_tag")"; rc=$?
 set -e
 if [[ $rc -eq 0 ]] && grep -q "NOTE: docker-compose.yml pins ps-server ${new_srv_tag} but ${old_srv_tag} is running" <<< "$out" \
    && grep -q "ps-server: ${old_srv_tag} → ${new_srv_tag} (pinned to its approved digest)" <<< "$out" \
@@ -309,7 +369,7 @@ else
 fi
 
 set +e
-out="$(in_repo bash installation-scripts/rollback.sh --yes)"; rc=$?
+out="$(in_repo bash installation-scripts/rollback.sh "${hw[@]}" --yes)"; rc=$?
 set -e
 if [[ $rc -eq 0 ]] && [[ "$(running)" == "${old_srv} ${old_cli}" ]] \
    && [[ "$(pins)" == "${old_srv_tag}@${old_srv_dig} ${old_cli_tag}@${old_cli_dig}" ]] \
@@ -321,7 +381,7 @@ else
 fi
 
 set +e
-out="$(in_repo bash installation-scripts/rollback.sh --yes)"; rc=$?
+out="$(in_repo bash installation-scripts/rollback.sh "${hw[@]}" --yes)"; rc=$?
 set -e
 if [[ $rc -eq 0 ]] && [[ "$(running)" == "${old_srv} ${old_cli}" ]]; then
   ok_case "rollback is idempotent (second run exit 0, same state)"
@@ -357,7 +417,7 @@ fi
 
 # Rolling forward again drops the marker.
 set +e
-out="$(in_repo bash installation-scripts/upgrade.sh --server-tag "$new_srv_tag" --client-tag "$new_cli_tag")"; rc=$?
+out="$(in_repo bash installation-scripts/upgrade.sh "${hw[@]}" --server-tag "$new_srv_tag" --client-tag "$new_cli_tag")"; rc=$?
 set -e
 if [[ $rc -eq 0 && ! -f "${repo}/.rollback-applied.json" ]] && ! grep -q "NOTE: docker-compose.yml pins" <<< "$out"; then
   ok_case "a later successful upgrade removes the rollback marker (no pin-drift note when they agree)"
@@ -371,7 +431,7 @@ echo "Normal case (docker-compose.yml pins what runs):"
 reset_state "$old_srv" "$old_cli"
 pin_compose "${old_srv_tag}@${old_srv_dig}" "${old_cli_tag}@${old_cli_dig}"
 set +e
-out="$(in_repo bash installation-scripts/upgrade.sh --server-tag "$new_srv_tag" --client-tag "$new_cli_tag")"; rc=$?
+out="$(in_repo bash installation-scripts/upgrade.sh "${hw[@]}" --server-tag "$new_srv_tag" --client-tag "$new_cli_tag")"; rc=$?
 set -e
 if [[ $rc -eq 0 ]] && ! grep -q "NOTE: docker-compose.yml pins" <<< "$out" && [[ "$(running)" == "${new_srv} ${new_cli}" ]] \
    && [[ "$(manifest image_tags.ps-server image_digests.ps-server image_sources.ps-server)" \
@@ -381,7 +441,7 @@ else
   fail_case "normal upgrade (rc=${rc})" "$out"
 fi
 set +e
-out="$(in_repo bash installation-scripts/rollback.sh --yes)"; rc=$?
+out="$(in_repo bash installation-scripts/rollback.sh "${hw[@]}" --yes)"; rc=$?
 set -e
 if [[ $rc -eq 0 && "$(running)" == "${old_srv} ${old_cli}" ]] && ! grep -q WARNING <<< "$out"; then
   ok_case "rollback restores the old release without warnings"
@@ -393,7 +453,7 @@ fi
 reset_state "$old_srv" "$old_cli"
 rm -f "${DSTATE}/ctr/ps-server"
 pin_compose "${old_srv_tag}@${old_srv_dig}" "${old_cli_tag}@${old_cli_dig}"
-snap="$(cd "$repo" && PATH="${stubs}:${PATH}" bash -c 'repo_root="$1"; . installation-scripts/lib/rollback-snapshot.sh; write_rollback_snapshot' _ "$repo_native")"
+snap="$(cd "$repo" && PATH="${stubs}:${PATH}" bash -c 'repo_root="$1"; . installation-scripts/lib/rollback-snapshot.sh; write_rollback_snapshot' _ "$repo_native" < /dev/null)"
 if [[ "$(manifest image_tags.ps-server image_digests.ps-server image_sources.ps-server)" \
       == "${old_srv_tag}|${old_srv_dig}|docker-compose.yml (ps-server is not running)" ]]; then
   ok_case "service not running: snapshot falls back to docker-compose.yml's pin, and says so"
@@ -423,7 +483,7 @@ after_upgrade
 legacy_snapshot 20260925T100000Z "$new_srv_tag" "$old_srv_dig" "$new_cli_tag" "$old_cli_dig" \
   "${new_srv_tag}@${new_srv_dig}" "${new_cli_tag}@${new_cli_dig}"
 set +e
-out="$(in_repo bash installation-scripts/rollback.sh --to 20260925T100000Z --yes)"; rc=$?
+out="$(in_repo bash installation-scripts/rollback.sh "${hw[@]}" --to 20260925T100000Z --yes)"; rc=$?
 set -e
 if [[ $rc -eq 0 && "$(running)" == "${old_srv} ${old_cli}" ]] \
    && grep -q "WARNING: ps-server: the snapshot's docker-compose.yml pinned ${new_srv_tag}@${new_srv_dig}, but the container that was running then ran ${old_srv_dig} (${old_srv_tag}" <<< "$out"; then
@@ -438,7 +498,7 @@ awk -v a="$id_old_srv" -v b="$id_old_cli" 'BEGIN{OFS=" "} $1 == a || $1 == b { $
 legacy_snapshot 20260925T100001Z "$new_srv_tag" "$old_srv_dig" "$new_cli_tag" "$old_cli_dig" \
   "${new_srv_tag}@${new_srv_dig}" "${new_cli_tag}@${new_cli_dig}"
 set +e
-out="$(in_repo bash installation-scripts/rollback.sh --to 20260925T100001Z --yes)"; rc=$?
+out="$(in_repo bash installation-scripts/rollback.sh "${hw[@]}" --to 20260925T100001Z --yes)"; rc=$?
 set -e
 if [[ $rc -eq 0 && "$(running)" == "${old_srv} ${old_cli}" ]] && grep -q "from release/unsigned-legacy-images.json" <<< "$out"; then
   ok_case "schema 1 mismatch, old images pruned: tag found in the release files, pulled and verified"
@@ -451,7 +511,7 @@ after_upgrade
 legacy_snapshot 20260925T100002Z "$old_srv_tag" "$old_srv_dig" "$old_cli_tag" "$old_cli_dig" \
   "${old_srv_tag}@${old_srv_dig}" "${old_cli_tag}@${old_cli_dig}"
 set +e
-out="$(in_repo bash installation-scripts/rollback.sh --to 20260925T100002Z --yes)"; rc=$?
+out="$(in_repo bash installation-scripts/rollback.sh "${hw[@]}" --to 20260925T100002Z --yes)"; rc=$?
 set -e
 if [[ $rc -eq 0 && "$(running)" == "${old_srv} ${old_cli}" ]] && ! grep -q WARNING <<< "$out"; then
   ok_case "schema 1, consistent: restored without warnings"
@@ -464,7 +524,7 @@ after_upgrade
 legacy_snapshot 20260925T100003Z "$old_srv_tag" "$id_old_srv" "$old_cli_tag" "$id_old_cli" \
   "${old_srv_tag}@${old_srv_dig}" "${old_cli_tag}@${old_cli_dig}"
 set +e
-out="$(in_repo bash installation-scripts/rollback.sh --to 20260925T100003Z --yes)"; rc=$?
+out="$(in_repo bash installation-scripts/rollback.sh "${hw[@]}" --to 20260925T100003Z --yes)"; rc=$?
 set -e
 if [[ $rc -eq 0 && "$(running)" == "${old_srv} ${old_cli}" ]] && grep -q "recorded local image ID ${id_old_srv}; its registry digest is ${old_srv_dig}" <<< "$out"; then
   ok_case "schema 1 with a local image ID: mapped to the registry digest, verified by image ID"
@@ -479,7 +539,7 @@ after_upgrade
 legacy_snapshot 20260925T100004Z "$new_srv_tag" "$(fake unknown)" "$new_cli_tag" "$new_cli_dig" \
   "${new_srv_tag}@${new_srv_dig}" "${new_cli_tag}@${new_cli_dig}"
 set +e
-out="$(in_repo bash installation-scripts/rollback.sh --to 20260925T100004Z --yes)"; rc=$?
+out="$(in_repo bash installation-scripts/rollback.sh "${hw[@]}" --to 20260925T100004Z --yes)"; rc=$?
 set -e
 if [[ $rc -eq 1 ]] && grep -q "ROLLBACK FAILED: ps-server: running ${new_srv_dig} .*but the snapshot recorded $(fake unknown)" <<< "$out" \
    && ! grep -q "Rollback complete" <<< "$out" && [[ ! -f "${repo}/.rollback-applied.json" ]]; then
@@ -494,7 +554,7 @@ legacy_snapshot 20260925T100005Z "$new_srv_tag" "$hotfix_dig" "$new_cli_tag" "$n
   "${new_srv_tag}@${new_srv_dig}" "${new_cli_tag}@${new_cli_dig}"
 before="$(sha256sum "${repo}/docker-compose.yml" "${repo}/config/config.js")"
 set +e
-out="$(in_repo bash installation-scripts/rollback.sh --to 20260925T100005Z --yes)"; rc=$?
+out="$(in_repo bash installation-scripts/rollback.sh "${hw[@]}" --to 20260925T100005Z --yes)"; rc=$?
 set -e
 if [[ $rc -eq 1 ]] && grep -q "Refusing to roll back" <<< "$out" && [[ "$before" == "$(sha256sum "${repo}/docker-compose.yml" "${repo}/config/config.js")" ]] \
    && ! grep -q '^docker compose pull' "${DSTATE}/calls.log"; then
@@ -508,9 +568,9 @@ echo ""
 echo "Verification:"
 reset_state "$old_srv" "$old_cli"
 pin_compose "${new_srv_tag}@${new_srv_dig}" "${new_cli_tag}@${new_cli_dig}"
-in_repo bash installation-scripts/upgrade.sh --server-tag "$new_srv_tag" --client-tag "$new_cli_tag" >/dev/null
+in_repo bash installation-scripts/upgrade.sh "${hw[@]}" --server-tag "$new_srv_tag" --client-tag "$new_cli_tag" >/dev/null
 set +e
-out="$(cd "$repo" && STUB_UP_NOOP=1 PATH="${stubs}:${PATH}" bash installation-scripts/rollback.sh --yes 2>&1)"; rc=$?
+out="$(cd "$repo" && STUB_UP_NOOP=1 PATH="${stubs}:${PATH}" bash installation-scripts/rollback.sh "${hw[@]}" --yes 2>&1 < /dev/null)"; rc=$?
 set -e
 if [[ $rc -eq 1 ]] && grep -q "ROLLBACK FAILED: ps-server: running ${new_srv_dig}, but the snapshot recorded ${old_srv_dig} (${old_srv_tag})" <<< "$out" \
    && ! grep -q "Rollback complete" <<< "$out"; then
@@ -531,7 +591,7 @@ else
   : > "${repo}/.rollback-snapshots/20200101T000000Z/config.js"
   chmod 755 "${repo}/.rollback-snapshots" "${repo}/.rollback-snapshots/20200101T000000Z"
   chmod 644 "${repo}/.rollback-snapshots/20200101T000000Z/config.js"
-  snap="$(cd "$repo" && umask 022 && PATH="${stubs}:${PATH}" bash -c 'repo_root="$1"; . installation-scripts/lib/rollback-snapshot.sh; write_rollback_snapshot' _ "$repo_native")"
+  snap="$(cd "$repo" && umask 022 && PATH="${stubs}:${PATH}" bash -c 'repo_root="$1"; . installation-scripts/lib/rollback-snapshot.sh; write_rollback_snapshot' _ "$repo_native" < /dev/null)"
   modes="$(cd "${repo}/.rollback-snapshots" && stat -c '%a %n' . "$(basename "$snap")" "$(basename "$snap")"/* latest 20200101T000000Z 20200101T000000Z/config.js | sort -k2)"
   bad_modes="$(awk '($2 ~ /\// || $2 == "latest") && $1 != "600" { print } ($2 !~ /\// && $2 != "latest") && $1 != "700" { print }' <<< "$modes")"
   if [[ -z "$bad_modes" ]]; then
@@ -542,7 +602,7 @@ else
   # An older upgrade.sh's world-readable tree, then only rollback.sh runs.
   chmod -R go+rX "${repo}/.rollback-snapshots"
   set +e
-  out="$(in_repo bash installation-scripts/rollback.sh --yes)"; rc=$?
+  out="$(in_repo bash installation-scripts/rollback.sh "${hw[@]}" --yes)"; rc=$?
   set -e
   modes="$(cd "${repo}/.rollback-snapshots" && stat -c '%a %n' . * */* | sort -k2)"
   bad_modes="$(awk '($2 ~ /\// || $2 == "latest") && $1 != "600" { print } ($2 !~ /\// && $2 != "latest") && $1 != "700" { print }' <<< "$modes")"
@@ -559,7 +619,7 @@ else
   if [[ "$(id -u)" != 0 ]]; then
     chmod 000 "${repo}/.rollback-snapshots"
     set +e
-    out="$(in_repo bash installation-scripts/rollback.sh --yes)"; rc=$?
+    out="$(in_repo bash installation-scripts/rollback.sh "${hw[@]}" --yes)"; rc=$?
     set -e
     chmod 700 "${repo}/.rollback-snapshots"
     if [[ $rc -eq 2 ]] && grep -q "exists but is not readable by" <<< "$out"; then
