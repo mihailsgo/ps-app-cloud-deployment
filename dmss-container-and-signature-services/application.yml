@@ -234,8 +234,8 @@ lvrtc:
   baseUri: https://eidas.eparaksts.lv/
   clientId: 000000000000000000
   clientSecret: 00000000-0000-0000-0000-000000000000
-  authRedirectUri: https://esign.trustlynx.com/extportal/signing/lvrtc/signature
-  signRedirectUri: https://esign.trustlynx.com/extportal/signing/lvrtc/signature
+  authRedirectUri: https://signing.example.invalid/extportal/signing/lvrtc/signature
+  signRedirectUri: https://signing.example.invalid/extportal/signing/lvrtc/signature
   defaultLocale: lv
   # LV ID card PDF signing related settings
   # Timestamp service url for PDF signing with ID card (LV)
@@ -277,11 +277,11 @@ asseco:
   apiUri: https://model.simplysign.webnotarius.pl
   clientId: 00000000-0000-0000-0000-000000000000
   clientSecret: 00000000-0000-0000-0000-000000000000
-  redirectUri: https://esign.trustlynx.com/extportal/signing/simplysign
+  redirectUri: https://signing.example.invalid/extportal/signing/simplysign
 infobip:
-#  baseUrl: https://yrj6yg.api.infobip.com
+#  baseUrl: https://api.infobip.com
 #  apiKey: 00000000-0000-0000-0000-000000000000
-  baseUrl: https://yrj6yg.api.infobip.com
+  baseUrl: https://api.infobip.com
   apiKey: 00000000-0000-0000-0000-000000000000
 smsSigning:
   otpLength: 6
@@ -294,7 +294,7 @@ zealId:
   clientId: 00000000-0000-0000-0000-000000000000
   clientSecret: 00000000-0000-0000-0000-000000000000
   accountId: 00000000-0000-0000-0000-000000000000
-  redirectUri: https://esign.trustlynx.com/extportal/signing/zealid
+  redirectUri: https://signing.example.invalid/extportal/signing/zealid
 pdf-fill-form:
   application: []
 timestamp:

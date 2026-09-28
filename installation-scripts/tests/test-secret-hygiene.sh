@@ -130,7 +130,7 @@ out="$(python3 "${pristine}/${hygiene}" shipped "${pristine}/config/config.js")"
 n="$(grep -c '^WARN' <<< "$out")"
 if [[ "$n" == 5 ]] && grep -q 'REGISTER_PDF_API_KEY' <<< "$out" && grep -q 'SESSION_SECRET' <<< "$out" \
    && grep -q 'backend client secret' <<< "$out" && grep -q 'STAMP_API_KEY' <<< "$out" && grep -q 'STAMP_COMPANY_SECRET' <<< "$out"; then
-  ok_case "every credential the checkout ships is in secret_hygiene.py's published list (5)"
+  ok_case "every credential the checkout ships is a placeholder or in secret_hygiene.py's published list (5)"
 else
   fail_case "secret_hygiene.py's published sha256 list does not cover the committed config.js (update FIELDS)" "$out"
 fi
@@ -217,7 +217,8 @@ sec="$(STUB_IDS=1000:1000 secret_section "$v")"
 for pat in 'WARN REGISTER_PDF_API_KEY is still the value shipped.*--generate-secrets' \
            'WARN SESSION_SECRET is still the value shipped' \
            'WARN backend client secret' \
-           'WARN STAMP_API_KEY is the shared demo e-sealing credential' \
+           'WARN STAMP_API_KEY is not set \(placeholder CHANGE_ME\)' \
+           'WARN the visual-PDF signing CA .* is the one shipped in the public repository.*--generate-ca' \
            'WARN Keycloak.s first-boot admin password falls back to the demo default admin' \
            'WARN config/config.js is world-readable .*sudo chgrp 1000 config/config.js && sudo chmod 640'; do
   check "fresh checkout: ${pat}" grep -Eq -- "$pat" <<< "$sec"
@@ -250,7 +251,7 @@ fi
 perl -0777 -i -pe 's/(STAMP_API_URL:)/STAMP_MODE: "local",\n    $1/' "$v/config/config.js"
 sec="$(STUB_IDS=1000:1000 secret_section "$v")"
 check "STAMP_MODE local: the unused demo stamping credentials are OK" \
-  bash -c 'grep -q "OK   STAMP_API_KEY is the demo value shipped in the public repository, but unused here" <<< "$1" && ! grep -q "WARN STAMP_" <<< "$1"' _ "$sec"
+  bash -c 'grep -q "OK   STAMP_API_KEY is not set (placeholder), and unused here" <<< "$1" && ! grep -q "WARN STAMP_" <<< "$1"' _ "$sec"
 
 # ── effective compose model for the image uid (overlay host) ───────────────
 echo ""

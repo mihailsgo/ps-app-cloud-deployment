@@ -1,9 +1,9 @@
   module.exports = {
     VISUAL_SIGNATURE_API_TEMPLATE: "https://padsign.trustlynx.com/container/api/signing/visual/pdf/{docid}/sign",
     STAMP_API_URL: "https://eseal.trustlynx.com/api/gateway/esealing/sign/api-key/DEMOCOMPANY",
-    STAMP_API_KEY: "HT8mLAEMOBgKcyFbFg8gfS4hX2IeKBYRHQ==",
-    STAMP_COMPANY_ID: "78861438-0ed3-427a-884f-218902083540",
-    STAMP_COMPANY_SECRET: "Xsw9ayZ^%3",
+    STAMP_API_KEY: "CHANGE_ME",
+    STAMP_COMPANY_ID: "CHANGE_ME",
+    STAMP_COMPANY_SECRET: "CHANGE_ME",
     API_PROTECT_LOGS_ENABLED: false,
     PORT: 3001,
     ARCHIVE_API_BASE_URL: "https://padsign.trustlynx.com/archive/api/",
@@ -30,7 +30,7 @@
       // Switch to confidential backend client
       resource: "padsign-backend",
       "credentials": {
-        "secret": "ZhFzSQ9mFvNsm15sZNC6ugStSLFUwb7e"
+        "secret": "CHANGE_ME"
       },
       "bearer-only": true
     },

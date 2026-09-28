@@ -15,7 +15,7 @@ spring:
 #  datasource:
 #    url: jdbc:postgresql://localhost:5432/dmss_archive
 #    username: postgres
-#    password: livelink
+#    password: <password>
   datasource:
     url: jdbc:hsqldb:mem:myDb
     driver-class-name: org.hsqldb.jdbc.JDBCDriver

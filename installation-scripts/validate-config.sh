@@ -221,6 +221,33 @@ while IFS=$'\t' read -r gate_status gate_message; do
   esac
 done <<< "$shipped_report"
 
+# The visual-PDF signing CA: the copies this public repository ships have a
+# public private key, so anyone could issue certificates under them.
+# shellcheck source=lib/visual-pdf-ca.sh
+source "${repo_root}/installation-scripts/lib/visual-pdf-ca.sh"
+case "$(vpca_state "$repo_root")" in
+  shipped)
+    warn "the visual-PDF signing CA (dmss-container-and-signature-services/dmssrootca.p12) is the one shipped in the public repository - its private key is public. Fix: ./installation-scripts/configure-host.sh --host ${host} --generate-ca, then docker compose restart dmss-container-and-signature-services" ;;
+  custom)
+    ok "the visual-PDF signing CA is this deployment's own" ;;
+  unreadable)
+    bad "dmss-container-and-signature-services/dmssrootca.p12 does not open with cakeystorepassword from its application.yml - visual PDF signing will fail" ;;
+  missing)
+    bad "the visual-PDF signing CA keystore named by cakeystorepath in dmss-container-and-signature-services/application.yml is missing" ;;
+esac
+
+# The archive's JWT secret ships in this public repository. JWT checking is
+# off by default; turned on with the shipped secret, anyone can forge tokens.
+archive_yml="${repo_root}/dmss-archive-services/application.yml"
+if [[ -f "$archive_yml" ]] && awk '/^  jwt:/{on=1; next} on && /^  [^ ]/{on=0} on && /^[[:space:]]+enabled:[[:space:]]*true/{f=1} END{exit !f}' "$archive_yml"; then
+  archive_jwt="$(awk '/^  jwt:/{on=1; next} on && /^  [^ ]/{on=0} on && /^[[:space:]]+secret:/{sub(/^[[:space:]]+secret:[[:space:]]*/, ""); gsub(/["\r]/, ""); print; exit}' "$archive_yml")"
+  if [[ "$(printf '%s' "$archive_jwt" | openssl dgst -sha256 -r 2>/dev/null | cut -d' ' -f1)" == "2e3843c62bc8fc34f64834d70eef5fa5786bd110a668999a042c598541895433" ]]; then
+    bad "dmss-archive-services has JWT checking enabled with the secret shipped in the public repository - anyone can forge tokens. Set authentication.jwt.secret in dmss-archive-services/application.yml to your own value"
+  else
+    ok "dmss-archive-services JWT checking uses a secret of this deployment's own"
+  fi
+fi
+
 # Keycloak's bootstrap admin password is read only on Keycloak's first boot
 # against an empty volume (documentation/14-07). A real value in the TRACKED
 # docker-compose.yml still leaks: into `git diff`, into the stash objects of
