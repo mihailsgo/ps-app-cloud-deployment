@@ -1,0 +1,6 @@
+{
+  "images": {
+    "ps-server": { "repository": "example/ps-server", "tag": "9.9", "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+    "ps-client": { "repository": "example/ps-client", "tag": "1.1", "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }
+  }
+}

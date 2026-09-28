@@ -4,7 +4,7 @@ set -euo pipefail
 # ============================================================================
 # PadSign Renew Certificate — swap the TLS cert on an ALREADY-LIVE stack
 # without changing the hostname (deployment-wizard Settings feature, see
-# documentation/37-*).
+# documentation/09-operations.md).
 #
 # Usage:
 #   ./installation-scripts/renew-cert.sh \

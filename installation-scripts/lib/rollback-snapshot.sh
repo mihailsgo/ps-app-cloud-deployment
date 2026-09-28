@@ -13,7 +13,7 @@
 # What a snapshot records for ps-server / ps-client is the image that is
 # RUNNING, not what docker-compose.yml pins. The two differ whenever the
 # checkout moved before upgrade.sh ran - the documented upgrade path is
-# `git pull` first (documentation/04-04 Phase 1), and that alone already
+# `git pull` first (documentation/09-05-upgrading.md, Local changes to tracked files), and that alone already
 # pins the new release in docker-compose.yml while the old containers keep
 # running. A snapshot that recorded the pin would "roll back" to the release
 # being rolled back from.

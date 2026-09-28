@@ -23,7 +23,7 @@ set -euo pipefail
 #     into PAdES-BASELINE-LT, which needs a TSA. The first seal after a
 #     restart succeeds, every later one fails. A single-seal check misses
 #     this, which is why the default here is 3 consecutive seals per profile.
-# See documentation/39-release-procedure.md ("Keeping digests current").
+# See documentation/14-06-image-approval-and-digest-pinning.md ("Keeping digests current").
 #
 # Isolation: its own compose project name (padsign-seal-smoke-<pid>), no
 # container_name, no host port bindings at all (seals are sent from inside

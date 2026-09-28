@@ -4,7 +4,7 @@ set -euo pipefail
 # ============================================================================
 # Environment overlay — keep a host's per-environment state OUTSIDE the git
 # checkout, so a deployment is "clean release baseline + explicit overlay"
-# instead of a hand-edited working tree (psapp-saas#7).
+# instead of a hand-edited working tree.
 #
 #   capture  Read a deployed directory (git checkout or plain copy) and write
 #            everything that differs from a release baseline into a protected
@@ -35,13 +35,14 @@ set -euo pipefail
 #   rehash   Re-record checksums after deliberately editing overlay files
 #            (resolved merge conflicts, a renewed certificate). A file the
 #            manifest lists but that is gone is an error, not a traceback.
-#   drop     Remove captured files the change ticket marks OBSOLETE (42.3
-#            O4): deletes files/<path> and its MANIFEST.json record, notes it
+#   drop     Remove captured files the change ticket marks OBSOLETE
+#            (documentation/09-11-start-at-boot-backups-and-customized-hosts.md):
+#            deletes files/<path> and its MANIFEST.json record, notes it
 #            in DEVIATIONS.md. Refuses (and changes nothing) for any path the
 #            manifest does not list.
 #
 # All logic is in lib/overlay.py; secrets are never printed (lib/redact.py).
-# Operator procedure: documentation/42-host-reconciliation-runbook.md.
+# Operator procedure: documentation/09-11-start-at-boot-backups-and-customized-hosts.md.
 # ============================================================================
 
 usage() {

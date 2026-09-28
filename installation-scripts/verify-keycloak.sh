@@ -158,7 +158,7 @@ PY
   if kc_backend_audience_present "$realm" "$front_cid" padsign-backend; then
     ok "padsign-client access tokens carry padsign-backend in aud (token introspection)"
   else
-    bad "padsign-client has no audience mapper for padsign-backend - token introspection fails on Keycloak 26.4.12+/26.6.2+ (fix: upgrade.sh, or documentation/14-08-token-audience-for-introspection.md)"
+    bad "padsign-client has no audience mapper for padsign-backend - token introspection fails on Keycloak 26.4.12+/26.6.2+ (fix: upgrade.sh, or documentation/08-02-token-audience.md)"
   fi
 else
   bad "client '${client_front}' missing"
@@ -199,14 +199,14 @@ fi
 #
 # The shared 'test' account is optional: production deployments are told to
 # delete it (keycloak-bootstrap.sh prints exactly that) and to use
-# smoke-user.sh's disposable logins instead (psapp-saas#6). Its absence is the
+# smoke-user.sh's disposable logins instead. Its absence is the
 # recommended state, not a failure.
 unset exit_code
 test_uid="$(kc_exec "/opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username=test --fields id --format csv | tail -n 1" | tr -d '\r')"
 if [[ -z "$test_uid" || "$test_uid" == "id" ]]; then
   ok "no shared 'test' user (recommended for production - use smoke-user.sh for smoke tests)"
 else
-  ok "user 'test' exists (shared long-lived login - delete it in production, see documentation/42-02)"
+  ok "user 'test' exists (shared long-lived login - delete it in production, see documentation/06-production-hardening.md)"
   roles_json="$(kc_exec "/opt/keycloak/bin/kcadm.sh get users/${test_uid}/role-mappings/realm -r ${realm}")"
   python3 -c "$(cat <<'PY'
 import json, sys

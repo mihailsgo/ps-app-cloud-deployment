@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # ============================================================================
-# Alert webhook helpers for monitor-status.sh (documentation/40-03).
+# Alert webhook helpers for monitor-status.sh (documentation/09-10-monitoring-and-alerting.md).
 #
 # Sourced, never run. Defines functions only:
 #

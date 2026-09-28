@@ -4,10 +4,10 @@ set -euo pipefail
 # ============================================================================
 # PadSign Upgrade — update image tags and apply latest config patterns
 #
-# Usage (current release tags — see documentation/01-release-snapshot.md):
-#   ./installation-scripts/upgrade.sh --server-tag 3.27 --client-tag 8.37
-#   ./installation-scripts/upgrade.sh --server-tag 3.27   # server only
-#   ./installation-scripts/upgrade.sh --client-tag 8.37   # client only
+# Usage (current release tags — see documentation/14-03-release-snapshot.md):
+#   ./installation-scripts/upgrade.sh --server-tag <tag> --client-tag <tag>
+#   ./installation-scripts/upgrade.sh --server-tag <tag>   # server only
+#   ./installation-scripts/upgrade.sh --client-tag <tag>   # client only
 # ============================================================================
 
 server_tag=""
@@ -41,7 +41,7 @@ Approved tags only:
                        with a loud warning. The tag is pulled without a
                        digest pin, so validate-config.sh / postdeploy-check.sh
                        keep failing until the tag is approved and pinned
-                       (documentation/39-release-procedure.md). The override
+                       (documentation/14-06-image-approval-and-digest-pinning.md). The override
                        is recorded in deployment-evidence.json as
                        "unapproved_override".
 
@@ -66,7 +66,7 @@ Asserting a capability:
                         authentication at nginx, which only works against a
                         ps-client that sends the Keycloak Bearer token:
 
-                          ./installation-scripts/upgrade.sh --client-tag 8.38 \
+                          ./installation-scripts/upgrade.sh --client-tag <tag> \
                             --require-capability closable-download-route
 
                         Combine with --plan-only to check without changing anything.
@@ -119,7 +119,7 @@ What it does:
 The --enable-local-eseal flag is idempotent: re-running is safe and only
 touches files that haven't already been migrated. To revert, edit
 config/config.js (STAMP_MODE: "external"), clear COMPOSE_PROFILES in .env,
-and `docker compose up -d ps-server`. See documentation/04-enabling-local-e-sealing.md
+and `docker compose up -d ps-server`. See documentation/10-local-e-sealing.md
 for full recipe.
 EOF
 }
@@ -190,7 +190,7 @@ current_tag() {
 
 # What is RUNNING, as opposed to what docker-compose.yml pins (current_tag).
 # The two differ after the documented `git pull` ahead of this script
-# (documentation/04-04 Phase 1): the pull already pins the new release while
+# (documentation/09-05-upgrading.md, Local changes to tracked files): the pull already pins the new release while
 # the old containers keep running. The "old → new" lines, the plan and the
 # rollback snapshot (lib/rollback-snapshot.sh) use the running tag, and a
 # mismatch is said out loud. Read-only (docker compose ps / docker inspect),
@@ -335,7 +335,7 @@ if [[ ${#unapproved_requests[@]} -gt 0 && "$allow_unapproved" != true ]]; then
   fi
   echo "       Upgrade to the approved tag, or approve the new tag first: cut the" >&2
   echo "       release and record its digest in release/approved-digests.json" >&2
-  echo "       (documentation/39-release-procedure.md)." >&2
+  echo "       (documentation/14-06-image-approval-and-digest-pinning.md)." >&2
   echo "" >&2
   echo "       Emergency hotfix only: re-run with --allow-unapproved. The tag is then" >&2
   echo "       pulled without a digest pin, validate-config.sh keeps failing until it" >&2
@@ -364,7 +364,7 @@ print_unapproved_banner() {
   done
   echo "!! Not reviewed and not digest-pinned. validate-config.sh and" >&2
   echo "!! postdeploy-check.sh FAIL until the tag is approved and pinned" >&2
-  echo "!! (documentation/39-release-procedure.md). Recorded in" >&2
+  echo "!! (documentation/14-06-image-approval-and-digest-pinning.md). Recorded in" >&2
   echo "!! deployment-evidence.json as \"unapproved_override\"." >&2
   echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" >&2
 }
@@ -395,7 +395,7 @@ MIGRATION_IDS=(document-routing signed-output compose-hostname local-eseal keycl
 need_document_routing()  { ! grep -q 'DOCUMENT_ROUTING' "$config_js"; }
 # signed-output: where the two stores live is decided by the EFFECTIVE compose
 # model (docker-compose.yml plus any COMPOSE_FILE overlay or override), not by
-# the checkout's layout. On an overlay host (documentation/42) both are
+# the checkout's layout. On an overlay host (documentation/09-11-start-at-boot-backups-and-customized-hosts.md) both are
 # mounted from where the documents already are, outside the checkout, so
 # ${repo_root}/signed-output never exists there, and checking it made every
 # such host's --plan-only report [WILL APPLY] signed-output. See
@@ -450,7 +450,7 @@ need_kc_backend_audience() { kc_probe_backend_audience; [[ "$kc_aud_state" != pr
 # environment if set, otherwise the running keycloak container's own env -
 # which is what docker-compose.yml sets and configure-host.sh keeps in sync.
 # An operator who later changed the admin password in the admin console
-# (documentation/37-05) passes it via the environment.
+# (documentation/08-03-admin-password-and-break-glass.md) passes it via the environment.
 kc_realm="padsign"
 kc_aud_state=""
 kc_aud_reason=""
@@ -799,7 +799,7 @@ mig_local_eseal_apply() {
     # carriage return and produced "COMPOSE_PROFILES=wizard\r,local-eseal" —
     # a profile name with an embedded CR that then matches nothing.
     # (Not reproducible under MSYS sed, which strips CR on read; see
-    # documentation/05-02.)  The `t` branches out after filling an empty
+    # documentation/09-05-upgrading.md.)  The `t` branches out after filling an empty
     # value so it can't then also get a comma appended.
     sed -i '/^COMPOSE_PROFILES=/ {
       s/\r$//
@@ -856,7 +856,7 @@ mig_keycloak_backend_audience_apply() {
     echo "           On Keycloak 26.4.12/26.6.2/26.7.0 or newer every authenticated portal"
     echo "           API call returns 401 until this is fixed. Re-run this upgrade with"
     echo "           KEYCLOAK_ADMIN_PASSWORD='<current admin password>' once Keycloak is up,"
-    echo "           or add the mapper by hand: documentation/14-08-token-audience-for-introspection.md"
+    echo "           or add the mapper by hand: documentation/08-02-token-audience.md"
   } >&2
 }
 
@@ -1009,7 +1009,7 @@ fi
 # pulls. A signature that does not verify aborts here, before anything is
 # written. No cosign on the host only
 # warns (fails under CI=true or PADSIGN_REQUIRE_SIGNATURES=1); see
-# lib/signatures.sh and documentation/40-02-post-deploy-validation.md.
+# lib/signatures.sh and documentation/05-03-post-deploy-checks.md.
 # shellcheck source=lib/signatures.sh
 . "${scripts_dir}/lib/signatures.sh"
 preflight_signature() {  # <image key> <tag>
@@ -1104,7 +1104,7 @@ echo "  Backups created (*.bak, owner-only)"
 # the upgrade ends digest-pinned and passes validate-config.sh. Only a tag
 # let through by --allow-unapproved is left unpinned - resolving and
 # approving a new tag's digest is a separate, deliberate step
-# (documentation/39-release-procedure.md).
+# (documentation/14-06-image-approval-and-digest-pinning.md).
 echo "Step 2/6: Updating image tags..."
 unpinned_tags=false
 if [[ -n "$server_tag" ]]; then
@@ -1133,7 +1133,7 @@ if [[ "$unpinned_tags" == true ]]; then
   echo "  NOTE: the new tag(s) above were let through by --allow-unapproved and"
   echo "        are not digest-pinned. Approve and pin the digest before this"
   echo "        deployment is considered complete: see"
-  echo "        documentation/39-release-procedure.md and"
+  echo "        documentation/14-06-image-approval-and-digest-pinning.md and"
   echo "        installation-scripts/check-digest-drift.sh. validate-config.sh"
   echo "        will fail until release/approved-digests.json and"
   echo "        docker-compose.yml agree again."
@@ -1197,7 +1197,7 @@ upgrade_failed() {  # <reason>
     if "${scripts_dir}/rollback.sh" --to "$(basename "$snapshot_dir")" --yes; then
       echo "Rolled back to the pre-upgrade state. The upgrade itself still FAILED." >&2
     else
-      echo "ROLLBACK ALSO FAILED - intervene manually (see documentation/40-04-rollback.md)." >&2
+      echo "ROLLBACK ALSO FAILED - intervene manually (see documentation/09-08-rollback.md)." >&2
     fi
   else
     echo "" >&2

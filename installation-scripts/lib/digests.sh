@@ -115,7 +115,7 @@ compose_image_refs() {
 # The digest gate itself: every image of the effective compose model must be
 # digest-pinned and approved, by release/approved-digests.json or, on a host
 # running an environment overlay, by the overlay's own approved-digests.json
-# (documentation/42-03). Prints "<OK|FAIL|INFO><TAB><message>" lines; the
+# (documentation/09-11-start-at-boot-backups-and-customized-hosts.md). Prints "<OK|FAIL|INFO><TAB><message>" lines; the
 # caller decides how to render them. validate-config.sh and
 # check-digest-drift.sh both use this, so they cannot disagree.
 digest_gate_check() {

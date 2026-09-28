@@ -111,7 +111,7 @@ signature_check() {
   if ! version="$(cosign_usable)"; then
     sig_status=unavailable
     if [[ -z "$version" ]]; then
-      sig_message="cosign is not installed, so the image signature was not checked (documentation/40-02-post-deploy-validation.md)"
+      sig_message="cosign is not installed, so the image signature was not checked (documentation/05-03-post-deploy-checks.md)"
     else
       sig_message="cosign ${version} is too old (need v${cosign_min_major}+), so the image signature was not checked"
     fi

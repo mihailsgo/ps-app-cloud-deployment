@@ -1,6 +1,6 @@
 # AGENTS.md — PadSign Deployment (ps-app-cloud-deployment)
 
-Project guide for AI coding agents and assistants. If your tool reads `AGENTS.md` automatically, you are already in the right place. For deployment procedures (which script to run, required inputs, safety rules), also read `.agents/skills/padsign-deploy/SKILL.md` — mirrored at `.claude/skills/padsign-deploy/SKILL.md`, where Claude Code discovers it automatically. Human operator documentation lives in `documentation/` (content map in `README.md`); see `documentation/38-ai-agent-deployment-skill.md` for how these agent files fit together.
+Project guide for AI coding agents and assistants. If your tool reads `AGENTS.md` automatically, you are already in the right place. For deployment procedures (which script to run, required inputs, safety rules), also read `.agents/skills/padsign-deploy/SKILL.md` — mirrored at `.claude/skills/padsign-deploy/SKILL.md`, where Claude Code discovers it automatically. Human operator documentation lives in `documentation/` (content map in `README.md`); see `documentation/14-04-ai-agent-deployment-skill.md` for how these agent files fit together.
 
 ## What is this project?
 
@@ -21,11 +21,11 @@ nginx (reverse proxy, :443)
 
 All five of these are reached by nginx over the internal Docker network by service
 name — the loopback host publishes above exist only for local operator diagnostics
-(see `documentation/22-security-and-route-protection.md`), not for nginx itself.
+(see `documentation/06-01-route-protection.md`), not for nginx itself.
 `installation-scripts/validate-config.sh` fails if any of them (or a future
 service) binds to a non-loopback host interface without a documented exception.
 
-Plus `dmss-archive-services-fallback` (internal 8095, no host port at all) as a filesystem-based archive backup, and — only when the `local-eseal` compose profile is active — `dmss-digital-stamping-service` (internal port 8084; no host port mapping by default) for **local e-sealing** (see *Local e-sealing* below). Also — only when the `wizard` compose profile is active — a `wizard` container (:8443, published to all interfaces — a deliberate, documented exception, see `documentation/36-05-security-considerations.md`) providing an optional browser UI for bootstrap/upgrade (see *Deployment Wizard* below).
+Plus `dmss-archive-services-fallback` (internal 8095, no host port at all) as a filesystem-based archive backup, and — only when the `local-eseal` compose profile is active — `dmss-digital-stamping-service` (internal port 8084; no host port mapping by default) for **local e-sealing** (see *Local e-sealing* below). Also — only when the `wizard` compose profile is active — a `wizard` container (:8443, published to all interfaces — a deliberate, documented exception, see `documentation/03-03-how-the-wizard-works.md`) providing an optional browser UI for bootstrap/upgrade (see *Deployment Wizard* below).
 
 ## Directory structure
 
@@ -45,7 +45,7 @@ ps-app-cloud-deployment/
 │   ├── configure-host.sh             # Rewrite config files for a new hostname
 │   ├── keycloak-bootstrap.sh         # Idempotent Keycloak realm/client/role/user creation
 │   ├── smoke-user.sh                 # Create/delete a disposable, single-purpose Keycloak login
-│   ├── signing-smoke.sh              # Production-safe signing smoke test: device-grant login, demo-path doc, no routing, cleanup (documentation/40-05)
+│   ├── signing-smoke.sh              # Production-safe signing smoke test: device-grant login, demo-path doc, no routing, cleanup (documentation/05-04-signing-smoke-test.md)
 │   ├── upgrade.sh                    # Version bump + config migrations (--plan-only preview)
 │   ├── update-hostname.sh            # Post-go-live hostname + cert + Keycloak sync
 │   ├── renew-cert.sh                 # Post-go-live cert swap (hostname unchanged)
@@ -54,10 +54,10 @@ ps-app-cloud-deployment/
 │   ├── validate-config.sh            # Config consistency checks
 │   ├── verify-keycloak.sh            # Verify Keycloak setup
 │   ├── verify-served-cert.sh         # Wire check: cert nginx actually serves
-│   ├── diff-baseline-overlay.sh      # Drift check: live host vs. a clean baseline ref (see documentation/41)
-│   ├── overlay.sh                    # capture/apply/verify/rebase/drop an environment overlay kept OUTSIDE the checkout (documentation/42)
-│   ├── monitor-status.sh             # Status report; --alert (cron) POSTs to ALERT_WEBHOOK_URL, ALERT_WEBHOOK_FORMAT=json|teams (Teams Workflows needs teams, auto-detected); --test-webhook sends one test message (documentation/40-03)
-│   ├── dmss-seal-smoke.sh            # Boot + 3 consecutive local e-seals on the pinned DMSS images, isolated project (see documentation/39)
+│   ├── diff-baseline-overlay.sh      # Drift check: live host vs. a clean baseline ref (see documentation/09-11-start-at-boot-backups-and-customized-hosts.md)
+│   ├── overlay.sh                    # capture/apply/verify/rebase/drop an environment overlay kept OUTSIDE the checkout (documentation/09-11-start-at-boot-backups-and-customized-hosts.md)
+│   ├── monitor-status.sh             # Status report; --alert (cron) POSTs to ALERT_WEBHOOK_URL, ALERT_WEBHOOK_FORMAT=json|teams (Teams Workflows needs teams, auto-detected); --test-webhook sends one test message (documentation/09-10-monitoring-and-alerting.md)
+│   ├── dmss-seal-smoke.sh            # Boot + 3 consecutive local e-seals on the pinned DMSS images, isolated project (see documentation/14-06-image-approval-and-digest-pinning.md)
 │   ├── lib/
 │   │   ├── capabilities.sh           # Shared reader for release/capabilities.json
 │   │   ├── compose-hostname.sh       # Read/rewrite compose KC_HOSTNAME + nginx alias (configure-host, upgrade, validate-config)
@@ -76,7 +76,7 @@ ps-app-cloud-deployment/
 │   ├── tests/test-overlay-host.sh    # upgrade.sh --plan-only on an overlay-managed checkout (storage mounted from outside), overlay.sh drop / rehash
 │   ├── tests/test-upgrade-config-js.sh  # upgrade.sh config.js pre-flight, step 4e ownership re-apply, 0600 .bak copies (Linux for the mode cases)
 │   ├── tests/test-boot-and-timeouts.sh  # overlay.sh capture/verify host boot/cron hooks (fake host root), health-check windows vs script health waits, nginx /api/ timeout, the boot unit
-│   ├── assets/padsign.service.example   # systemd boot unit for overlay hosts (WorkingDirectory = the padsign-current symlink; documentation/42-06)
+│   ├── assets/padsign.service.example   # systemd boot unit for overlay hosts (WorkingDirectory = the padsign-current symlink; documentation/09-11-start-at-boot-backups-and-customized-hosts.md)
 │   ├── tests/test-alert-webhook.sh   # monitor-status.sh webhook formats, auto-detect, escaping, --test-webhook, URL never printed, Disk usage on overlay storage (local receiver, stub docker)
 │   ├── tests/test-rollback.sh        # upgrade.sh's rollback snapshot + rollback.sh restore/verify, digest gate after a rollback (stub docker; minutes under Git Bash)
 │   ├── tests/test-watchdog.sh        # the whole-suite watchdog: a blocked suite is stopped with exit 124, a finished one is untouched
@@ -97,7 +97,7 @@ ps-app-cloud-deployment/
 │   ├── routes/ , views/ , public/     # Express routes, EJS templates, static assets
 │   └── Dockerfile                    # node:18-bookworm-slim (NOT alpine — scripts need grep -oP)
 ├── .env                              # git-ignored, mode 600: KEYCLOAK_FIRST_BOOT_ADMIN_PASSWORD (bootstrap), COMPOSE_PROFILES=local-eseal when local mode is active
-├── deployment-evidence.json          # git-ignored; written by bootstrap.sh/upgrade.sh/postdeploy-check.sh (see documentation/41)
+├── deployment-evidence.json          # git-ignored; written by bootstrap.sh/upgrade.sh/postdeploy-check.sh (see documentation/09-11-start-at-boot-backups-and-customized-hosts.md)
 ├── signed-output/                    # Signed PDFs written by ps-server (git-ignored; mode 750, owned by the uid the ps-server image runs as: 1000 from 3.30)
 └── docs/                             # Signed documents output (fallback archive; git-ignored; mode 770, group spring)
 ```
@@ -127,7 +127,7 @@ This handles everything end-to-end: config rewrites, directory creation, Keycloa
 ./installation-scripts/upgrade.sh --enable-local-eseal
 ```
 
-Backs up config (owner-only `*.bak`), updates image tags, ensures latest config patterns (DOCUMENT_ROUTING, volume mounts), pulls images, restarts containers. Before it changes anything it checks that the ps-server image it will (re)start can read `config/config.js` (`config_js_preflight`, exit 1 with the exact `chgrp`/`chmod` fix otherwise), and after its own `config.js` edits it re-applies the ownership model (step 4e, `secure_config_js`). The signed-output migration reads the stores from the effective compose model (`storage_mount` in `lib/dir-permissions.sh`, `lib/digest_gate.py mounts`): a store mounted from outside the checkout (overlay storage) is never created or re-owned there. A `--server-tag`/`--client-tag` must be the tag `release/approved-digests.json` approves: anything else is refused (exit 2) before any pull or edit, `--plan-only` included. `--allow-unapproved` is the emergency-hotfix override: loud warning, no digest pin, recorded in `deployment-evidence.json` as `"unapproved_override"` (carried forward while that tag stays pinned and unapproved), and `validate-config.sh` keeps failing until the tag is approved. With `--enable-local-eseal`: idempotent Step 4b stages the demo stamping artefacts, appends the gated `dmss-digital-stamping-service` compose service block, patches container-signature's `digital-stamping-service.baseUrl`, pins `SPRING_SECURITY_USER_*` env vars on container-signature, inserts `STAMP_MODE: "local"` + `STAMP_LOCAL` into `config/config.js`, and writes `COMPOSE_PROFILES=local-eseal` to `.env`. Safe to re-run; full operator playbook (incl. demo-cert verification, real-cert swap, and rollback levels) is in `documentation/04-enabling-local-e-sealing.md`.
+Backs up config (owner-only `*.bak`), updates image tags, ensures latest config patterns (DOCUMENT_ROUTING, volume mounts), pulls images, restarts containers. Before it changes anything it checks that the ps-server image it will (re)start can read `config/config.js` (`config_js_preflight`, exit 1 with the exact `chgrp`/`chmod` fix otherwise), and after its own `config.js` edits it re-applies the ownership model (step 4e, `secure_config_js`). The signed-output migration reads the stores from the effective compose model (`storage_mount` in `lib/dir-permissions.sh`, `lib/digest_gate.py mounts`): a store mounted from outside the checkout (overlay storage) is never created or re-owned there. A `--server-tag`/`--client-tag` must be the tag `release/approved-digests.json` approves: anything else is refused (exit 2) before any pull or edit, `--plan-only` included. `--allow-unapproved` is the emergency-hotfix override: loud warning, no digest pin, recorded in `deployment-evidence.json` as `"unapproved_override"` (carried forward while that tag stays pinned and unapproved), and `validate-config.sh` keeps failing until the tag is approved. With `--enable-local-eseal`: idempotent Step 4b stages the demo stamping artefacts, appends the gated `dmss-digital-stamping-service` compose service block, patches container-signature's `digital-stamping-service.baseUrl`, pins `SPRING_SECURITY_USER_*` env vars on container-signature, inserts `STAMP_MODE: "local"` + `STAMP_LOCAL` into `config/config.js`, and writes `COMPOSE_PROFILES=local-eseal` to `.env`. Safe to re-run; full operator playbook (incl. demo-cert verification, real-cert swap, and rollback levels) is in `documentation/10-local-e-sealing.md`.
 
 ### Validate configuration
 
@@ -157,7 +157,7 @@ certificate against the one on disk. This is the only check that catches a
 renewal which landed on disk but never reached nginx — nginx reads its
 certificate files only at startup and on reload, so `validate-certs.sh` and
 every other file-level check pass throughout that failure. See
-`documentation/11-02-monitoring-the-served-certificate.md`.
+`documentation/09-03-monitoring-the-served-certificate.md`.
 
 ### Deploy a new app version (from source)
 
@@ -185,8 +185,8 @@ every other file-level check pass throughout that failure. See
 - Public client: `padsign-client` (used by React SPA)
 - Backend client: `padsign-backend` (bearer-only, used by Express server)
 - Roles: `padsign-admin`, `psapp-integration`
-- Default admin: `admin/admin` - must change in production. The password comes from `.env` (`KEYCLOAK_FIRST_BOOT_ADMIN_PASSWORD`, set by bootstrap), never from the tracked `docker-compose.yml`, and only on Keycloak's first boot (documentation/17-01)
-- `padsign-client` carries an `oidc-audience-mapper` (`padsign-backend-audience`) that puts `padsign-backend` into the access-token `aud`. ps-server validates every API call by introspecting the portal token *as* `padsign-backend`, and Keycloak 26.4.12/26.6.2/26.7.0+ refuse that unless the introspecting client is in `aud` (CVE-2026-37979 fix). Without the mapper, login works but every API call returns 401. `keycloak-bootstrap.sh` creates it for new realms, and `upgrade.sh`'s `keycloak-backend-audience` migration adds it to existing ones. That migration is the one table entry whose predicate probes live Keycloak (read-only, `kcadm --no-config`) instead of grepping a file. Shared helpers are in `installation-scripts/lib/kcadm.sh`. See `documentation/14-08-token-audience-for-introspection.md`.
+- Default admin: `admin/admin` - must change in production. The password comes from `.env` (`KEYCLOAK_FIRST_BOOT_ADMIN_PASSWORD`, set by bootstrap), never from the tracked `docker-compose.yml`, and only on Keycloak's first boot (documentation/07-06-environment-variables.md)
+- `padsign-client` carries an `oidc-audience-mapper` (`padsign-backend-audience`) that puts `padsign-backend` into the access-token `aud`. ps-server validates every API call by introspecting the portal token *as* `padsign-backend`, and Keycloak 26.4.12/26.6.2/26.7.0+ refuse that unless the introspecting client is in `aud` (CVE-2026-37979 fix). Without the mapper, login works but every API call returns 401. `keycloak-bootstrap.sh` creates it for new realms, and `upgrade.sh`'s `keycloak-backend-audience` migration adds it to existing ones. That migration is the one table entry whose predicate probes live Keycloak (read-only, `kcadm --no-config`) instead of grepping a file. Shared helpers are in `installation-scripts/lib/kcadm.sh`. See `documentation/08-02-token-audience.md`.
 
 ## Local e-sealing
 
@@ -215,7 +215,7 @@ cd /opt/psapp
 # bootstrap.sh always leaves config.js, constants.json, docker-compose.yml and
 # nginx.conf modified (hostname + secrets), so a bare `git pull` aborts:
 git stash push -m "padsign host config before pull"
-git pull && git stash pop && git stash list   # expect an empty list; pop conflict: documentation/04-04 Phase 1
+git pull && git stash pop && git stash list   # expect an empty list; pop conflict: documentation/09-05-upgrading.md, Local changes to tracked files
 ./installation-scripts/upgrade.sh --enable-local-eseal   # straight after the pull, no `docker compose up` in between
 ```
 
@@ -227,7 +227,7 @@ A customer pulling the new repo version and running plain `docker compose up -d`
 
 ### Switching modes after install
 
-Pure config edits, no scripts required. The bind-mounted `config.js` change requires `docker compose restart ps-server` to be re-read (Node's `require()` caches it). See `documentation/04-enabling-local-e-sealing.md` -> *4.5 Switching modes after install* for the exact recipes.
+Pure config edits, no scripts required. The bind-mounted `config.js` change requires `docker compose restart ps-server` to be re-read (Node's `require()` caches it). See `documentation/10-local-e-sealing.md` -> *4.5 Switching modes after install* for the exact recipes.
 
 ### Demo credentials shipped (must rotate before production)
 
@@ -240,7 +240,7 @@ The keystore password (rows 1-2) unlocks the signing key; the Spring Security pa
 
 ### Operator playbook locations
 
-The customer-facing playbook lives in `documentation/04-enabling-local-e-sealing.md` (sections 4.1 Concepts and glossary -> 4.2 Architecture deep-dive -> 4.3 Initial deployment -> 4.4 Existing-deployment walkthrough -> 4.5 Switching modes -> 4.6 Production setup with your own key+cert -> 4.7 Adding a new signing profile -> 4.8 Wiring TSA+OCSP -> 4.9 Verifying it works -> 4.10 Verifying signatures end-to-end). The root `README.md` is a content map only - it lists every section as a link into the `documentation/` folder. Always defer to those files for customer questions; this AGENTS.md is the AI-agent crib sheet.
+The customer-facing playbook lives in `documentation/10-local-e-sealing.md` (sections 4.1 Concepts and glossary -> 4.2 Architecture deep-dive -> 4.3 Initial deployment -> 4.4 Existing-deployment walkthrough -> 4.5 Switching modes -> 4.6 Production setup with your own key+cert -> 4.7 Adding a new signing profile -> 4.8 Wiring TSA+OCSP -> 4.9 Verifying it works -> 4.10 Verifying signatures end-to-end). The root `README.md` is a content map only - it lists every section as a link into the `documentation/` folder. Always defer to those files for customer questions; this AGENTS.md is the AI-agent crib sheet.
 
 ### Code references (when assisting development)
 
@@ -268,7 +268,7 @@ The wizard mounts `/var/run/docker.sock` (the first and only service in this com
 
 ### Security note
 
-`/var/run/docker.sock` access is root-equivalent host access — a meaningfully more privileged container than anything else in this stack. The mitigation is controlling who can reach it: HTTPS-only (self-signed, regenerated every start, independent of the real PadSign hostname cert), a random access token printed to `docker logs padsign-wizard` on every start (no user/password DB), 2-hour session idle timeout. Full detail in `documentation/36-05-security-considerations.md`.
+`/var/run/docker.sock` access is root-equivalent host access — a meaningfully more privileged container than anything else in this stack. The mitigation is controlling who can reach it: HTTPS-only (self-signed, regenerated every start, independent of the real PadSign hostname cert), a random access token printed to `docker logs padsign-wizard` on every start (no user/password DB), 2-hour session idle timeout. Full detail in `documentation/03-03-how-the-wizard-works.md`.
 
 ### Code references (when assisting development)
 
@@ -278,7 +278,7 @@ The wizard mounts `/var/run/docker.sock` (the first and only service in this com
 - **Compose edits must anchor on structure, not on a neighbouring line.** The `SPRING_SECURITY_USER_*` insert in `upgrade.sh`/`configure-host.sh` appends to the container-signature service's `environment:` list, creating that key if absent. It previously inserted before the service's `image:` line, which only yields valid YAML when `image:` happens to follow `environment:` — true of this repo's compose, false on a real deployment where `image:` is the first key (there the entries landed outside any list and broke `docker compose` parsing). Do not "simplify" it back to a line anchor. Same lesson as the `dmss-digital-stamping-service` guard, which matched a comment. Likewise the nginx network-alias rewrite (`lib/compose-hostname.sh`) tracks the `nginx` service block and its `aliases:` list rather than matching the old hostname string.
 - `KC_HOSTNAME` on the keycloak service is NOT inert: Keycloak 26 uses it as its fixed frontend hostname whatever `KC_HOSTNAME_STRICT`/proxy headers say, so it sets the token issuer and the login form's action URL. `configure-host.sh` rewrites it (and the nginx alias) on every run; `validate-config.sh --host` fails on a mismatch; `upgrade.sh`'s `compose-hostname` migration fixes existing deployments. Both only take effect on container recreate (`docker compose up -d`), never on `restart`.
 - Upgrade preview (mandatory gate before any upgrade): `installation-scripts/upgrade.sh` owns a **config-migration table** — each migration is a `mig_<id>_needed` predicate, a `mig_<id>_body` literal and a `mig_<id>_apply`, all built from shared `need_*` predicates so `--plan-only` cannot disagree with a real run. **Add a new config migration as a table entry, never as a fresh straight-line edit.** `--plan-only [--plan-format text|machine]` renders the plan and exits 0 without writing anything. Wizard side: `lib/upgradePlan.js` (execFile + parse, modelled on `configValidator.js`, never `scriptRunner`), `lib/planStore.js` (in-memory, session-scoped, TTL), `lib/upgradeArgs.js` (shared arg builder), `routes/upgradeRoutes.js`, `views/upgrade-preview.ejs`. `/api/deploy` deliberately rejects `mode:'upgrade'` so the gate is server-enforced, not browser-enforced.
-- Operator playbook: `documentation/36-deployment-wizard.md` (sections 36.1 Concepts and access model -> 36.2 Starting the wizard -> 36.3 Fresh-install walkthrough -> 36.4 Upgrade walkthrough -> 36.5 Security considerations -> 36.6 Troubleshooting -> 36.7 Relationship to the CLI scripts -> 36.8 Visual walkthrough -> 36.9 Previewing configuration changes). 36.8 embeds PNGs from `documentation/images/wizard-walkthrough/` — any change to the wizard's visual design leaves those stale, and they can only be refreshed by re-capturing against a running wizard.
+- Operator playbook: `documentation/03-install-with-the-wizard.md` (sections 36.1 Concepts and access model -> 36.2 Starting the wizard -> 36.3 Fresh-install walkthrough -> 36.4 Upgrade walkthrough -> 36.5 Security considerations -> 36.6 Troubleshooting -> 36.7 Relationship to the CLI scripts -> 36.8 Visual walkthrough -> 36.9 Previewing configuration changes). 36.8 embeds PNGs from `documentation/images/wizard-walkthrough/` — any change to the wizard's visual design leaves those stale, and they can only be refreshed by re-capturing against a running wizard.
 
 ## Settings (post-go-live changes)
 
@@ -288,20 +288,20 @@ Lets an operator change hostname, TLS certificate, or feature flags **after** on
 
 - New `installation-scripts/`: `update-hostname.sh` (combined hostname + cert + Keycloak-client-sync change; recreates keycloak (new `KC_HOSTNAME`) + nginx (new network alias) and restarts ps-server — chains `configure-host.sh` + `keycloak-bootstrap.sh` the same way `bootstrap.sh` already does internally), `renew-cert.sh` (cert swap only, hostname unchanged, restarts nginx), `toggle-features.sh` (any combination of the 3 feature flags in one pass, restarts only what actually needs it — demo mode needs none). `configure-host.sh` gained symmetric `--disable-routing`/`--disable-demo`/`--disable-local-eseal` flags (previously enable-only). `keycloak-bootstrap.sh` gained `--skip-test-user` (used only by `update-hostname.sh`, so a live hostname change never resets the demo `test` account's password).
 - Wizard code: `deployment-wizard/routes/settingsRoutes.js` (all `/settings` + `/api/settings/*` routes — reuses `lib/scriptRunner.js`'s `startRun`/`subscribe` and `routes/deploy.js`'s SSE stream endpoint unchanged), `views/settings.ejs` + `settings-progress.ejs`, `lib/dockerFacts.js`'s `readConfiguredFeatures()`/`readConfiguredCompanyRole()`, `lib/certValidator.js`'s `checkLiveCert()` (read-only status of the *deployed* cert at `nginx/certs/`, distinct from `validateCert()`'s upload-staging path at `installation-scripts/certs/`).
-- Operator playbook: `documentation/37-settings-post-go-live-changes.md` (37.1 Concepts -> 37.2 Changing hostname -> 37.3 Renewing the TLS certificate -> 37.4 Toggling features -> 37.5 Known gap: Keycloak admin password rotation, which this feature deliberately does not attempt — the `docker-compose.yml` admin-password env var only takes effect on Keycloak's first boot against an empty volume).
+- Operator playbook: `documentation/09-operations.md` (37.1 Concepts -> 37.2 Changing hostname -> 37.3 Renewing the TLS certificate -> 37.4 Toggling features -> 37.5 Known gap: Keycloak admin password rotation, which this feature deliberately does not attempt — the `docker-compose.yml` admin-password env var only takes effect on Keycloak's first boot against an empty volume).
 
 ## Baseline + overlay hosts (psapp-saas#7)
 
-A host can run as a clean checkout of a release tag plus an overlay directory outside it (`installation-scripts/overlay.sh`, operator runbook `documentation/42-*`). Such a checkout has `.overlay-applied.json` at its root. On it:
+A host can run as a clean checkout of a release tag plus an overlay directory outside it (`installation-scripts/overlay.sh`, operator runbook `documentation/09-11-start-at-boot-backups-and-customized-hosts.md`). Such a checkout has `.overlay-applied.json` at its root. On it:
 
-- never edit tracked files in place, and never run `upgrade.sh` / `rollback.sh` or the wizard's Upgrade there; changes go through a new overlay version (`documentation/42-06`);
+- never edit tracked files in place, and never run `upgrade.sh` / `rollback.sh` or the wizard's Upgrade there; changes go through a new overlay version (`documentation/09-11-start-at-boot-backups-and-customized-hosts.md`);
 - `overlay.sh verify` fails on any git-visible change the overlay does not declare, on a compose project name that would give Keycloak a new, empty volume, and on storage mounts that are not the existing signed documents;
-- `validate-config.sh` fails on any overlay image (`compose.overlay.yml`) that is not digest-pinned and approved. An image the host runs by design but the release does not ship is approved in the overlay's own `approved-digests.json` (same schema as `release/approved-digests.json`, plus a mandatory `why`; never for `ps-server`/`ps-client`), found via `.overlay-applied.json`'s `overlay_dir` (`documentation/42-03`);
+- `validate-config.sh` fails on any overlay image (`compose.overlay.yml`) that is not digest-pinned and approved. An image the host runs by design but the release does not ship is approved in the overlay's own `approved-digests.json` (same schema as `release/approved-digests.json`, plus a mandatory `why`; never for `ps-server`/`ps-client`), found via `.overlay-applied.json`'s `overlay_dir` (`documentation/09-11-start-at-boot-backups-and-customized-hosts.md`);
 - the overlay directory contains real secrets and must never be copied into the repo or into evidence;
-- a captured file marked OBSOLETE leaves the overlay with `overlay.sh drop --overlay <dir> <path>...` (removes `files/`/`base/` and the MANIFEST.json record, notes it in DEVIATIONS.md, refuses unknown paths), never by deleting it under `files/` (`documentation/42-03` O4);
-- to confirm which checkout the stack runs from, read ps-server's `com.docker.compose.project.working_dir` label, not Keycloak's: Keycloak mounts nothing from the checkout, so compose does not recreate it when its definition is unchanged and its label keeps naming the previous directory (`documentation/42-04` C4);
-- because `upgrade.sh` never runs there, its `keycloak-backend-audience` migration never runs either. Before such a host moves to the pinned Keycloak, the `padsign-backend-audience` mapper is checked and added by hand (`documentation/42-02` K4b, gate G1 in `42-01`);
-- systemd units, cron entries, `rc.local` and init scripts are host files the overlay does not carry. `overlay.sh capture` and `verify` list every one that names the old checkout or runs `docker compose` (WARN, and a DEVIATIONS.md section; `PADSIGN_HOST_SCAN_ROOT` points the scan at a fake root in tests). The cut-over repoints or disables them (`documentation/42-04` C3b/C4): an enabled unit that still ran `docker compose -f <old>/docker-compose.yml down` / `up -d` brought the old stack back on the demo host at the first reboot. The boot unit to use is `installation-scripts/assets/padsign.service.example` (`WorkingDirectory` = a symlink repointed at every cut-over, no `-f`, `stop` not `down`, retried `up -d`; `documentation/42-06`).
+- a captured file marked OBSOLETE leaves the overlay with `overlay.sh drop --overlay <dir> <path>...` (removes `files/`/`base/` and the MANIFEST.json record, notes it in DEVIATIONS.md, refuses unknown paths), never by deleting it under `files/` (`documentation/09-11-start-at-boot-backups-and-customized-hosts.md` O4);
+- to confirm which checkout the stack runs from, read ps-server's `com.docker.compose.project.working_dir` label, not Keycloak's: Keycloak mounts nothing from the checkout, so compose does not recreate it when its definition is unchanged and its label keeps naming the previous directory (`documentation/09-11-start-at-boot-backups-and-customized-hosts.md` C4);
+- because `upgrade.sh` never runs there, its `keycloak-backend-audience` migration never runs either. Before such a host moves to the pinned Keycloak, the `padsign-backend-audience` mapper is checked and added by hand (`documentation/08-03-admin-password-and-break-glass.md` K4b, gate G1 in `42-01`);
+- systemd units, cron entries, `rc.local` and init scripts are host files the overlay does not carry. `overlay.sh capture` and `verify` list every one that names the old checkout or runs `docker compose` (WARN, and a DEVIATIONS.md section; `PADSIGN_HOST_SCAN_ROOT` points the scan at a fake root in tests). The cut-over repoints or disables them (`documentation/09-11-start-at-boot-backups-and-customized-hosts.md` C3b/C4): an enabled unit that still ran `docker compose -f <old>/docker-compose.yml down` / `up -d` brought the old stack back on the demo host at the first reboot. The boot unit to use is `installation-scripts/assets/padsign.service.example` (`WorkingDirectory` = a symlink repointed at every cut-over, no `-f`, `stop` not `down`, retried `up -d`; `documentation/09-11-start-at-boot-backups-and-customized-hosts.md`).
 
 When changing what `configure-host.sh` / `upgrade.sh` rewrite, keep `lib/overlay.py`'s notion of release content vs. environment content (`RELEASE_CONTENT_PREFIXES`) in step.
 

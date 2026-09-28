@@ -26,7 +26,7 @@ set -euo pipefail
 # actually serving — nginx reads its certificate files only at startup and on
 # reload, so a renewed file on disk can sit unserved indefinitely while every
 # check here passes. For the over-the-wire check, use
-# installation-scripts/verify-served-cert.sh (see documentation/11-02).
+# installation-scripts/verify-served-cert.sh (see documentation/09-03-monitoring-the-served-certificate.md).
 # ============================================================================
 
 host=""

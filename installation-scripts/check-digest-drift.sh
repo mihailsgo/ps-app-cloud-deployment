@@ -16,12 +16,10 @@ set -euo pipefail
 # often a legitimate upstream rebuild (e.g. a base-image security patch on
 # an official image), but could also mean the tag was force-pushed or
 # compromised. Deciding which, and re-pinning if appropriate, is left to
-# the reviewed process in documentation/39-release-procedure.md, not
+# a person (documentation/14-06-image-approval-and-digest-pinning.md), not
 # automated here.
 #
-# Exit codes: 0 clean, 1 drift found, 2 usage/dependency error — same
-# convention as scripts/release-check.sh in psapp, which this is the
-# digest-focused sibling of.
+# Exit codes: 0 clean, 1 drift found, 2 usage/dependency error.
 # ============================================================================
 
 usage() {
@@ -80,7 +78,7 @@ fi
 
 # Every approval to compare against the registry: the release's, plus - on a
 # host run as release baseline + environment overlay - the overlay's own
-# approved-digests.json (documentation/42-03).
+# approved-digests.json (documentation/09-11-start-at-boot-backups-and-customized-hosts.md).
 approvals_table="$(
   digest_registry_table | tr -d '\r' | sed 's/^/release\t/'
   digest_env_registry_table | sed 's/^/overlay\t/'
@@ -150,6 +148,6 @@ if [[ "$drift" -eq 0 ]]; then
   exit 0
 else
   echo "Drift found. See DRIFT: lines above."
-  echo "Review before re-pinning - see documentation/39-release-procedure.md."
+  echo "Review before re-pinning - see documentation/14-06-image-approval-and-digest-pinning.md."
   exit 1
 fi

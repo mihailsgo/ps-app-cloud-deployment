@@ -2,7 +2,7 @@
 set -uo pipefail
 
 # ============================================================================
-# Tests for upgrade.sh's handling of config/config.js (psapp-saas#7, #12):
+# Tests for upgrade.sh's handling of config/config.js:
 #
 #   - pre-flight: the ps-server image the upgrade ends on must be able to read
 #     config.js. Otherwise it refuses before the snapshot, any edit or any
