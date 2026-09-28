@@ -101,6 +101,17 @@ the documentation checks (`tests/test-docs.sh`: links, doc references in code,
 leak patterns), `docker compose config` for each profile (when Docker is
 available) and the wizard's `npm test`. CI runs the same script.
 
+The suites take seconds on Linux and minutes under Git Bash, where every
+process start costs 50-150 ms (`test-rollback.sh`: 7-12 minutes, 30 on a
+busy machine). Each suite sources `tests/lib/watchdog.sh`, which stops it
+after `TEST_WATCHDOG_SECS` (default 600 on Linux, 3600 under Git Bash,
+`0` = off) with exit 124, prints what is still running, and lets a
+`timeout` or Ctrl-C from outside finish the suite's EXIT trap. Do not wrap a
+suite in a short `timeout`. A new suite sources the watchdog right after
+its `trap ... EXIT`, and gives the scripts it runs `</dev/null` and a short
+`--health-timeout`, so nothing can wait on a terminal or on a health check
+its stubs never answer.
+
 ## Documentation conventions
 
 - `README.md` opens with a short copy-paste install (wizard first, CLI as the

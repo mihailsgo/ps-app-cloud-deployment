@@ -66,6 +66,22 @@ made to it after that upgrade, for example by `configure-host.sh`,
 `toggle-features.sh` or another `upgrade.sh`, is reverted too. Re-apply it
 after the rollback.
 
+### Rolling ps-client back across the Syncfusion 34 boundary
+
+`config/constants.json` is not restored, and it holds the PDF viewer's
+Syncfusion licence key, which must match the client image (`8.40` and
+older: Syncfusion 27; `8.41` and later: Syncfusion 34). A rollback from
+`8.41` or later to `8.40` or older leaves the new key in place, and the old
+viewer shows a licence banner over the document. Put the old key back by
+hand. The key the release replaced is in the repository's history:
+
+```bash
+git log -p -S PDF_RENDER_SYNCFUSION_SECRET_KEY -- config/constants.json | grep '^-.*SYNCFUSION'
+# the first line is the key 8.40 and older use; edit it into
+# config/constants.json, then:
+docker compose restart ps-client
+```
+
 ## Exit codes
 
 | Code | Meaning |

@@ -24,6 +24,16 @@ Release notes for the PadSign deployment package, newest first; versions follow 
 
 **Upgrade impact:** existing deployments keep their visual-PDF CA until you run `./installation-scripts/configure-host.sh --host <host> --generate-ca` and `docker compose restart dmss-container-and-signature-services` (`validate-config.sh` warns until then). Signatures made afterwards chain to the new CA; documents signed before keep their chain. If you imported the old CA into a PDF reader's trust store, import the new one. A deployment that used the shared demo e-sealing credentials must put its own in `config/config.js` (the demo credentials were public and can be withdrawn at any time), then `docker compose restart ps-server`. Deployments on local e-sealing (`STAMP_MODE: "local"`) are unaffected by the e-sealing change.
 
+## v1.0.49 - 2026-09-27
+
+### Added
+
+- Upgrade guidance for moving `ps-client` to `8.41` or later, whose PDF viewer (Syncfusion 34) needs a new licence key in `config/constants.json`: how to resolve the `git stash pop` conflict on it, the overlay case, and putting the old key back on a rollback to `8.40` or older ([9.5](documentation/09-05-upgrading.md#new-syncfusion-key-for-ps-client-841), [9.8](documentation/09-08-rollback.md#rolling-ps-client-back-across-the-syncfusion-34-boundary)).
+
+### Fixed
+
+- The test suites under `installation-scripts/tests/` stop themselves with exit 124 when they run far longer than expected, and print what is still running, instead of hanging a terminal or CI job. No script a deployment runs changed.
+
 ## v1.0.48 - 2026-09-27
 
 ### Security

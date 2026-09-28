@@ -21,6 +21,10 @@ set -uo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$root" || exit 2
+src_root="$root"
+# shellcheck source=lib/watchdog.sh
+. "${src_root}/installation-scripts/tests/lib/watchdog.sh"
+watchdog_start
 # Git Bash rewrites any argument that starts with / (a pattern such as
 # /opt/psapp included) into a Windows path, which silently matches nothing.
 # No effect on Linux.
