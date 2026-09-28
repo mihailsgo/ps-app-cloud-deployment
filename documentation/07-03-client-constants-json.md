@@ -63,7 +63,7 @@ are used for logout and role lookup, and by the SPA's built-in fallback when
 |-----|---------|---------|
 | `PS_DOWNLOAD_API` | `"https://<host>/archive/api/document/"` | Archive base the viewer opens documents from: `PS_DOWNLOAD_API + <docId> + "/download"`. |
 | `PDF_TEST_PATH` | `"https://<host>/template"` | Base URL of static templates for interactive mode (`PDF_TEST_PATH + "_" + <lang> + ".pdf"`). Not used in the standard flow. |
-| `PDF_RENDER_SYNCFUSION_SECRET_KEY` | licensed key | Syncfusion PDF viewer licence key. Keep the shipped value. |
+| `PDF_RENDER_SYNCFUSION_SECRET_KEY` | licensed key | Syncfusion PDF viewer licence key. Keep the shipped value, or use your own licence. A key only licenses the Syncfusion versions it was issued for, so it must match the `ps-client` image: `8.40` and older run Syncfusion 27, `8.41` and later Syncfusion 34 (a 34.x key, valid for 8 major versions from 34). A mismatch does not break signing, but the viewer shows a licence banner over the document. The browser receives this value on every page load, so it is not a secret in the usual sense. Moving across that boundary: [9.5, New Syncfusion key](09-05-upgrading.md#new-syncfusion-key-for-ps-client-841). |
 | `PDF_SIGNATURE_X`, `PDF_SIGNATURE_Y` | `-250`, `-100` | Position of the visual signature. |
 | `PDF_SIGNATURE_ZOOM` | `100` | Scale of the signature image. |
 | `PDF_SIGNATURE_PAGE` | `10000` | Page for the signature. `10000` means the last page. |

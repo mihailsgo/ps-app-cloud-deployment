@@ -17,6 +17,12 @@ differently: see [9.11, Customized hosts (overlay)](09-11-start-at-boot-backups-
   changed, with an *Upgrade impact* note where you have to act. Read every
   release between the one you run and the target. The image versions of the
   current release are in [14.3 Release snapshot](14-03-release-snapshot.md).
+- **Moving `ps-client` from `8.40` or older to `8.41` or later?** The new
+  PDF viewer (Syncfusion 34) needs a new licence key in
+  `config/constants.json`, which `upgrade.sh` never edits, and `git stash
+  pop` conflicts on it. Do [New Syncfusion key for ps-client 8.41+](#new-syncfusion-key-for-ps-client-841)
+  between the pull and `upgrade.sh`, or the pads show a licence banner over
+  the document.
 - **Using receive-back with the Padsign Manager?** The current ps-server
   serves a signed PDF and accepts its acknowledgement only from a caller
   that proves it owns the document. Under the single shared
@@ -144,6 +150,11 @@ Resolve each conflicted file by hand:
 - **take the release's version** of everything else: new keys, comments,
   health checks, and the `image:` lines (they are the release's approved
   pins, the tags you pass to `upgrade.sh`);
+- **`PDF_RENDER_SYNCFUSION_SECRET_KEY` in `config/constants.json`** takes the
+  release's value too (unless you use your own Syncfusion licence). It
+  conflicts together with the neighbouring `PDF_TEST_PATH`: keep the
+  release's key line and this host's `PDF_TEST_PATH` line
+  ([New Syncfusion key for ps-client 8.41+](#new-syncfusion-key-for-ps-client-841));
 - **the Keycloak admin password** never goes back into
   `docker-compose.yml`: take the release's line and keep the value in `.env`.
 
@@ -201,6 +212,66 @@ or a script that runs one (`toggle-features.sh`, `update-hostname.sh`),
 would start the new images without `upgrade.sh`'s checks, backups,
 rollback snapshot and migrations. Only the read-only preview belongs
 between the pull and the upgrade.
+
+## New Syncfusion key for ps-client 8.41+
+
+Only when the tag you are moving `ps-client` to is `8.41` or later and the
+host runs `8.40` or older. Do this after the pull and before `upgrade.sh`.
+
+`ps-client` `8.41` and later run the Syncfusion 34 PDF viewer, and a
+Syncfusion key only licenses the versions it was issued for. With the key
+that `8.40` and older use (issued for 27.x), the new viewer shows *"The
+included Syncfusion® key and package versions do not match"* across the top
+of the document. The key is `PDF_RENDER_SYNCFUSION_SECRET_KEY` in the
+bind-mounted `config/constants.json`.
+
+The release that pins `ps-client:8.41` ships the new key. On a bootstrapped
+host, `git stash pop` after the pull **conflicts** on it: the key line sits
+next to `PDF_TEST_PATH`, which `bootstrap.sh` / `configure-host.sh` set to
+this host's hostname, and git treats two changed neighbouring lines as one
+conflict:
+
+```
+<<<<<<< Updated upstream
+    "PDF_RENDER_SYNCFUSION_SECRET_KEY": "<the release's new key>",
+    "PDF_TEST_PATH": "https://padsign.example.com/template",
+=======
+    "PDF_RENDER_SYNCFUSION_SECRET_KEY": "<the old key>",
+    "PDF_TEST_PATH": "https://<this host>/template",
+>>>>>>> Stashed changes
+```
+
+Keep the **upper** key line and the **lower** `PDF_TEST_PATH` line, remove
+the rest, then finish the pop as in
+[When `git stash pop` reports a conflict](#when-git-stash-pop-reports-a-conflict)
+(`git restore --staged .`, `git stash drop`). Check that the key is now the
+release's:
+
+```bash
+git diff -- config/constants.json | grep SYNCFUSION   # expect no output
+```
+
+- **Your own Syncfusion licence** instead of the repository's key: generate
+  a 34.x key in your Syncfusion account (*License & Downloads* > *Get License
+  Key*, version `34.x.x`) and put that in instead. The `grep` above then
+  shows your key, which is expected.
+- **Customized (overlay) host:** the overlay carries its own
+  `constants.json`, so `overlay.sh rebase` reports the same conflict in
+  `$NEW_OVERLAY/files/config/constants.json`. Resolve it the same way, then
+  run `overlay.sh rehash --overlay "$NEW_OVERLAY"`
+  ([9.11, Upgrading an overlay host](09-11-start-at-boot-backups-and-customized-hosts.md#upgrading-an-overlay-host)).
+
+`upgrade.sh` recreates `ps-client`, so the container picks up the edited
+file. Afterwards, check what the pads are served and reload a pad page (no
+banner):
+
+```bash
+curl -s https://padsign.example.com/portal/constants.json | grep SYNCFUSION   # the new key
+```
+
+The key is valid for 8 Syncfusion major versions from 34, so later client
+releases keep it. Rolling `ps-client` back to `8.40` or older needs the old
+key back: [9.8, Rolling ps-client back across the Syncfusion 34 boundary](09-08-rollback.md#rolling-ps-client-back-across-the-syncfusion-34-boundary).
 
 ## Step 2: Preview the changes
 

@@ -25,7 +25,8 @@ set -uo pipefail
 # scripts make to docker is logged and checked for secrets. Linux only for
 # the file-mode cases (Git Bash on NTFS has no real modes).
 #
-# Exit codes: 0 all passed, 1 a case failed, 2 missing dependency.
+# Exit codes: 0 all passed, 1 a case failed, 2 missing dependency,
+# 124 the watchdog (lib/watchdog.sh) stopped it.
 # ============================================================================
 
 src_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -36,6 +37,9 @@ unset COMPOSE_FILE COMPOSE_PROFILES COMPOSE_PROJECT_NAME COMPOSE_PATH_SEPARATOR 
 
 work="$(mktemp -d)"
 trap 'chmod -R u+rwX "$work" 2>/dev/null; rm -rf "$work"' EXIT
+# shellcheck source=lib/watchdog.sh
+. "${src_root}/installation-scripts/tests/lib/watchdog.sh"
+watchdog_start
 linux=false; [[ "$(uname -s)" == Linux ]] && linux=true
 real_docker=""
 if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
