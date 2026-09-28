@@ -163,6 +163,14 @@ The disk figures cover the two signed-document stores (ps-server's
 compose model mounts them from, so an overlay's storage on its own volume
 is covered.
 
+Container logs do not fill the disk: every service in `docker-compose.yml`
+uses Docker's `json-file` log driver with rotation (`max-size: 20m`,
+`max-file: 5`, the `x-logging` block at the top of the file), so each
+container keeps at most about 100 MB of log. `docker compose logs` reads
+only what is still kept, so on a busy host the oldest lines of a service's
+log roll off. Run the alert from cron often enough (every 10 minutes, as
+above) that no failure line rolls off between two runs.
+
 ## Exit codes
 
 | Code | Meaning |

@@ -13,6 +13,7 @@ log/
 # Env
 .env
 .env.*
+!.env.example
 *.local
 # Deployment-wizard test fixtures are fake project roots, not deployments:
 # readConfiguredFeatures() reads COMPOSE_PROFILES from <project>/.env, so a

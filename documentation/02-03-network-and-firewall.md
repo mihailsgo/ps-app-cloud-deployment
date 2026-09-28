@@ -13,15 +13,18 @@ network, and which outbound connections the host needs. The port bindings come f
 | 22/tcp | SSH | Administrators only | Administration, and the tunnel to the Deployment Wizard |
 | 8443/tcp | wizard | **Nobody.** Keep it closed | Deployment Wizard, reached through an SSH tunnel |
 
-The wizard publishes port 8443 on all of the host's interfaces while it runs. Do not open it in any
-firewall. Reach it through SSH from your workstation instead:
+While it runs, the wizard publishes port 8443 on the host's loopback address only
+(`127.0.0.1:8443`), so the network cannot reach it. Do not open it in any firewall. Reach it through
+SSH from your workstation instead:
 
 ```bash
 ssh -L 8443:localhost:8443 user@padsign.example.com
 # then browse to https://localhost:8443
 ```
 
-Details: [3.1 Starting the wizard](03-01-starting-the-wizard.md).
+Setting `WIZARD_BIND_ADDRESS=0.0.0.0` in `.env` publishes it on all interfaces instead. Do that only
+on a trusted admin network, and read *Docker and host firewalls* below first: a host firewall does
+not close a Docker-published port. Details: [3.1 Starting the wizard](03-01-starting-the-wizard.md).
 
 ## Ports bound to loopback or not published
 
@@ -43,7 +46,8 @@ stamping service deliberately has no host port, so it never collides with a USB-
 service that may already listen on host port 8084.
 
 `validate-config.sh` fails if any service other than `nginx` and `wizard` is published on a
-non-loopback interface ([5.2 Validating configuration](05-02-validating-configuration.md)).
+non-loopback interface, and warns when the wizard is
+([5.2 Validating configuration](05-02-validating-configuration.md)).
 
 ## Ports that must be free on the host
 
@@ -60,7 +64,8 @@ No output means they are free.
 
 Docker publishes container ports by adding its own packet-filtering rules, and traffic to published
 ports does not pass through the input rules of host firewalls such as `ufw` or `firewalld`. A
-`ufw deny 8443` does not close the wizard's port. Enforce the table above in a network firewall in
+`ufw deny 8443` does not close the wizard's port when `WIZARD_BIND_ADDRESS` publishes it on a
+network interface. Enforce the table above in a network firewall in
 front of the host (for example a cloud security group), or with rules in Docker's `DOCKER-USER`
 chain. See Docker's documentation:
 <https://docs.docker.com/engine/network/packet-filtering-firewalls/>.

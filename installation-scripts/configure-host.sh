@@ -168,8 +168,10 @@ dest_key="${nginx_certs_dir}/${host}.key"
 
 mkdir -p "$nginx_certs_dir"
 if [[ -f "$cert_crt" && -f "$cert_key" ]]; then
-  cp -f "$cert_crt" "$dest_crt"
-  cp -f "$cert_key" "$dest_key"
+  # Passing the deployed files themselves (nginx/certs/<host>.*) is allowed:
+  # cp refuses to copy a file onto itself and, under set -e, would stop here.
+  [[ "$cert_crt" -ef "$dest_crt" ]] || cp -f "$cert_crt" "$dest_crt"
+  [[ "$cert_key" -ef "$dest_key" ]] || cp -f "$cert_key" "$dest_key"
   chmod 600 "$dest_key" 2>/dev/null || true
   echo "  Copied certs to nginx/certs/"
 
@@ -461,18 +463,25 @@ if [[ "$enable_local_eseal" == "true" ]]; then
   cp -n "$assets_src/seal/README.md"    "$stamping_dst/seal/README.md"    2>/dev/null || true
   echo "  Staged dmss-digital-stamping-service/ demo artefacts"
 
-  # Append the compose service block if absent.
+  # Append the compose service block if absent (only a customised compose
+  # file lacks it: the release's own docker-compose.yml ships it). Its image
+  # is the release's approved, digest-pinned one, never a tag typed here.
   if ! grep -q 'dmss-digital-stamping-service' "$compose_yml"; then
+    stamping_image="$(python3 -c 'import json, sys; e = json.load(open(sys.argv[1], encoding="utf-8"))["images"]["dmss-digital-stamping-service"]; print("%s:%s@%s" % (e["repository"], e["tag"], e["digest"]))' "${repo_root}/release/approved-digests.json" 2>/dev/null | tr -d '\r')"
+    if [[ -z "$stamping_image" ]]; then
+      echo "ERROR: --enable-local-eseal: no approved dmss-digital-stamping-service image in release/approved-digests.json" >&2
+      exit 3
+    fi
     if grep -q '^networks:' "$compose_yml"; then
-      perl -i -pe 'if (/^networks:/ && !$done) { print "  dmss-digital-stamping-service:\n    container_name: dmss-digital-stamping-service\n    profiles: [\"local-eseal\"]\n    restart: always\n    image: \"trustlynx/digital-stamping-service:24.0.3.0\"\n    environment:\n      - SPRING_CONFIG_ADDITIONAL_LOCATION=file:/conf/\n    volumes:\n      - \"./dmss-digital-stamping-service:/conf:ro\"\n      - \"./dmss-digital-stamping-service/seal:/seal:ro\"\n    extra_hosts:\n      - \"host.docker.internal:host-gateway\"\n\n"; $done=1; }' "$compose_yml"
+      STAMPING_IMAGE="$stamping_image" perl -i -pe 'if (/^networks:/ && !$done) { print "  dmss-digital-stamping-service:\n    container_name: dmss-digital-stamping-service\n    profiles: [\"local-eseal\"]\n    restart: unless-stopped\n    image: \"$ENV{STAMPING_IMAGE}\"\n    environment:\n      - SPRING_CONFIG_ADDITIONAL_LOCATION=file:/conf/\n    volumes:\n      - \"./dmss-digital-stamping-service:/conf:ro\"\n      - \"./dmss-digital-stamping-service/seal:/seal:ro\"\n    extra_hosts:\n      - \"host.docker.internal:host-gateway\"\n\n"; $done=1; }' "$compose_yml"
     else
-      cat >>"$compose_yml" <<'COMPOSE_BLOCK'
+      cat >>"$compose_yml" <<COMPOSE_BLOCK
 
   dmss-digital-stamping-service:
     container_name: dmss-digital-stamping-service
     profiles: ["local-eseal"]
-    restart: always
-    image: "trustlynx/digital-stamping-service:24.0.3.0"
+    restart: unless-stopped
+    image: "${stamping_image}"
     environment:
       - SPRING_CONFIG_ADDITIONAL_LOCATION=file:/conf/
     volumes:

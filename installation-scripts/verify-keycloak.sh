@@ -9,7 +9,7 @@ realm="padsign"
 host="${KC_HOSTNAME:-}"
 company_role=""
 admin_user="${KEYCLOAK_ADMIN:-admin}"
-admin_pass="${KEYCLOAK_ADMIN_PASSWORD:-admin}"
+admin_pass="${KEYCLOAK_ADMIN_PASSWORD:-}"
 
 usage() {
   cat <<'EOF'
@@ -24,6 +24,9 @@ Verifies (fails non-zero on mismatch):
   - padsign-client access tokens carry padsign-backend in their audience
   - padsign-backend settings (confidential + service accounts enabled)
   - the shared test user, if still present, has ONLY the company role (absent = OK)
+
+Admin password: KEYCLOAK_ADMIN_PASSWORD or --admin-pass if given, otherwise
+the one the keycloak container was started with (as upgrade.sh does).
 EOF
 }
 
@@ -72,6 +75,13 @@ docker compose up -d keycloak >/dev/null
 # postdeploy-check.sh runs this right after a (re)start; without the wait the
 # login races Keycloak's boot and the whole check aborts with no output.
 kc_wait_ready || exit 1
+# No password given: use the one the keycloak container was started with,
+# like upgrade.sh does. bootstrap.sh always sets a real one (in .env), so the
+# demo default "admin" is only the last resort.
+if [[ -z "$admin_pass" ]]; then
+  admin_pass="$(kc_exec 'printenv KEYCLOAK_ADMIN_PASSWORD || printenv KC_BOOTSTRAP_ADMIN_PASSWORD' 2>/dev/null | tr -d '\r' | head -n 1 || true)"
+  admin_pass="${admin_pass:-admin}"
+fi
 kc_login "${admin_user}" "${admin_pass}"
 trap kc_logout EXIT
 
@@ -202,7 +212,7 @@ fi
 # smoke-user.sh's disposable logins instead. Its absence is the
 # recommended state, not a failure.
 unset exit_code
-test_uid="$(kc_exec "/opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username=test --fields id --format csv | tail -n 1" | tr -d '\r')"
+test_uid="$(kc_exec "/opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username=test -q exact=true --fields id --format csv | tail -n 1" | tr -d '\r')"
 if [[ -z "$test_uid" || "$test_uid" == "id" ]]; then
   ok "no shared 'test' user (recommended for production - use smoke-user.sh for smoke tests)"
 else

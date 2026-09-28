@@ -60,11 +60,11 @@ Dashed boxes are optional services that start only when their compose profile is
 | `dmss-archive-services-fallback` | Filesystem archive. Despite its name it is the archive's first storage connection in this configuration (`FS-MAIN`, priority 1 in `dmss-archive-services/application.yml`) and holds the document files in `./docs`. | 8095 | none |
 | `dmss-container-and-signature-services` | Applies the visual signature to a PDF and, in local e-sealing mode, the e-seal. Uses the signing profiles in `documentsigningprofiles.json`. | 8092 | `127.0.0.1:84` |
 | `dmss-digital-stamping-service` | Holds the e-seal key (`dmss-digital-stamping-service/seal/seal.p12`) and signs digests for container-signature. Profile `local-eseal` only. | 8084 | none |
-| `wizard` | The Deployment Wizard. Profile `wizard` only, started on demand. Mounts the host's Docker socket. | 8443 | `8443` on all interfaces |
+| `wizard` | The Deployment Wizard. Profile `wizard` only, started on demand. Mounts the host's Docker socket. | 8443 | `127.0.0.1:8443` (set `WIZARD_BIND_ADDRESS` in `.env` to change it) |
 
 The loopback-only host ports exist for local diagnostics on the host itself (`curl localhost:84/...`).
 Nothing outside the host can reach them. `validate-config.sh` fails if any service other than
-`nginx` and `wizard` publishes a port on a non-loopback interface
+`nginx` and `wizard` publishes a port on a non-loopback interface, and warns when the wizard does
 ([5.2 Validating configuration](05-02-validating-configuration.md)). Firewall guidance:
 [2.3 Network and firewall](02-03-network-and-firewall.md).
 

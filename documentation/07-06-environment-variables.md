@@ -11,12 +11,18 @@ runs it. No container reads it directly. When `bootstrap.sh` runs as root, it
 gives the file to the owner of the deployment directory so that user can
 still run `docker compose`.
 
+`.env.example`, next to it, is a tracked reference that lists and explains
+every variable `docker-compose.yml` reads from `.env`. It is never read
+itself: copy a line into `.env` only when you need it.
+
 | Key | Written by | Meaning |
 |-----|-----------|---------|
 | `KEYCLOAK_FIRST_BOOT_ADMIN_PASSWORD` | `bootstrap.sh` / `configure-host.sh --admin-pass` | Keycloak's master-realm admin password, passed to the keycloak container as `KEYCLOAK_ADMIN_PASSWORD`. Used **only on Keycloak's first boot** against an empty `keycloak_data` volume ([8.3](08-03-admin-password-and-break-glass.md)). |
 | `COMPOSE_PROFILES` | `--enable-local-eseal` / `toggle-features.sh` | `local-eseal` makes a plain `docker compose up -d` include the stamping service ([10](10-local-e-sealing.md)). Do not add `wizard` here: start the wizard on demand ([3.1](03-01-starting-the-wizard.md)). |
 | `ALERT_WEBHOOK_URL` | you | Where `monitor-status.sh --alert` posts alerts ([9.10](09-10-monitoring-and-alerting.md)). An exported variable of the same name wins over `.env`. |
 | `COMPOSE_FILE`, `COMPOSE_PROJECT_NAME` | `overlay.sh` | Only on hosts run as release baseline plus overlay ([9.11](09-11-start-at-boot-backups-and-customized-hosts.md)). |
+| `WIZARD_BIND_ADDRESS` | you | Host address the Deployment Wizard's port 8443 is published on. Unset, it is `127.0.0.1` (reach it through an SSH tunnel). `0.0.0.0` opens it on all interfaces: only on a trusted admin network, because Docker-published ports bypass host firewalls such as `ufw`, and `validate-config.sh` warns ([3.1](03-01-starting-the-wizard.md#reaching-the-wizard-without-a-tunnel-wizard_bind_address)). |
+| `WIZARD_TLS_SANS` | you | Extra names or IPv4 addresses, comma-separated, for the wizard's self-signed certificate, when you browse to it by the host's address instead of through the tunnel ([3.1](03-01-starting-the-wizard.md#the-wizards-certificate-names-wizard_tls_sans)). |
 
 `bootstrap.sh` double-quotes the admin password and escapes `\`, `"` and `$`,
 which compose reads back exactly. A password containing a newline or tab is
@@ -40,8 +46,7 @@ Set in the `keycloak` service of `docker-compose.yml`:
 | `KC_HOSTNAME` | the deployment host | Keycloak's fixed frontend hostname. It decides the token issuer and the login form's URLs. `configure-host.sh` sets it. A hand edit needs `docker compose up -d keycloak`. |
 | `KC_HTTP_RELATIVE_PATH` | `/auth` | Keycloak is served under `/auth`. |
 | `KC_PROXY_HEADERS` | `xforwarded` | Trust nginx's `X-Forwarded-*` headers. |
-| `KC_PROXY` | `edge` | Legacy proxy setting, kept alongside `KC_PROXY_HEADERS`. |
-| `KC_HOSTNAME_STRICT`, `KC_HOSTNAME_STRICT_HTTPS` | `false` | Relaxed hostname checks behind the TLS-terminating nginx. |
+| `KC_HOSTNAME_STRICT` | `false` | Relaxed hostname checks behind the TLS-terminating nginx. |
 | `KC_HEALTH_ENABLED` | `true` | Health endpoints on the management port 9000, used by the container health check. |
 
 Keycloak runs with `command: start-dev` and an embedded H2 database. This is
@@ -58,7 +63,7 @@ not production-grade: see
 | ps-server | `ALLOW_INSECURE_TLS` | Not set by default. `true` turns insecure TLS on even when `config/config.js` has `ALLOW_INSECURE_TLS: false`. It can only turn it on: `false` (or any other value) does not turn it off when `config/config.js` has `true` ([7.4](07-04-server-config-js.md)). |
 | DMSS services | `SPRING_CONFIG_LOCATION` / `SPRING_CONFIG_ADDITIONAL_LOCATION` | Point the Spring services at their mounted `application.yml`. |
 | dmss-container-and-signature-services | `SPRING_SECURITY_USER_NAME`, `SPRING_SECURITY_USER_PASSWORD` | Only with local e-sealing. Container-signature's Basic-auth credentials, which must match `STAMP_LOCAL` in `config/config.js`. Ship as `user` / `changeit`: rotate them ([6](06-production-hardening.md)). |
-| wizard | `WIZARD_PORT`, `HOST_PROJECT_DIR`, `WIZARD_TLS_SANS` | The wizard's port, the project path, and extra names or IPs for its self-signed certificate ([3.1](03-01-starting-the-wizard.md)). |
+| wizard | `WIZARD_PORT`, `HOST_PROJECT_DIR`, `WIZARD_TLS_SANS` | The wizard's port, the project path, and extra names or IPs for its self-signed certificate. `WIZARD_TLS_SANS` is taken from `.env` (see above); no compose edit is needed ([3.1](03-01-starting-the-wizard.md)). |
 
 ## Variables the installation scripts read
 

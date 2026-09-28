@@ -88,27 +88,13 @@ safe to repeat.
 
 In `Step 5/6` the script pulls and starts `dmss-digital-stamping-service`,
 using the image `docker-compose.yml` pins (`trustlynx/digital-stamping-service:24.0.3.1`
-in this release, see [14.3](14-03-release-snapshot.md)). It then runs
-`docker compose up -d` for `dmss-container-and-signature-services` and
-`ps-server`. That recreates a container only when its definition in
-`docker-compose.yml` changed. `Step 6/6` waits for them to report healthy.
-The default limit is 480 seconds (`--health-timeout`).
-
-ps-server reads `config/config.js` only when it starts. If ps-server was not
-recreated in `Step 5/6` (for example because no ps-server tag was given, so
-its compose definition stayed the same), it still runs with the old
-`config.js` and keeps using external e-sealing. Check its start time, and
-restart it if it did not start during the upgrade:
-
-```bash
-docker compose ps ps-server          # CREATED / STATUS show when it last started
-docker compose restart ps-server
-```
-
-A restart is harmless when ps-server was already recreated. The same applies
-to `dmss-container-and-signature-services`, which reads the patched
-`baseUrl` in its `application.yml` only when it starts: if it did not start
-during the upgrade, run `docker compose restart dmss-container-and-signature-services`.
+in this release, see [14.3](14-03-release-snapshot.md)). It then recreates
+`dmss-container-and-signature-services` and `ps-server`
+(`docker compose up -d --no-deps --force-recreate`), even when no image tag
+changed, so both start again and read the updated `application.yml` and
+`config/config.js`. `Step 6/6` waits for them to report healthy.
+The default limit is 480 seconds (`--health-timeout`). No manual restart is
+needed afterwards.
 
 **Downtime.** While container-signature and ps-server restart, signing and
 sealing are unavailable. For container-signature this is roughly a minute,

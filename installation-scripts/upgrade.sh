@@ -543,8 +543,8 @@ STAMPING_COMPOSE_BLOCK=$(cat <<'BLOCK'
   dmss-digital-stamping-service:
     container_name: dmss-digital-stamping-service
     profiles: ["local-eseal"]
-    restart: always
-    image: "trustlynx/digital-stamping-service:24.0.3.0"
+    restart: unless-stopped
+    image: "__STAMPING_IMAGE__"
     environment:
       - SPRING_CONFIG_ADDITIONAL_LOCATION=file:/conf/
     volumes:
@@ -554,6 +554,12 @@ STAMPING_COMPOSE_BLOCK=$(cat <<'BLOCK'
       - "host.docker.internal:host-gateway"
 BLOCK
 )
+# Only inserted into a customised compose file that lacks the service (the
+# release's own docker-compose.yml ships it). Its image is the release's
+# approved, digest-pinned one, never a tag typed here.
+stamping_image="$(digest_registry_table 2>/dev/null | tr -d '\r' \
+  | awk -F'\t' '$1 == "dmss-digital-stamping-service" && $4 ~ /^sha256:/ { print $2 ":" $3 "@" $4; exit }')"
+STAMPING_COMPOSE_BLOCK="${STAMPING_COMPOSE_BLOCK/__STAMPING_IMAGE__/${stamping_image:-trustlynx/digital-stamping-service}}"
 
 SIGNED_OUTPUT_VOLUME_LINE='      - "./signed-output:/signed-output"'
 SPRING_SECURITY_LINES=$'      - SPRING_SECURITY_USER_NAME=user\n      - SPRING_SECURITY_USER_PASSWORD=changeit'
@@ -1179,8 +1185,11 @@ cd "$repo_root"
 services=""
 [[ -n "$server_tag" ]] && services="$services ps-server"
 [[ -n "$client_tag" ]] && services="$services ps-client"
-if [[ "$enable_local_eseal" == true ]]; then
-  # Pull / start the stamping service alongside any tagged images.
+if [[ "$enable_local_eseal" == true ]]    || grep -qx dmss-digital-stamping-service < <(docker compose ps --services --status running 2>/dev/null </dev/null | tr -d '\r'); then
+  # Pull / start the stamping service alongside any tagged images - and
+  # whenever it already runs, so a release's change to its compose
+  # definition (restart policy, logging, image) reaches it. `up -d` leaves
+  # it alone when nothing changed.
   services="$services dmss-digital-stamping-service"
 fi
 # A failed upgrade is recorded as evidence, reported with the exact rollback
@@ -1215,7 +1224,10 @@ if [[ "$enable_local_eseal" == true ]]; then
   # container-signature needs to be restarted to pick up the new
   # SPRING_SECURITY_USER_* env vars and the patched baseUrl, and ps-server to
   # re-read config.js. These restarts are cheap and intentional.
-  docker compose up -d dmss-container-and-signature-services ps-server || upgrade_failed "could not restart container-signature/ps-server"
+  # --force-recreate: a plain `up -d` leaves a container alone when its
+  # compose definition did not change (no tag bump), and neither service
+  # re-reads a bind-mounted file (config.js, application.yml) while running.
+  docker compose up -d --no-deps --force-recreate dmss-container-and-signature-services ps-server || upgrade_failed "could not restart container-signature/ps-server"
 fi
 
 if [[ "$compose_hostname_recreate_keycloak" == true ]]; then
@@ -1224,13 +1236,11 @@ if [[ "$compose_hostname_recreate_keycloak" == true ]]; then
   kc_wait_ready || echo "  WARNING: Keycloak not ready yet after recreate. Check: docker compose logs keycloak" >&2
 fi
 
-# Also restart nginx to pick up any config changes — recreated instead when
-# its network alias changed, since a restart keeps the old definition.
-if [[ "$compose_hostname_recreate_nginx" == true ]]; then
-  docker compose up -d --no-deps --force-recreate nginx || upgrade_failed "could not recreate nginx"
-else
-  docker compose restart nginx 2>/dev/null || true
-fi
+# Recreate nginx, never just restart it: a restart keeps the container's old
+# definition, so a release's change to it (network alias, logging, restart
+# policy) would not apply. Recreating takes seconds and also reloads
+# nginx.conf and the certificates.
+docker compose up -d --no-deps --force-recreate nginx </dev/null || upgrade_failed "could not recreate nginx"
 
 # ── Step 6: Verify ──
 echo "Step 6/6: Waiting for restarted services to be healthy (up to ${health_timeout}s)..."

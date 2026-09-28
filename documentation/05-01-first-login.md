@@ -102,8 +102,9 @@ page in a loop, see [12. Troubleshooting](12-troubleshooting.md).
 
 ## Before production
 
-- **Delete the `test` user** (`padsign` realm > Users > `test` > Action > Delete). It is a shared
-  login with a known role. A later run of `bootstrap.sh` or `keycloak-bootstrap.sh` recreates it, so
+- **Delete the `test` user** (`padsign` realm > Users > `test` > Action > Delete, or
+  `./installation-scripts/smoke-user.sh delete --host padsign.example.com --username test --force`
+  with `KEYCLOAK_ADMIN_PASSWORD` exported as above). It is a shared login with a known role. A later run of `bootstrap.sh` or `keycloak-bootstrap.sh` recreates it, so
 delete it again after any such run.
 - **Delete leftover smoke users** with `smoke-user.sh delete`.
 - **Change the Keycloak admin password** if you installed with a temporary or weak one. Changing

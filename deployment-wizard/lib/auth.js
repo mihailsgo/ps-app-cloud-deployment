@@ -24,8 +24,12 @@ function timingSafeStringEqual(a, b) {
 }
 
 function checkToken(candidate) {
-  if (typeof candidate !== 'string' || candidate.length === 0) return false;
-  return timingSafeStringEqual(candidate, ACCESS_TOKEN);
+  if (typeof candidate !== 'string') return false;
+  // Copied out of `docker logs` or a chat window, the token often arrives
+  // with a stray space or newline around it; it never contains whitespace.
+  const trimmed = candidate.trim();
+  if (trimmed.length === 0) return false;
+  return timingSafeStringEqual(trimmed, ACCESS_TOKEN);
 }
 
 // Gate everything except /login and /api/auth behind a valid session.

@@ -112,11 +112,10 @@ retries `up -d` for this reason.
 
 ## After a reboot
 
-Services with `restart: always` (the DMSS services, ps-server) come back
-with Docker. Keycloak, nginx and ps-client use `restart: unless-stopped`
-and stay down after a reboot if they were stopped with `docker compose stop`
-before it. Docker also restarts containers in no particular order, without
-the dependency waits. Install the boot unit so the stack starts with
+Every service uses `restart: unless-stopped`: it comes back with Docker,
+unless it was stopped with `docker compose stop` before the reboot, in which
+case it stays down. Docker also restarts containers in no particular order,
+without the dependency waits. Install the boot unit so the stack starts with
 `docker compose up -d` in the right order:
 [9.11, Starting the stack at boot](09-11-start-at-boot-backups-and-customized-hosts.md#starting-the-stack-at-boot).
 

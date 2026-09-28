@@ -7,8 +7,9 @@ relative to that directory.
 
 | Path | Purpose |
 |---|---|
-| `docker-compose.yml` | Every service, its image (pinned by tag and digest), ports, volumes, health checks and compose profiles. Tracked in git and readable by everyone on the host, so the Keycloak admin password is kept out of it (in `.env`). One exception: with local e-sealing it holds container-signature's Basic-auth password (`SPRING_SECURITY_USER_PASSWORD`), which you rotate as described in [6. Production hardening](06-production-hardening.md#rotating-the-local-e-sealing-password-9). |
-| `.env` | Git-ignored, mode 600. `KEYCLOAK_FIRST_BOOT_ADMIN_PASSWORD`, `COMPOSE_PROFILES` (for example `local-eseal`) and optional alerting settings ([7.6 Environment variables](07-06-environment-variables.md)). |
+| `docker-compose.yml` | Every service, its image (pinned by tag and digest), ports, volumes, health checks, compose profiles, restart policy (`unless-stopped` for every service) and container log rotation (the `x-logging` block: `json-file`, 5 files of 20 MB per container). Tracked in git and readable by everyone on the host, so the Keycloak admin password is kept out of it (in `.env`). One exception: with local e-sealing it holds container-signature's Basic-auth password (`SPRING_SECURITY_USER_PASSWORD`), which you rotate as described in [6. Production hardening](06-production-hardening.md#rotating-the-local-e-sealing-password-9). |
+| `.env` | Git-ignored, mode 600. `KEYCLOAK_FIRST_BOOT_ADMIN_PASSWORD`, `COMPOSE_PROFILES` (for example `local-eseal`), the optional wizard settings `WIZARD_BIND_ADDRESS` / `WIZARD_TLS_SANS` and optional alerting settings ([7.6 Environment variables](07-06-environment-variables.md)). |
+| `.env.example` | Tracked reference, never read: every variable `docker-compose.yml` reads from `.env`, with an explanation of each ([7.6](07-06-environment-variables.md)). |
 
 ## Service configuration
 
@@ -23,7 +24,7 @@ relative to that directory.
 | `dmss-archive-services/application.yml` | dmss-archive-services | Archive service settings (database, archive connections, fallback). |
 | `dmss-archive-services/mappings.json` | dmss-archive-services | Document types and their archive path layout. |
 | `dmss-archive-services/cacerts/` | dmss-archive-services | Java trust store. |
-| `dmss-container-and-signature-services/application.yml` | dmss-container-and-signature-services | Signing service settings: archive URLs, stamping-service URL, DigiDoc4j settings. |
+| `dmss-container-and-signature-services/application.yml` | dmss-container-and-signature-services | Signing service settings: archive URLs, stamping-service URL, DigiDoc4j settings, log levels (`info`, with `ee.digitalmind` at `debug`). |
 | `dmss-container-and-signature-services/documentsigningprofiles.json` | dmss-container-and-signature-services | Signing profile catalogue, including the `LocalDemo` profile for local e-sealing ([10.7](10-07-adding-a-signing-profile.md)). |
 | `dmss-container-and-signature-services/dmssrootca.p12` | dmss-container-and-signature-services | CA used for visual PDF signatures. The shipped one is a demo CA; `bootstrap.sh` replaces it with one generated for your deployment. |
 | `dmss-container-and-signature-services/digidoc4j-custom.yaml`, `ssl_tsl_truststore.p12`, `https___sr_riik_ee_tsl_estonian_tsl_xml` | dmss-container-and-signature-services | Trust list, TSA/OCSP and trust store settings for signature validation ([10.8](10-08-tsa-and-ocsp-for-lt-and-lta.md)). |

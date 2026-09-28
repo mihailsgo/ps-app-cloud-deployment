@@ -32,8 +32,10 @@ differently: see [9.11, Customized hosts (overlay)](09-11-start-at-boot-backups-
   upgrade: [11, Per-company API keys](11-document-routing-and-receive-back.md#per-company-api-keys).
 - **Take a backup** of configuration, certificates, the Keycloak volume and
   the document stores ([9.11, Backups](09-11-start-at-boot-backups-and-customized-hosts.md#backups)).
-- **Plan a short maintenance window.** ps-server and ps-client are
-  recreated and nginx restarts. The DMSS services keep running.
+- **Plan a short maintenance window.** ps-server, ps-client and nginx are
+  recreated. Keycloak and the DMSS services are recreated too when the
+  release changes their definition (the Java services then take a few
+  minutes to become healthy); otherwise they keep running.
 - **Note what runs now**, in case you need to compare later:
 
   ```bash

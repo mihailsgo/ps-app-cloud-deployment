@@ -91,7 +91,8 @@ sign in again afterwards.
 
 **Cause:** another process holds a host port the stack binds: `80` and
 `443` on all interfaces, `8080` (Keycloak), `84` (container-signature) and
-`86` (archive) on `127.0.0.1` only, and `8443` while the wizard runs.
+`86` (archive) on `127.0.0.1` only, and `8443` (on `127.0.0.1` unless
+`WIZARD_BIND_ADDRESS` is set) while the wizard runs.
 ps-server, ps-client, the fallback archive and the stamping service bind no
 host port.
 
@@ -262,3 +263,9 @@ docker compose logs --tail 100 nginx
 curl -s https://padsign.example.com/auth/realms/padsign/.well-known/openid-configuration | python3 -m json.tool | head
 ./installation-scripts/monitor-status.sh --host padsign.example.com
 ```
+
+Container logs are rotated (at most 5 files of 20 MB per container), so
+`docker compose logs` shows only the most recent part of a long-running
+service's log. Copy a log out with
+`docker compose logs --no-color <service> > <service>.log` soon after a
+problem if you need it for support.

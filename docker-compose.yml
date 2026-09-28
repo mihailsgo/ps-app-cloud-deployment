@@ -1,3 +1,12 @@
+# Container log rotation for every service. Docker's default json-file driver
+# never rotates, and the Java services log a lot: without this the disk fills.
+# 5 files x 20 MB per container; `docker compose logs` still works.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
 services:
   keycloak:
     image: quay.io/keycloak/keycloak:26.7.4@sha256:82a77884f3af238beab1e7afd63b5f530e1b5c0590bd7aa60b40a40463e29b2c
@@ -17,9 +26,7 @@ services:
       # frontend hostname - the token issuer and the login form's URLs.
       - KC_HOSTNAME=padsign.trustlynx.com
       - KC_HTTP_RELATIVE_PATH=/auth
-      - KC_PROXY=edge
       - KC_HOSTNAME_STRICT=false
-      - KC_HOSTNAME_STRICT_HTTPS=false
       - KC_PROXY_HEADERS=xforwarded
       - KC_HEALTH_ENABLED=true
     command: start-dev
@@ -29,6 +36,7 @@ services:
     ports:
       - "127.0.0.1:8080:8080"
     restart: unless-stopped
+    logging: *default-logging
     volumes:
       - keycloak_data:/opt/keycloak/data
     healthcheck:
@@ -43,7 +51,8 @@ services:
       start_period: 90s
   dmss-archive-services:
     container_name: dmss-archive-services
-    restart: always
+    restart: unless-stopped
+    logging: *default-logging
     # Loopback-only: nginx reaches this by service name on the Docker network
     # (see nginx/nginx.conf `/archive/api/`). Bound to the host at 127.0.0.1 only for
     # the direct operator diagnostics in documentation/10-04 and 10-07 (curl
@@ -71,7 +80,8 @@ services:
         condition: service_healthy
   dmss-container-and-signature-services:
     container_name: dmss-container-and-signature-services
-    restart: always
+    restart: unless-stopped
+    logging: *default-logging
     # Loopback-only: nginx reaches this by service name on the Docker network
     # (see nginx/nginx.conf `/container/api/`). Bound to the host at 127.0.0.1 only for
     # the direct operator diagnostics in documentation/10-04 and 10-07 (curl
@@ -131,7 +141,8 @@ services:
   dmss-digital-stamping-service:
     container_name: dmss-digital-stamping-service
     profiles: ["local-eseal"]
-    restart: always
+    restart: unless-stopped
+    logging: *default-logging
     image: 'trustlynx/digital-stamping-service:24.0.3.1@sha256:aed47670e42b75f1b1354c9bc5a0397a862db522f1af12c80f404de872ba4eb1'
     environment:
       # ADDITIONAL_LOCATION (not LOCATION) so the in-jar baked YAML still loads;
@@ -152,7 +163,8 @@ services:
       start_period: 300s   # JVM: see dmss-container-and-signature-services for the numbers
   dmss-archive-services-fallback:
     container_name: dmss-archive-services-fallback
-    restart: always
+    restart: unless-stopped
+    logging: *default-logging
     # No host port mapping: only called internally, by service name, by
     # dmss-archive-services and dmss-container-and-signature-services. Nothing
     # in this repo (config, scripts, docs) reaches it via the host.
@@ -174,7 +186,8 @@ services:
     # No host port mapping: nginx reaches this by service name on the Docker
     # network (see nginx/nginx.conf `/api/`). Nothing else in this repo needs
     # a host-level path to it.
-    restart: always
+    restart: unless-stopped
+    logging: *default-logging
     depends_on:
       keycloak:
         condition: service_healthy
@@ -219,6 +232,7 @@ services:
      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
      - ./nginx/certs:/etc/nginx/certs:ro
     restart: unless-stopped
+    logging: *default-logging
     networks:
       default:
         aliases:
@@ -239,6 +253,7 @@ services:
     image: mihailsgordijenko/ps-client:8.40@sha256:3293190b9c4c478de62b453006982dcd821d683fc987a38c944cb47d02d79b1e
     container_name: ps-client
     restart: unless-stopped
+    logging: *default-logging
     # No host port mapping; accessed via nginx by service name
     volumes:
       # Override runtime configuration file inside the client image
@@ -282,19 +297,24 @@ services:
     container_name: padsign-wizard
     profiles: ["wizard"]
     restart: unless-stopped
+    logging: *default-logging
+    # Loopback only by default: reach it through an SSH tunnel
+    # (ssh -L 8443:localhost:8443 <user>@<host>). This container holds the
+    # Docker socket, and Docker's port publishing bypasses host firewalls
+    # such as ufw, so an all-interfaces port would be open to the network.
+    # To reach it directly from a trusted admin network, set
+    # WIZARD_BIND_ADDRESS=0.0.0.0 in .env (documentation/03-01-starting-the-wizard.md).
     ports:
-      - "8443:8443"
+      - "${WIZARD_BIND_ADDRESS:-127.0.0.1}:8443:8443"
     environment:
       - HOST_PROJECT_DIR=${PWD}
       - WIZARD_PORT=8443
-      # Extra names/IPs to put in the wizard's own self-signed certificate.
-      # The wizard always covers localhost, 127.0.0.1 and its own container
-      # hostname/IP, but it CANNOT discover the host address you actually
-      # type into the browser. Without listing it here you get a browser
-      # name-mismatch error on top of the expected self-signed warning —
-      # bypassable on desktop, sometimes not on mobile. Comma-separated,
-      # names or IPv4:
-      # - WIZARD_TLS_SANS=10.0.0.42,padsign-host.internal
+      # Extra names/IPs for the wizard's own self-signed certificate, only
+      # needed when you browse to it by the host's address instead of through
+      # the tunnel (it covers localhost, 127.0.0.1 and its container address
+      # already, but cannot discover the host's). Comma-separated names or
+      # IPv4, set in .env, e.g. WIZARD_TLS_SANS=10.0.0.42,padsign-host.internal
+      - WIZARD_TLS_SANS=${WIZARD_TLS_SANS:-}
     volumes:
       - "${PWD}:${PWD}"
       - /var/run/docker.sock:/var/run/docker.sock

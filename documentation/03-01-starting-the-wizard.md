@@ -63,9 +63,9 @@ Treat it like a password: anyone who has it and can reach port 8443 can run the 
 
 ## 4. Open an SSH tunnel and browse to the wizard
 
-The wizard container publishes port 8443 on the host (`"8443:8443"` in `docker-compose.yml`), which
-means on all of the host's interfaces. Keep 8443 closed in the host and network firewall and reach
-the wizard through SSH instead. On your workstation:
+The wizard container publishes port 8443 on the host's loopback address only
+(`"${WIZARD_BIND_ADDRESS:-127.0.0.1}:8443:8443"` in `docker-compose.yml`), so nothing on the network
+can reach it. Reach it through SSH instead. On your workstation:
 
 ```bash
 ssh -L 8443:localhost:8443 user@padsign.example.com
@@ -85,6 +85,29 @@ self-signed certificate, generated fresh on every start and used only for the wi
 is not the PadSign certificate you upload later. Accept the warning (in Chrome: **Advanced** ->
 **Proceed to localhost**) and continue with [3.2 Walkthrough](03-02-walkthrough.md).
 
+## Reaching the wizard without a tunnel (WIZARD_BIND_ADDRESS)
+
+The SSH tunnel is the recommended way in. If you must browse to the wizard directly at the host's
+address, and only from a trusted admin network, publish its port on all interfaces by adding this
+line to `.env` in `/opt/padsign` (create the file, mode 600, if it does not exist yet; the install
+adds its own lines to it and keeps yours):
+
+```bash
+WIZARD_BIND_ADDRESS=0.0.0.0
+```
+
+You can also give one specific interface address of the host instead of `0.0.0.0`. The wizard holds
+the host's Docker socket, and Docker-published ports bypass host firewalls such as `ufw`
+([2.3 Network and firewall](02-03-network-and-firewall.md)), so restrict access to 8443 in a network
+firewall in front of the host. While the wizard is published this way,
+`validate-config.sh` reports a `WARN` for it
+([5.2 Validating configuration](05-02-validating-configuration.md)).
+
+`.env.example` in `/opt/padsign` lists this and every other variable `.env` can hold
+([7.6 Environment variables](07-06-environment-variables.md)). Recreate the container to apply the
+change, as shown at the end of the next section. Remove the line again, and recreate, to return to
+loopback only.
+
 ## The wizard's certificate names (WIZARD_TLS_SANS)
 
 The wizard's self-signed certificate always covers `localhost`, `127.0.0.1`, the container's own
@@ -96,27 +119,23 @@ Through the SSH tunnel you browse to `localhost`, which is always covered, so yo
 "untrusted issuer" warning that every browser lets you click through.
 
 The container cannot see the host's own network address. If you reach the wizard directly at the
-host's IP or DNS name instead of through the tunnel (only from a trusted admin network), the browser
-adds a name-mismatch error on top, which some browsers, mobile ones in particular, will not let you
-bypass. To add that address to the certificate, set `WIZARD_TLS_SANS` on the `wizard` service in
-`docker-compose.yml`. The file ships it as a commented example:
+host's IP or DNS name instead of through the tunnel, the browser adds a name-mismatch error on top,
+which some browsers, mobile ones in particular, will not let you bypass. To add that address to the
+certificate, set `WIZARD_TLS_SANS` in `.env` in `/opt/padsign`, listing your names and IPv4
+addresses, comma-separated (IPv6 addresses are ignored):
 
-```yaml
-    environment:
-      - HOST_PROJECT_DIR=${PWD}
-      - WIZARD_PORT=8443
-      # - WIZARD_TLS_SANS=10.0.0.42,padsign-host.internal
+```bash
+WIZARD_TLS_SANS=10.0.0.42,padsign-host.internal
 ```
 
-Uncomment the line and list your names and IPv4 addresses, comma-separated (IPv6 addresses are
-ignored). Then recreate the container from `/opt/padsign` and read the new token:
+Then recreate the container from `/opt/padsign` and read the new token:
 
 ```bash
 docker compose --profile wizard up -d wizard
 docker logs padsign-wizard
 ```
 
-This is a local edit to a tracked file; keep it in mind when you upgrade
+`.env` is not a tracked file, so neither setting gets in the way of an upgrade
 ([9.5 Upgrading](09-05-upgrading.md)).
 
 ## Stopping and restarting the wizard

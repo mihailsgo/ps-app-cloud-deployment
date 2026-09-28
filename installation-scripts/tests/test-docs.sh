@@ -124,6 +124,20 @@ case "${out##*rc=}" in
 esac
 report "no private-repo links, personal paths, private keys or retired install paths" "$out"
 
+# A carriage return in a script breaks it on Linux (`set -euo pipefail\r`),
+# and one inside a quoted string (tr -d '<CR>') silently changes what it
+# does. Checked on the committed content, so a Windows checkout's CRLF
+# working tree does not count.
+# The pattern is PCRE's \r, not a literal CR: Git for Windows drops a CR
+# from its arguments, and an empty pattern matches every file.
+out="$(git grep --cached -lIP '\r' -- '*.sh' '*.py' '*.service.example' 2>&1; echo "rc=$?")"
+case "${out##*rc=}" in
+  1) out="" ;;
+  0) out="$(sed '$d' <<< "$out")" ;;
+  *) out="git grep failed: $(sed '$d' <<< "$out")" ;;
+esac
+report "no committed shell/Python file contains a carriage return" "$out"
+
 allowed_keystores="dmss-container-and-signature-services/dmssrootca.p12
 dmss-container-and-signature-services/ssl_tsl_truststore.p12
 dmss-digital-stamping-service/seal/seal.p12

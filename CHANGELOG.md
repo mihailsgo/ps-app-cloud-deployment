@@ -11,6 +11,8 @@ Release notes for the PadSign deployment package, newest first; versions follow 
 - `validate-config.sh` fails a deployment that turns on `dmss-archive-services` JWT checking with the secret shipped in this repository.
 - Unused vendor redirect URLs and an SMS-provider account host in the container-signature `application.yml` were replaced with neutral values.
 - `.gitignore` allows exactly the two keystores the release ships instead of every `*.p12`.
+- The Deployment Wizard's port 8443 is published on `127.0.0.1` only, so it is reachable only through the SSH tunnel. Set `WIZARD_BIND_ADDRESS=0.0.0.0` in `.env` to open it on all interfaces, on a trusted admin network only: Docker-published ports bypass host firewalls such as `ufw`. `validate-config.sh` warns while the wizard is bound to a non-loopback address. See [3.1](documentation/03-01-starting-the-wizard.md).
+- `validate-config.sh` also reports `STAMP_COMPANY_ID` when it still holds the `CHANGE_ME` placeholder or the value earlier releases shipped.
 
 ### Added
 
@@ -21,8 +23,22 @@ Release notes for the PadSign deployment package, newest first; versions follow 
 - The install instructions clone from `https://gitlab.com/trustlynx-public/padsign-2.0.git`.
 - Documentation reorganised into 14 sections in installation order; see [README.md](README.md) for the new map (old section numbers no longer apply).
 - Release tags are read from `release/approved-digests.json` instead of a documentation page.
+- `.env.example` lists every variable `docker-compose.yml` reads from `.env`. `WIZARD_TLS_SANS` is set in `.env`; there is no longer a commented line to uncomment in `docker-compose.yml`. See [7.6](documentation/07-06-environment-variables.md).
+- Every service uses `restart: unless-stopped` (the DMSS services and ps-server used `always`), and every container's log is rotated (5 files of 20 MB each), so container logs no longer fill the disk.
+- container-signature logs at `info` instead of `debug` (its own `ee.digitalmind` messages stay at `debug`), which cuts its log volume.
+- Keycloak no longer gets `KC_PROXY` and `KC_HOSTNAME_STRICT_HTTPS`, which Keycloak 26 does not have. `KC_PROXY_HEADERS=xforwarded` and `KC_HOSTNAME_STRICT=false` stay.
+- `upgrade.sh --enable-local-eseal` always recreates container-signature and ps-server, so both read their updated configuration without a manual restart.
+- When `--enable-local-eseal` has to add the stamping service to a customised `docker-compose.yml`, it uses the release's approved, digest-pinned image instead of a fixed older tag.
 
-**Upgrade impact:** existing deployments keep their visual-PDF CA until you run `./installation-scripts/configure-host.sh --host <host> --generate-ca` and `docker compose restart dmss-container-and-signature-services` (`validate-config.sh` warns until then). Signatures made afterwards chain to the new CA; documents signed before keep their chain. If you imported the old CA into a PDF reader's trust store, import the new one. A deployment that used the shared demo e-sealing credentials must put its own in `config/config.js` (the demo credentials were public and can be withdrawn at any time), then `docker compose restart ps-server`. Deployments on local e-sealing (`STAMP_MODE: "local"`) are unaffected by the e-sealing change.
+### Fixed
+
+- `verify-keycloak.sh` (and so `postdeploy-check.sh`) logs in with the password the Keycloak container was started with when `KEYCLOAK_ADMIN_PASSWORD` is not set, instead of the demo default `admin`, which failed on every deployment `bootstrap.sh` set up.
+- `upgrade.sh` recreates nginx (and the stamping service when it runs) instead of only restarting nginx, so a release's change to their compose definition - such as log rotation - reaches them.
+- The Deployment Wizard's sign-in accepts an access token pasted with surrounding spaces or a line break, instead of reporting it invalid. Takes effect with the next wizard image.
+- The Keycloak scripts (`keycloak-bootstrap.sh`, `smoke-user.sh`, `verify-keycloak.sh`) look users up by exact username. Before, a lookup for `test` could match another user whose name contains `test`. `smoke-user.sh delete --username test --force` removes the demo user.
+- `configure-host.sh` and `renew-cert.sh` accept the deployed certificate files (`nginx/certs/<host>.crt` / `.key`) as `--cert-crt` / `--cert-key` instead of stopping with a copy error.
+
+**Upgrade impact:** when you `git stash pop` after pulling this release (documentation/09-05-upgrading.md), `config/config.js` conflicts on the `"secret"` line of `KEYCLOAK_CONFIG` (your deployment's secret against the release's new `CHANGE_ME`): keep your value, as 9.5 describes. existing deployments keep their visual-PDF CA until you run `./installation-scripts/configure-host.sh --host <host> --generate-ca` and `docker compose restart dmss-container-and-signature-services` (`validate-config.sh` warns until then). Signatures made afterwards chain to the new CA; documents signed before keep their chain. If you imported the old CA into a PDF reader's trust store, import the new one. A deployment that used the shared demo e-sealing credentials must put its own in `config/config.js` (the demo credentials were public and can be withdrawn at any time), then `docker compose restart ps-server`. Deployments on local e-sealing (`STAMP_MODE: "local"`) are unaffected by the e-sealing change. After the upgrade the Deployment Wizard is reachable only through the SSH tunnel (`ssh -L 8443:localhost:8443 <user>@<host>`) unless you set `WIZARD_BIND_ADDRESS` in `.env`; if you set `WIZARD_TLS_SANS` in `docker-compose.yml`, move it to `.env`.
 
 ## v1.0.49 - 2026-09-27
 

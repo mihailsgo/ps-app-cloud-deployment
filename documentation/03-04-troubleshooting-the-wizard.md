@@ -15,6 +15,9 @@ stuck. For problems with PadSign after the install, see [12. Troubleshooting](12
 3. Check the SSH tunnel is still open (`ssh -L 8443:localhost:8443 user@padsign.example.com`) and
    that nothing else on your workstation uses local port 8443. If something does, tunnel from
    another local port ([3.1](03-01-starting-the-wizard.md#4-open-an-ssh-tunnel-and-browse-to-the-wizard)).
+   Browsing to the host's own address instead of `localhost` does not work: the wizard listens on
+   the host's loopback address only, unless `WIZARD_BIND_ADDRESS` is set in `.env`
+   ([3.1](03-01-starting-the-wizard.md#reaching-the-wizard-without-a-tunnel-wizard_bind_address)).
 4. Make sure you typed `https://`, not `http://`. The wizard only serves HTTPS.
 
 ## The browser warns "connection is not private"
@@ -25,7 +28,7 @@ warning (in Chrome: **Advanced** -> **Proceed to localhost**).
 
 If the browser reports a **name mismatch** and will not let you continue, you are using an address
 the wizard's certificate does not cover. Use the SSH tunnel and `https://localhost:8443`, or add the
-address with `WIZARD_TLS_SANS`
+address with `WIZARD_TLS_SANS` in `.env`
 ([3.1](03-01-starting-the-wizard.md#the-wizards-certificate-names-wizard_tls_sans)).
 
 ## "Invalid token" or lost token
