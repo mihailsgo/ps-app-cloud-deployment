@@ -17,7 +17,9 @@ set -euo pipefail
 #   compose-ps.txt            docker compose ps -a
 #   monitor-status.txt        monitor-status.sh (read-only report mode)
 #   validate-config.txt       validate-config.sh (its FAILs are content, not errors)
-#   deployment-evidence.json  when present
+#   deployment-evidence.json  when present, without config_checksums: next to
+#                             the redacted files, their sha256 would confirm
+#                             a guessed secret offline
 #   config/config.js, config/constants.json, nginx/nginx.conf,
 #   docker-compose.yml, dmss-*/application.yml
 #                             at their paths in the checkout, through
@@ -52,6 +54,9 @@ set -euo pipefail
 #                                       docker version/info
 #   SUPPORT_BUNDLE_LOGS_TIMEOUT [60]    each service's docker compose logs
 #   SUPPORT_BUNDLE_REPORT_TIMEOUT [180] monitor-status.sh, validate-config.sh
+#   SUPPORT_BUNDLE_REDACT_TIMEOUT [120] each lib/redact.py run (at least 15 s,
+#                                       even past the budget, so a stuck
+#                                       filter is a WARN, not a hang)
 #   SUPPORT_BUNDLE_DEADLINE [480]       the whole run; an item that would
 #                                       start after it is skipped (a WARN)
 # Without a `timeout` command the limits are not enforced.
@@ -72,6 +77,7 @@ host=""
 cmd_timeout="${SUPPORT_BUNDLE_CMD_TIMEOUT:-60}"
 logs_timeout="${SUPPORT_BUNDLE_LOGS_TIMEOUT:-60}"
 report_timeout="${SUPPORT_BUNDLE_REPORT_TIMEOUT:-180}"
+redact_timeout="${SUPPORT_BUNDLE_REDACT_TIMEOUT:-120}"
 time_budget="${SUPPORT_BUNDLE_DEADLINE:-480}"
 kill_grace=10
 
@@ -95,7 +101,8 @@ See documentation/12-troubleshooting.md.
 
 Time limits in seconds (environment): SUPPORT_BUNDLE_CMD_TIMEOUT [60],
 SUPPORT_BUNDLE_LOGS_TIMEOUT [60] per service, SUPPORT_BUNDLE_REPORT_TIMEOUT
-[180] per report script, SUPPORT_BUNDLE_DEADLINE [480] for the whole run.
+[180] per report script, SUPPORT_BUNDLE_REDACT_TIMEOUT [120] per redaction,
+SUPPORT_BUNDLE_DEADLINE [480] for the whole run.
 
 Prints one "  OK   <item>" or "  WARN <item>: <reason>" line per item and,
 as the last line, "BUNDLE <path of the archive>".
@@ -133,6 +140,7 @@ check_seconds SUPPORT_BUNDLE_CMD_TIMEOUT "$cmd_timeout"
 check_seconds SUPPORT_BUNDLE_LOGS_TIMEOUT "$logs_timeout"
 check_seconds SUPPORT_BUNDLE_REPORT_TIMEOUT "$report_timeout"
 check_seconds SUPPORT_BUNDLE_DEADLINE "$time_budget"
+check_seconds SUPPORT_BUNDLE_REDACT_TIMEOUT "$redact_timeout"
 
 if [[ -n "$host" && ! "$host" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]]; then
   usage_error "--host '${host}' is not a hostname"
@@ -196,6 +204,11 @@ output_dir="$(cd "$output_dir" && pwd)"
 # Staging on the output directory's filesystem, owner-only (mktemp -d is
 # 700): bundle/ becomes the archive, raw/ holds each command's unredacted
 # output until lib/redact.py has filtered it.
+# A run stopped by SIGKILL leaves its staging directory, unredacted output
+# included: remove any older than an hour (a younger one may be a run in
+# progress).
+find "$output_dir" -mindepth 1 -maxdepth 1 -type d -name '.support-bundle.*' -mmin +60 \
+  -exec rm -rf {} + 2>/dev/null || true
 if ! work="$(mktemp -d "${output_dir}/.support-bundle.XXXXXX" 2>/dev/null)"; then
   echo "ERROR: cannot create a staging directory in ${output_dir}." >&2
   exit 1
@@ -204,7 +217,7 @@ staging="${work}/bundle"
 raw="${work}/raw"
 mkdir "$staging" "$raw"
 
-# ── Stopping cleanly ──
+# â”€â”€ Stopping cleanly â”€â”€
 child=""          # the command run_capped is waiting for
 archive=""
 archive_done=""
@@ -232,7 +245,7 @@ trap 'on_signal 130' INT
 trap 'on_signal 143' TERM
 trap 'on_signal 129' HUP
 
-# ── Time limits ──
+# â”€â”€ Time limits â”€â”€
 printf -v run_started '%(%s)T' -1
 deadline=$(( run_started + time_budget ))
 have_timeout=false
@@ -305,15 +318,34 @@ warn() { printf '  WARN %s\n' "$*"; warn_lines+=("$*"); }
 # redact_file <config|log> <raw file> <archive file>: lib/redact.py --filter,
 # then the raw copy is removed. Returns 1 (and keeps no half-filtered file)
 # when redact.py fails.
+#   Runs under `timeout` too (SUPPORT_BUNDLE_REDACT_TIMEOUT, at least 15 s
+#   or that value if smaller, even past the budget: a stuck filter is a
+#   WARN, never a hang). Sets redact_rc ("timeout" or the exit status).
 redact_file() {
-  local -a args=(--filter)
+  local -a args=(--filter) wrap=()
   [[ "$1" == log ]] && args+=(--log)
-  if python3 "$redact_py" "${args[@]}" ${keep_args[@]+"${keep_args[@]}"} < "$2" > "$3" 2>/dev/null; then
-    rm -f "$2"
-    return 0
-  fi
-  rm -f "$2" "$3"
+  time_left "$redact_timeout"
+  local floor=$(( redact_timeout < 15 ? redact_timeout : 15 ))
+  (( limit >= floor )) || limit="$floor"
+  redact_limit="$limit"
+  if [[ "$have_timeout" == true ]]; then wrap=(timeout -k "$kill_grace" "$limit"); fi
+  ${wrap[@]+"${wrap[@]}"} python3 "$redact_py" "${args[@]}" ${keep_args[@]+"${keep_args[@]}"} < "$2" > "$3" 2>/dev/null &
+  child=$!
+  redact_rc=0
+  wait "$child" || redact_rc=$?
+  child=""
+  rm -f "$2"
+  [[ "$redact_rc" == 0 ]] && return 0
+  if [[ "${#wrap[@]}" -gt 0 && ( "$redact_rc" == 124 || "$redact_rc" == 137 ) ]]; then redact_rc=timeout; fi
+  rm -f "$3"
   return 1
+}
+redact_failed() {  # <archive path>: the WARN for a redact_file failure
+  if [[ "$redact_rc" == timeout ]]; then
+    warn "${1}: lib/redact.py timed out after ${redact_limit}s - left out"
+  else
+    warn "${1}: lib/redact.py could not filter it (exit ${redact_rc}) - left out"
+  fi
 }
 
 # collect <archive path> <config|log> <cap> <what> <command...>
@@ -328,7 +360,7 @@ collect() {
   mkdir -p "$(dirname "$out")"
   run_capped "$cap" "${raw}/current" "$@"
   if ! redact_file "$mode" "${raw}/current" "$out"; then
-    warn "${path}: lib/redact.py could not filter it - left out"
+    redact_failed "$path"
     return 0
   fi
   collected+=("$path")
@@ -441,8 +473,19 @@ if [[ -f .env ]]; then
   fi
 fi
 
+# config_checksums are sha256 of the very files bundled redacted: with them,
+# a guessed password could be confirmed offline. Everything else stays.
+strip_checksums_py='
+import json, sys
+evidence = json.load(open(sys.argv[1], encoding="utf-8"))
+if isinstance(evidence, dict):
+    evidence.pop("config_checksums", None)
+json.dump(evidence, sys.stdout, indent=2)
+print()
+'
 if [[ -f deployment-evidence.json ]]; then
-  collect deployment-evidence.json config "$cmd_timeout" "reading deployment-evidence.json" cat deployment-evidence.json
+  collect deployment-evidence.json config "$cmd_timeout" "reading deployment-evidence.json" \
+    python3 -c "$strip_checksums_py" deployment-evidence.json
 fi
 
 collect compose-ps.txt log "$cmd_timeout" "docker compose ps -a" docker compose ps -a
@@ -508,6 +551,12 @@ rc1_ok=true collect validate-config.txt log "$report_timeout" "validate-config.s
   echo "config/env-keys.txt lists the names in .env, not the values. Logs can"
   echo "still hold personal data of the people who sign (names, e-mail"
   echo "addresses): share this bundle with TrustLynx support only."
+  echo ""
+  echo "redaction is best effort; read the bundle before sending it. It does not"
+  echo "recognise a secret in prose without a ':' or '=' (\"the password is x\"),"
+  echo "Map-style dumps, URLs without a scheme or URL-encoded, or ws:// URLs."
+  echo "deployment-evidence.json, when present, has no config_checksums (the"
+  echo "sha256 of the files above would let a guessed secret be confirmed)."
   echo ""
   echo "host.txt describes the machine this script ran on: run from the"
   echo "Deployment Wizard, that is the wizard's container, not the host. Its"

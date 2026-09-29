@@ -108,6 +108,13 @@ if [[ "${1:-}" == compose ]]; then
       printf '%s GET https://padsign.example.com/archive/api/document/77 200\n' "$p"
       printf '%s GET http://dmss-archive-services:8090/api/document/1?token=LEAKQ1 200\n' "$p"
       printf '%s {"padsignAudit":1,"ts":"2026-09-29T10:00:00Z","event":"signature.visual","outcome":"ok","user":"LEAKMAIL@example.com","filename":"LEAKFILE.pdf"}\n' "$p"
+      printf "%s [logError] upstream { data: '{\"error\":\"x\",\"access_token\":\"LEAKN01\"}' }\n" "$p"
+      printf '%s forwarding OTCSTICKET:"LEAK86", x-user-context:"u"\n' "$p"
+      printf '%s {"url":"https:\\/\\/hooks.example.com\\/services\\/T0\\/B0\\/LEAKESC"}\n' "$p"
+      printf '%s req Authorization: Token LEAKd8\n' "$p"
+      printf '%s   key: %s\n' "$p" "'-----BEGIN PRIVATE KEY-----\n' +"
+      printf '%s     %s\n' "$p" "'MIIEvLEAKPEM4\n' +"
+      printf '%s     %s\n' "$p" "'-----END PRIVATE KEY-----\n',"
       printf '%s ready\n' "${svc}-1  | 2026-09-29T10:00:01.000000000Z"
       exit 0 ;;
     ps)
@@ -161,6 +168,13 @@ s = s[:cut] + '''    REGISTER_PDF_API_KEYS: [
         } }
     ] },
     TEST_JDBC: "jdbc:postgresql://db.example.com:5432/x?user=u&password=LEAK11",
+    TEST_JSON: '{"spring":{"datasource":{"password":"LEAKD01"}}}',
+    // STAMP_API_KEY = "LEAKCOM4"
+    TEST_PEM: "-----BEGIN PRIVATE KEY-----\\n" +
+      "MIIEvLEAKPEM5\\n" +
+      "-----END PRIVATE KEY-----\\n",
+    TEST_NEXT_SECRET:
+      "LEAKC23",
 ''' + s[cut:]
 open(p, "w", encoding="utf-8").write(s)
 PY
@@ -190,7 +204,21 @@ fresh() {  # <name>: a throwaway deployment with a hostname, .env, secrets and d
   echo "DO-NOT-SHIP-MARKER signed" > "$d/signed-output/signed.pdf"
   echo "DO-NOT-SHIP-MARKER archive" > "$d/docs/doc.pdf"
   echo "DO-NOT-SHIP-MARKER key" > "$d/nginx/certs/padsign.example.com.key"
+  evidence "$d"
   printf '%s' "$d"
+}
+config_files="config/config.js config/constants.json nginx/nginx.conf docker-compose.yml
+dmss-archive-services/application.yml dmss-archive-services-fallback/application.yml
+dmss-container-and-signature-services/application.yml dmss-container-and-signature-services/documentsigningprofiles.json
+dmss-digital-stamping-service/application.yml"
+evidence() {  # <repo>: deployment-evidence.json as lib/deployment-evidence.sh writes it
+  (cd "$1" && python3 - $config_files <<'PY'
+import hashlib, json, sys
+sums = {f: hashlib.sha256(open(f, "rb").read()).hexdigest() for f in sys.argv[1:]}
+json.dump({"schema_version": 2, "script": "upgrade.sh", "config_checksums": sums,
+           "image_digests": {"ps-server": "sha256:" + "1" * 64}}, open("deployment-evidence.json", "w"), indent=2)
+PY
+  )
 }
 bundle() {  # <repo> [args...]: stdout only (the wizard parses stdout)
   local d="$1"; shift
@@ -204,6 +232,12 @@ extract() {  # <archive> <dir>
 }
 
 # ── usage ───────────────────────────────────────────────────────────────────
+# The stub's lines really have the shapes the cases below rely on.
+stub_logs="$(docker compose logs --no-color --timestamps --since 24h ps-server)"
+check "control: the stub log has the escaped URL, the concatenated PEM key and the compact JSON" \
+  bash -c 'grep -qF "https:\\/\\/hooks.example.com\\/services" <<< "$1" && grep -qF "'"'"'MIIEvLEAKPEM4\\n'"'"' +" <<< "$1" \
+    && grep -qF "\"access_token\":\"LEAKN01\"" <<< "$1"' _ "$stub_logs"
+
 echo ""
 echo "Usage errors:"
 d="$(fresh main)"
@@ -261,6 +295,16 @@ if [[ -z "$leaks" ]]; then
 else
   fail_case "secrets or documents reached the archive" "$leaks"
 fi
+hashes_found=""
+for f in $config_files; do
+  h="$(sha256sum "$d/$f" | cut -d' ' -f1)"
+  if grep -rqF "$h" "$x"; then hashes_found+="${f} "; fi
+done
+check "no file holds the sha256 of a configuration file (a guessed secret could be confirmed)" test -z "$hashes_found"
+check "... deployment-evidence.json is still there, without config_checksums" \
+  bash -c 'grep -q "\"schema_version\"" "$1" && ! grep -q config_checksums "$1"' _ "$x/deployment-evidence.json"
+check "... and README.txt says so" grep -q 'config_checksums' "$x/README.txt"
+check "README.txt says redaction is best effort" grep -qF 'redaction is best effort; read the bundle before sending it' "$x/README.txt"
 check "config/env-keys.txt names KEYCLOAK_FIRST_BOOT_ADMIN_PASSWORD" grep -qx 'KEYCLOAK_FIRST_BOOT_ADMIN_PASSWORD' "$x/config/env-keys.txt"
 check "logs/ps-server.log keeps its ordinary lines ('ready')" grep -q 'ready$' "$x/logs/ps-server.log"
 check "... with the token and image elided in place" \
@@ -273,8 +317,8 @@ check "... the deployment's own URLs keep their path, others keep their host" \
 check "config/config.js: REGISTER_PDF_API_KEY is <redacted>" grep -q 'REGISTER_PDF_API_KEY: "<redacted>"' "$x/config/config.js"
 check "... own URLs keep their path; REGISTER_PDF_API_KEYS keep their company" \
   bash -c 'grep -qF "ARCHIVE_API_BASE_URL: \"https://padsign.example.com/archive/api/\"" "$1" && grep -qF "{ company: \"Amit\", key: \"<redacted>\" }" "$1"' _ "$x/config/config.js"
-check "... same number of lines as the original (structure kept)" \
-  test "$(wc -l < "$x/config/config.js")" = "$(wc -l < "$d/config/config.js")"
+check "... same lines as the original but the PEM key's two dropped (structure kept)" \
+  test "$(wc -l < "$x/config/config.js")" = "$(( $(wc -l < "$d/config/config.js") - 2 ))"
 check "PEM keys: one <private key redacted> line; the YAML after them survives" \
   bash -c 'grep -q "<private key redacted>" "$1" && grep -q "^  after: visible" "$1" && grep -q "<private key redacted>" "$2"' _ \
   "$x/dmss-digital-stamping-service/application.yml" "$x/dmss-archive-services-fallback/application.yml"
@@ -330,6 +374,40 @@ if command -v timeout >/dev/null 2>&1; then
 else
   echo "  (no timeout command - skipped)"
 fi
+
+echo ""
+echo "lib/redact.py that hangs:"
+if command -v timeout >/dev/null 2>&1; then
+  slowpy="${work}/slowpy"
+  mkdir -p "$slowpy"
+  cat > "${slowpy}/python3" <<STUB
+#!/usr/bin/env bash
+if [[ " \$* " == *" --log "* ]]; then sleep 30; fi
+exec "$(command -v python3)" "\$@"
+STUB
+  chmod +x "${slowpy}/python3"
+  started=$SECONDS
+  out="$(PATH="${slowpy}:${PATH}" SUPPORT_BUNDLE_REDACT_TIMEOUT=2 bundle "$d" --output-dir "${work}/slowpy-out")"; rc=$?
+  took=$(( SECONDS - started ))
+  path="$(last_line "$out")"; path="${path#BUNDLE }"
+  check "a WARN per log whose filter timed out, exit 0 (took ${took}s)" \
+    bash -c '[[ "$1" == 0 && "$3" -lt 60 ]] && grep -q "^  WARN logs/ps-server.log: lib/redact.py timed out after 2s - left out" <<< "$2"' _ "$rc" "$out" "$took"
+  x="${work}/x-slowpy"
+  extract "$path" "$x"
+  check "... that log is not in the archive (never half-filtered), the config files are" \
+    bash -c '[[ ! -e "$1/logs/ps-server.log" && -f "$1/config/config.js" ]]' _ "$x"
+else
+  echo "  (no timeout command - skipped)"
+fi
+
+echo ""
+echo "Stale staging directories:"
+mkdir -p "${work}/stale/.support-bundle.OLD/raw" "${work}/stale/.support-bundle.NEW"
+echo "raw LEAK" > "${work}/stale/.support-bundle.OLD/raw/current"
+touch -d '2 hours ago' "${work}/stale/.support-bundle.OLD"
+out="$(bundle "$d" --output-dir "${work}/stale")"; rc=$?
+check "one older than 60 minutes is removed, a recent one (another run) is kept" \
+  bash -c '[[ "$1" == 0 && ! -e "$2/.support-bundle.OLD" && -d "$2/.support-bundle.NEW" ]]' _ "$rc" "${work}/stale"
 
 echo ""
 echo "TERM while collecting:"
