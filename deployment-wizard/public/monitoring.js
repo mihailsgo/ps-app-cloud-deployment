@@ -63,53 +63,114 @@ function initMonitoringOverview(data) {
 
   // ---- Services table ----
 
-  function serviceRowHtml(row) {
-    var st = statePill(row);
-    var hp = healthPill(row);
-    var svc = escapeHtml(row.service);
+  // A row is built once (createRow) and then only its changed cells are
+  // rewritten (updateRow). The 10-second refresh therefore never replaces a
+  // button: a click that lands during a refresh is not lost, keyboard focus
+  // stays where it is, and references held by the page stay valid.
+  //
+  // Cell order: service (+ version line), state, health, uptime, restarts,
+  // version, CPU, memory, actions. data-label is what the stacked mobile
+  // layout prints in front of a value (styles.css, "Services table").
+  function serviceCells(row) {
     var running = row.state === 'running';
-    var restartOff = runActive || row.state === 'missing';
     var memTitle = row.memLimitBytes != null
       ? 'of ' + fmtBytes(row.memLimitBytes) + (row.memPct != null ? ' (' + fmtPct(row.memPct) + ')' : '')
       : '';
-    return '<tr>' +
-      '<th scope="row">' + svc + '</th>' +
-      '<td>' + pillHtml(st) + '</td>' +
-      '<td>' + pillHtml(hp) + '</td>' +
-      '<td class="num">' + (running ? fmtDuration(row.uptimeSec) : MON_DASH) + '</td>' +
-      '<td class="num">' + (row.restarts != null ? escapeHtml(row.restarts) : MON_DASH) + '</td>' +
-      '<td class="cell-mono"' + (row.image ? ' title="' + escapeHtml(row.image) + '"' : '') + '>' + escapeHtml(row.imageTag || MON_DASH) + '</td>' +
-      '<td class="num">' + fmtPct(row.cpuPct) + '</td>' +
-      '<td class="num"' + (memTitle ? ' title="' + escapeHtml(memTitle) + '"' : '') + '>' + fmtBytes(row.memUsageBytes) + '</td>' +
+    var tagHtml = '<span' + (row.image ? ' title="' + escapeHtml(row.image) + '"' : '') + '>' + escapeHtml(row.imageTag || MON_DASH) + '</span>';
+    return [
+      '<span class="svc-name">' + escapeHtml(row.service) + '</span><span class="svc-version cell-mono">' + tagHtml + '</span>',
+      pillHtml(statePill(row)),
+      pillHtml(healthPill(row)),
+      running ? fmtDuration(row.uptimeSec) : MON_DASH,
+      row.restarts != null ? escapeHtml(row.restarts) : MON_DASH,
+      tagHtml,
+      fmtPct(row.cpuPct),
+      '<span' + (memTitle ? ' title="' + escapeHtml(memTitle) + '"' : '') + '>' + fmtBytes(row.memUsageBytes) + '</span>'
+    ];
+  }
+
+  function restartDisabled(row) {
+    return runActive || row.state === 'missing';
+  }
+
+  // The actions cell depends only on the service name (its key), so it is
+  // written once; updateRow() only toggles the button's disabled state.
+  function serviceRowSkeletonHtml(service) {
+    var svc = escapeHtml(service);
+    return '<th scope="row"></th>' +
+      '<td data-label="State"></td>' +
+      '<td data-label="Health"></td>' +
+      '<td class="num" data-label="Uptime"></td>' +
+      '<td class="num" data-label="Restarts"></td>' +
+      '<td class="cell-mono col-version" data-label="Version"></td>' +
+      '<td class="num" data-label="CPU"></td>' +
+      '<td class="num" data-label="Memory"></td>' +
       '<td class="cell-actions">' +
-        '<a class="btn btn-secondary btn-sm" data-focus-key="logs:' + svc + '" href="/monitoring/logs?service=' + encodeURIComponent(row.service) +
+        '<a class="btn btn-secondary btn-sm" href="/monitoring/logs?service=' + encodeURIComponent(service) +
           '" aria-label="Show logs of ' + svc + '">Logs</a>' +
-        '<button type="button" class="btn btn-secondary btn-sm" data-restart="' + svc + '" data-focus-key="restart:' + svc + '"' +
-          ' aria-label="Restart ' + svc + '"' + (restartOff ? ' disabled' : '') + '>Restart</button>' +
-      '</td></tr>';
+        '<button type="button" class="btn btn-secondary btn-sm" data-restart="' + svc + '"' +
+          ' aria-label="Restart ' + svc + '">Restart</button>' +
+      '</td>';
+  }
+
+  function updateRow(tr, row) {
+    var next = serviceCells(row);
+    changedIndexes(tr._cells, next).forEach(function (i) {
+      var cellMarkup = next[i]; // built by serviceCells(): every dynamic part escaped
+      tr.children[i].innerHTML = cellMarkup;
+    });
+    tr._cells = next;
+    var btn = tr.querySelector('[data-restart]');
+    var off = restartDisabled(row);
+    if (btn.disabled !== off) btn.disabled = off;
+  }
+
+  function createRow(row) {
+    var tr = document.createElement('tr');
+    tr.setAttribute('data-service', row.service);
+    tr.innerHTML = serviceRowSkeletonHtml(row.service);
+    updateRow(tr, row);
+    return tr;
   }
 
   function emptyRowHtml(text) {
-    return '<tr><td colspan="9" class="cell-empty">' + escapeHtml(text) + '</td></tr>';
+    return '<tr class="mon-empty-row"><td colspan="9" class="cell-empty">' + escapeHtml(text) + '</td></tr>';
+  }
+
+  function serviceRows() {
+    var rows = Object.create(null);
+    Array.prototype.forEach.call(tbody.querySelectorAll('tr[data-service]'), function (tr) {
+      rows[tr.getAttribute('data-service')] = tr;
+    });
+    return rows;
+  }
+
+  function showEmpty(text) {
+    var only = tbody.children.length === 1 ? tbody.children[0] : null;
+    if (only && only.classList.contains('mon-empty-row') && only.textContent === text) return;
+    tbody.innerHTML = emptyRowHtml(text);
+  }
+
+  function syncServices(services) {
+    var rows = serviceRows();
+    var diff = diffRows(Object.keys(rows), services.map(function (s) { return s.service; }));
+    diff.remove.forEach(function (key) { tbody.removeChild(rows[key]); });
+    // The "Loading…" or "no services" placeholder is the only row without a key.
+    Array.prototype.forEach.call(tbody.querySelectorAll('tr.mon-empty-row'), function (tr) { tbody.removeChild(tr); });
+    services.forEach(function (row, i) {
+      var tr = rows[row.service];
+      if (tr && diff.keep.indexOf(row.service) !== -1) updateRow(tr, row);
+      else { tr = createRow(row); rows[row.service] = tr; }
+      // Only moves a row that is not already in its place.
+      if (tbody.children[i] !== tr) tbody.insertBefore(tr, tbody.children[i] || null);
+    });
   }
 
   function renderServices(payload) {
-    // A refresh replaces every row; keep keyboard focus on the same control.
-    var active = document.activeElement;
-    var focusKey = active && tbody.contains(active) ? active.getAttribute('data-focus-key') : null;
+    if (!payload.dockerAvailable) showEmpty('Docker is not reachable from the wizard.');
+    else if (!payload.services.length) showEmpty('No services were found in the compose project.');
+    else syncServices(payload.services);
 
-    if (!payload.dockerAvailable) {
-      tbody.innerHTML = emptyRowHtml('Docker is not reachable from the wizard.');
-    } else if (!payload.services.length) {
-      tbody.innerHTML = emptyRowHtml('No services were found in the compose project.');
-    } else {
-      tbody.innerHTML = payload.services.map(serviceRowHtml).join('');
-    }
-
-    if (focusKey) {
-      var again = tbody.querySelector('[data-focus-key="' + focusKey.replace(/"/g, '\\"') + '"]');
-      if (again) again.focus();
-    }
     if (payload.dockerAvailable) {
       timeEl.textContent = 'Updated ' + fmtTime(payload.generatedAt) + ' UTC.';
       updated.textContent = '';
@@ -208,6 +269,14 @@ function initMonitoringOverview(data) {
     byId('bufferBody').innerHTML = bufferMarkup;
   }
 
+  // aria-busy tells assistive technology that the card is about to change and
+  // should not be announced half-way; the view starts with it set.
+  function setCardsBusy(busy) {
+    ['alertsBody', 'certBody', 'diskBody', 'bufferBody'].forEach(function (id) {
+      byId(id).setAttribute('aria-busy', busy ? 'true' : 'false');
+    });
+  }
+
   function checklist(rowsHtml) {
     return '<ul class="checklist">' + rowsHtml + '</ul>';
   }
@@ -217,7 +286,7 @@ function initMonitoringOverview(data) {
     if (!alerts.length) return checklist(checkRowHtml('ok', 'No alert thresholds are crossed.'));
     return checklist(alerts.map(function (a) {
       var samples = (a.samples || []).slice(0, 3).map(function (s) {
-        return '<br><span class="hint">' + escapeHtml(s) + '</span>';
+        return '<span class="mon-sample">' + escapeHtml(s) + '</span>';
       }).join('');
       return checkRowHtml(alertSeverity(a.key), a.key + ': ' + a.message, samples);
     }).join(''));
@@ -290,11 +359,13 @@ function initMonitoringOverview(data) {
 
   function loadStatus() {
     rerunBtn.disabled = true;
+    setCardsBusy(true);
     statusNote.textContent = 'Checking alerts, certificate, disk and receive-back buffer…';
     return monFetch('/api/monitoring/status').then(renderStatus).catch(function (err) {
       if (err && err.expired) return;
       renderStatus({ ok: false, error: err.message });
     }).then(function () {
+      setCardsBusy(false);
       rerunBtn.disabled = false;
     });
   }
@@ -643,11 +714,19 @@ function initMonitoringActivity() {
 
   function render(result) {
     docs = result.documents || [];
-    var ok = result.source && result.source.status === 'ok';
-    sourceBox.hidden = ok;
-    if (!ok) sourceBox.textContent = (result.source && result.source.message) || 'The signing activity log cannot be read.';
+    var status = result.source && result.source.status;
+    var ok = status === 'ok';
+    var show = activityLayout(status);
+    // Without a readable log the tiles would show zeros that read as "nothing
+    // was signed"; the banner explains why there is nothing to show instead.
+    sourceBox.hidden = !show.banner;
+    if (show.banner) sourceBox.textContent = (result.source && result.source.message) || 'The signing activity log cannot be read.';
+    byId('actTiles').hidden = !show.tiles;
+    form.hidden = !show.filters;
+    byId('actTableWrap').hidden = !show.table;
+    byId('actPager').hidden = !show.table;
 
-    setTiles(result.summary);
+    if (show.tiles) setTiles(result.summary);
     setCompanies(result.companies || [], applied.company);
 
     if (!docs.length) {
@@ -678,6 +757,11 @@ function initMonitoringActivity() {
       applied = filters;
       csvLink.setAttribute('href', csvHref(filters));
       render(result);
+      // Keep the address bar in step with what is on screen, so a reload or a
+      // bookmarked link shows the same view.
+      try {
+        history.replaceState(null, '', activityPageUrl(filters, result.page));
+      } catch (err) { /* the address bar is a convenience */ }
     }).catch(function (err) {
       if (err && err.expired) return;
       errBox.textContent = err.message;
@@ -685,9 +769,14 @@ function initMonitoringActivity() {
     });
   }
 
-  var defaults = activityDefaults(new Date());
-  byId('actFrom').value = defaults.from;
-  byId('actTo').value = defaults.to;
+  // The form starts from the URL (a reload, a bookmark or a shared link), with
+  // the default window for anything the URL does not carry validly.
+  var initial = parseActivityParams(location.search, activityDefaults(new Date()));
+  byId('actFrom').value = initial.filters.from;
+  byId('actTo').value = initial.filters.to;
+  byId('actUser').value = initial.filters.user;
+  byId('actOutcome').value = initial.filters.outcome;
+  setCompanies([], initial.filters.company); // the list itself arrives with the first load
   applied = readFilters();
   csvLink.setAttribute('href', csvHref(applied));
 
@@ -707,7 +796,7 @@ function initMonitoringActivity() {
     row.hidden = open;
   });
 
-  load(1);
+  load(initial.page);
 }
 
 // ===========================================================================

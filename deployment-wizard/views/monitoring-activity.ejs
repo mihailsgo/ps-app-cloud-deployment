@@ -7,7 +7,7 @@
 
   <div id="sessionExpired" class="alert alert-warning" role="alert" hidden>Your session has expired. <a href="/login">Sign in again</a> to keep monitoring.</div>
 
-  <div class="stat-tiles" role="group" aria-label="Signing activity summary">
+  <div class="stat-tiles" id="actTiles" role="group" aria-label="Signing activity summary">
     <div class="stat-tile">
       <p class="stat-tile__label" id="tileTodayLabel">Completed today</p>
       <p class="stat-tile__value" id="tileToday" aria-labelledby="tileTodayLabel">–</p>
@@ -65,7 +65,7 @@
     <div class="error-text" id="actError" role="alert"></div>
     <p id="actSummary" class="hint" role="status">Loading…</p>
 
-    <div class="table-wrap" tabindex="0" role="region" aria-labelledby="activity-title">
+    <div class="table-wrap" id="actTableWrap" tabindex="0" role="region" aria-labelledby="activity-title">
       <table class="data-table" id="activityTable">
         <thead>
           <tr>
@@ -85,7 +85,7 @@
       </table>
     </div>
 
-    <nav class="mon-pager" aria-label="Pagination">
+    <nav class="mon-pager" id="actPager" aria-label="Pagination">
       <button type="button" class="btn btn-secondary btn-sm" id="actPrev" disabled>Previous</button>
       <span class="hint" id="actPage" role="status">Page 1 of 1</span>
       <button type="button" class="btn btn-secondary btn-sm" id="actNext" disabled>Next</button>
