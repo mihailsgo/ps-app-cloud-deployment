@@ -35,9 +35,9 @@ test.after(() => {
   }
 });
 
-// os.tmpdir() can be an 8.3 short path on Windows (C:\Users\NAME~1\...), which
-// fs.realpathSync expands. Building every temp dir from the resolved base keeps
-// paths canonical, so a realpath'd result compares equal to a path.join() one.
+// os.tmpdir() can be an 8.3 short path on Windows, which fs.realpathSync
+// expands. Building every temp dir from the resolved base keeps paths
+// canonical, so a realpath'd result compares equal to a path.join() one.
 const TMP_BASE = fs.realpathSync(os.tmpdir());
 
 function makeTempDir(prefix) {
