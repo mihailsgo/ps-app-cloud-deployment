@@ -21,13 +21,13 @@ const PAGES = {
     view: 'monitoring-overview.ejs',
     locals: { tab: 'overview', host: 'padsign.example.com' },
     init: 'initMonitoringOverview',
-    ids: ['svcTable', 'svcRefresh', 'svcUpdated', 'statusRerun', 'alertsBody', 'certBody', 'diskBody', 'bufferBody', 'restart-modal', 'restartConfirm', 'sessionExpired']
+    ids: ['svcTable', 'svcRefresh', 'svcUpdated', 'svcTime', 'statusRerun', 'alertsBody', 'certBody', 'diskBody', 'bufferBody', 'restart-modal', 'restartConfirm', 'sessionExpired']
   },
   logs: {
     view: 'monitoring-logs.ejs',
     locals: { tab: 'logs', host: 'padsign.example.com', services: SERVICES, selected: 'ps-server', TAIL_CHOICES: [200, 1000, 5000] },
     init: 'initMonitoringLogs',
-    ids: ['logService', 'logTail', 'logSince', 'logFollow', 'logFilter', 'logErrorsOnly', 'logCopy', 'logDownload', 'logStatus', 'logView', 'sessionExpired']
+    ids: ['logService', 'logTail', 'logSince', 'logFollow', 'logFilter', 'logErrorsOnly', 'logCopy', 'logDownload', 'logStatus', 'logCounts', 'logView', 'sessionExpired']
   },
   activity: {
     view: 'monitoring-activity.ejs',
@@ -88,7 +88,7 @@ test('monitoring view overview: the services table has scoped headers and a labe
   const heads = html.match(/<th scope="col"[^>]*>/g) || [];
   assert.equal(heads.length, 9);
   assert.match(html, /<div class="table-wrap" tabindex="0" role="region" aria-labelledby="svc-title">/);
-  assert.match(html, /id="svcUpdated" class="hint" role="status"/);
+  assert.match(html, /id="svcUpdated" role="status"/);
 });
 
 test('monitoring view logs: the log viewer is focusable and named, the follow button reports its state', async () => {

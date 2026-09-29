@@ -65,12 +65,13 @@
       <a class="btn btn-secondary btn-sm" id="logDownload" href="<%= downloadHref %>" download><%- include('partials/icon', { name: 'download', size: 16 }) %>Download</a>
     </div>
 
-    <p id="logStatus" class="hint" role="status">Connecting…</p>
+    <p class="hint"><span id="logStatus" role="status">Connecting…</span> <span id="logCounts" aria-hidden="true"></span></p>
     <pre id="logView" class="log log-viewer" tabindex="0" aria-label="Log output"></pre>
   </section>
 </main>
+<script src="/monitoring-common.js"></script>
 <script src="/monitoring.js"></script>
 <script>
-  initMonitoringLogs(<%- JSON.stringify({ selected: chosen, tailChoices: TAIL_CHOICES }).replace(/</g, '\\u003c') %>);
+  initMonitoringLogs(<%- JSON.stringify({ selected: chosen }).replace(/</g, '\\u003c') %>);
 </script>
 <%- include('partials/foot') %>

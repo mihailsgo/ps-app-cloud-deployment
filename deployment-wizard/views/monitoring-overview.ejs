@@ -12,7 +12,7 @@
       <%- include('partials/card-head', { id: 'svc-title', title: 'Services', icon: 'server', sub: 'Refreshes every 10 seconds' }) %>
       <button type="button" class="btn btn-secondary btn-sm" id="svcRefresh"><%- include('partials/icon', { name: 'refresh-cw', size: 16 }) %>Refresh</button>
     </div>
-    <p id="svcUpdated" class="hint" role="status">Loading…</p>
+    <p class="hint"><span id="svcTime" aria-hidden="true">Loading…</span> <span id="svcUpdated" role="status"></span></p>
     <div class="table-wrap" tabindex="0" role="region" aria-labelledby="svc-title">
       <table class="data-table" id="svcTable">
         <thead>
@@ -71,8 +71,9 @@
     </div>
   </div>
 </main>
+<script src="/monitoring-common.js"></script>
 <script src="/monitoring.js"></script>
 <script>
-  initMonitoringOverview(<%- JSON.stringify({ runActive: Boolean(runActive), host: locals.host || null }).replace(/</g, '\\u003c') %>);
+  initMonitoringOverview(<%- JSON.stringify({ runActive: Boolean(runActive) }).replace(/</g, '\\u003c') %>);
 </script>
 <%- include('partials/foot') %>
