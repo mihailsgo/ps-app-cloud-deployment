@@ -107,6 +107,36 @@ function restartImpact(service) {
 }
 
 // ---------------------------------------------------------------------------
+// In-place table refresh
+// ---------------------------------------------------------------------------
+
+// Which keyed rows to add, remove or keep when a table goes from `prevKeys`
+// to `nextKeys`. `keep` and `add` follow the new order. Keys are service
+// names, i.e. data, so lookups use a prototype-less object.
+function diffRows(prevKeys, nextKeys) {
+  var prev = Object.create(null);
+  var next = Object.create(null);
+  prevKeys.forEach(function (k) { prev[k] = true; });
+  nextKeys.forEach(function (k) { next[k] = true; });
+  return {
+    add: nextKeys.filter(function (k) { return !prev[k]; }),
+    remove: prevKeys.filter(function (k) { return !next[k]; }),
+    keep: nextKeys.filter(function (k) { return prev[k]; })
+  };
+}
+
+// Indexes of the cells whose content differs; a row that has no previous
+// cells (new) reports all of them.
+function changedIndexes(prevCells, nextCells) {
+  var prev = prevCells || [];
+  var out = [];
+  for (var i = 0; i < nextCells.length; i += 1) {
+    if (prev[i] !== nextCells[i]) out.push(i);
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // Logs
 // ---------------------------------------------------------------------------
 
@@ -202,6 +232,58 @@ function activityQuery(filters, page) {
 function csvHref(filters) {
   var q = activityQuery(filters, 1);
   return '/api/monitoring/activity.csv' + (q ? '?' + q : '');
+}
+
+var ACT_OUTCOMES = ['completed', 'failed', 'pending'];
+var ACT_TEXT_MAX = 200;
+
+// Exactly YYYY-MM-DD and a real calendar day (2026-02-30 is not one).
+function isIsoDate(s) {
+  if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  var d = new Date(s + 'T00:00:00Z');
+  return !isNaN(d.getTime()) && isoDate(d) === s;
+}
+
+function clipText(s) {
+  return String(s === null || s === undefined ? '' : s).trim().slice(0, ACT_TEXT_MAX);
+}
+
+// The filters and page a URL asks for. `search` is location.search. Every
+// value is validated; whatever is missing or malformed falls back to the
+// defaults (dates) or to "no filter" (the rest), so a hand-edited or stale
+// link never breaks the page.
+function parseActivityParams(search, defaults) {
+  var q = new URLSearchParams(search || '');
+  var from = q.get('from');
+  var to = q.get('to');
+  var outcome = q.get('outcome');
+  var page = q.get('page');
+  return {
+    filters: {
+      from: isIsoDate(from) ? from : defaults.from,
+      to: isIsoDate(to) ? to : defaults.to,
+      company: clipText(q.get('company')),
+      user: clipText(q.get('user')),
+      outcome: ACT_OUTCOMES.indexOf(outcome) !== -1 ? outcome : ''
+    },
+    // Up to six digits: far more pages than the log can have, and safe as a number.
+    page: page !== null && /^[1-9]\d{0,5}$/.test(page) ? Number(page) : 1
+  };
+}
+
+// The address-bar URL for the current view; parseActivityParams() reads it back.
+function activityPageUrl(filters, page) {
+  var q = activityQuery(filters, page);
+  return '/monitoring/activity' + (q ? '?' + q : '');
+}
+
+// What the Signing activity page shows for a given log status. Anything but
+// a readable log would show a wall of zeros, so only the explanation is
+// left; a log that has not been written yet still gets its (empty) table.
+function activityLayout(status) {
+  if (status === 'ok') return { banner: false, tiles: true, filters: true, table: true };
+  if (status === 'missing') return { banner: true, tiles: false, filters: true, table: true };
+  return { banner: true, tiles: false, filters: false, table: false };
 }
 
 function documentLabel(doc) {
@@ -308,6 +390,11 @@ if (typeof module !== 'undefined' && module.exports) {
     activityDefaults: activityDefaults,
     activityQuery: activityQuery,
     csvHref: csvHref,
+    parseActivityParams: parseActivityParams,
+    activityPageUrl: activityPageUrl,
+    activityLayout: activityLayout,
+    diffRows: diffRows,
+    changedIndexes: changedIndexes,
     documentLabel: documentLabel,
     resultPill: resultPill,
     eventLabel: eventLabel,

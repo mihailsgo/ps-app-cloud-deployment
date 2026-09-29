@@ -202,6 +202,78 @@ test('resultPill()/eventLabel()/totalPages()', () => {
   assert.equal(c.totalPages(51, 50), 2);
 });
 
+test('parseActivityParams(): valid values pre-fill the form, anything else falls back to the defaults', () => {
+  const defaults = { from: '2026-08-31', to: '2026-09-29' };
+  const full = c.parseActivityParams('?from=2026-09-01&to=2026-09-15&company=Acme+Ltd&user=ali&outcome=failed&page=3', defaults);
+  assert.deepEqual(full, { filters: { from: '2026-09-01', to: '2026-09-15', company: 'Acme Ltd', user: 'ali', outcome: 'failed' }, page: 3 });
+
+  const empty = c.parseActivityParams('', defaults);
+  assert.deepEqual(empty, { filters: { from: '2026-08-31', to: '2026-09-29', company: '', user: '', outcome: '' }, page: 1 });
+  assert.deepEqual(c.parseActivityParams(undefined, defaults), empty);
+
+  // Dates: exactly YYYY-MM-DD and a real calendar day.
+  for (const bad of ['2026-9-1', '20260901', '2026-02-30', '2026-13-01', 'yesterday', '2026-09-01T00:00:00Z', '<script>']) {
+    const p = c.parseActivityParams('?from=' + encodeURIComponent(bad) + '&to=' + encodeURIComponent(bad), defaults);
+    assert.equal(p.filters.from, defaults.from, bad);
+    assert.equal(p.filters.to, defaults.to, bad);
+  }
+  assert.equal(c.parseActivityParams('?from=2024-02-29', defaults).filters.from, '2024-02-29');
+
+  // Outcome is one of the three the form offers; page is a positive integer.
+  assert.equal(c.parseActivityParams('?outcome=completed', defaults).filters.outcome, 'completed');
+  assert.equal(c.parseActivityParams('?outcome=bogus', defaults).filters.outcome, '');
+  for (const bad of ['0', '-2', '1.5', 'abc', '', '99999999999']) {
+    assert.equal(c.parseActivityParams('?page=' + bad, defaults).page, 1, bad);
+  }
+  assert.equal(c.parseActivityParams('?page=12', defaults).page, 12);
+
+  // Free text is trimmed and capped.
+  assert.equal(c.parseActivityParams('?user=%20%20bob%20', defaults).filters.user, 'bob');
+  assert.equal(c.parseActivityParams('?company=' + 'x'.repeat(500), defaults).filters.company.length, 200);
+});
+
+test('activityPageUrl(): the address-bar URL round-trips through parseActivityParams()', () => {
+  const defaults = { from: '2026-08-31', to: '2026-09-29' };
+  const filters = { from: '2026-09-01', to: '2026-09-15', company: 'Ķelmēni & Co', user: 'ali ce', outcome: 'pending' };
+  const url = c.activityPageUrl(filters, 4);
+  assert.match(url, /^\/monitoring\/activity\?from=2026-09-01&to=2026-09-15&/);
+  assert.deepEqual(c.parseActivityParams(url.slice(url.indexOf('?')), defaults), { filters, page: 4 });
+  // No filters and page 1: a clean path, no trailing "?".
+  assert.equal(c.activityPageUrl({}, 1), '/monitoring/activity');
+  // The CSV link is built from the same filters, so it always matches the address bar.
+  const csv = c.csvHref(filters);
+  assert.equal(csv.slice(csv.indexOf('?')), url.slice(url.indexOf('?')).replace(/&page=4$/, ''));
+});
+
+test('activityLayout(): only a readable log shows tiles, filters and table; a missing one shows the banner and an empty table', () => {
+  assert.deepEqual(c.activityLayout('ok'), { banner: false, tiles: true, filters: true, table: true });
+  assert.deepEqual(c.activityLayout('missing'), { banner: true, tiles: false, filters: true, table: true });
+  for (const status of ['not-configured', 'disabled', 'unsupported-version', 'outside-project', undefined, 'anything']) {
+    assert.deepEqual(c.activityLayout(status), { banner: true, tiles: false, filters: false, table: false }, String(status));
+  }
+});
+
+// ---------------------------------------------------------------------------
+// In-place refresh of the services table
+// ---------------------------------------------------------------------------
+
+test('diffRows(): what to add, remove and keep, in the new order', () => {
+  assert.deepEqual(c.diffRows(['a', 'b', 'c'], ['b', 'c', 'd']), { add: ['d'], remove: ['a'], keep: ['b', 'c'] });
+  assert.deepEqual(c.diffRows([], ['x', 'y']), { add: ['x', 'y'], remove: [], keep: [] });
+  assert.deepEqual(c.diffRows(['x', 'y'], []), { add: [], remove: ['x', 'y'], keep: [] });
+  assert.deepEqual(c.diffRows(['a', 'b'], ['b', 'a']), { add: [], remove: [], keep: ['b', 'a'] });
+  // Service names are data: a prototype name must not look like an existing key.
+  assert.deepEqual(c.diffRows([], ['constructor', '__proto__']), { add: ['constructor', '__proto__'], remove: [], keep: [] });
+  assert.deepEqual(c.diffRows(['constructor'], ['toString']), { add: ['toString'], remove: ['constructor'], keep: [] });
+});
+
+test('changedIndexes(): only cells whose content differs are rewritten', () => {
+  assert.deepEqual(c.changedIndexes(['a', 'b', 'c'], ['a', 'x', 'c']), [1]);
+  assert.deepEqual(c.changedIndexes(['a', 'b'], ['a', 'b']), []);
+  assert.deepEqual(c.changedIndexes([], ['a', 'b']), [0, 1], 'a new row has no previous cells');
+  assert.deepEqual(c.changedIndexes(undefined, ['a']), [0]);
+});
+
 // ---------------------------------------------------------------------------
 // monFetch and session expiry
 // ---------------------------------------------------------------------------
