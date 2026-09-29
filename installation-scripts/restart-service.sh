@@ -27,8 +27,9 @@ set -euo pipefail
 #   - Restart the wizard, which would stop the process running this script.
 #     On the host: docker compose restart wizard
 #
-# Exit codes: 0 restarted and healthy, 1 restart failed or not healthy in
-# time, 2 usage error, unknown service, or the wizard.
+# Exit codes: 0 restarted and healthy, 1 the service has no container to
+# restart, the restart failed, or it was not healthy in time (also when the
+# services cannot be listed), 2 usage error, unknown service, or the wizard.
 # ============================================================================
 
 service=""
@@ -69,6 +70,11 @@ if [[ ! "$health_timeout" =~ ^[0-9]+$ ]]; then
   echo "ERROR: --health-timeout must be a whole number of seconds (got '${health_timeout}')" >&2
   exit 2
 fi
+if [[ "${#health_timeout}" -gt 6 ]]; then
+  echo "ERROR: --health-timeout must be at most 6 digits (got '${health_timeout}')" >&2
+  exit 2
+fi
+health_timeout=$((10#$health_timeout))   # 08 is 8 seconds, not an octal error
 # Refused before docker is asked anything: the wizard runs this script, and
 # restarting its own container would kill the run half-way.
 if [[ "$service" == wizard ]]; then
@@ -89,8 +95,13 @@ fi
 # working directory.
 cd "$repo_root"
 
-if ! services_out="$(docker compose config --services 2>/dev/null </dev/null)"; then
-  echo "ERROR: could not list the services (docker compose config --services failed in ${repo_root})" >&2
+# compose's own error (a broken .env or YAML) goes into the message, so the
+# wizard's log shows why.
+config_err="$(mktemp)"
+trap 'rm -f "$config_err"' EXIT
+if ! services_out="$(docker compose config --services 2>"$config_err" </dev/null)"; then
+  why="$(sed -n '/[^[:space:]]/{s/\r$//;p;q;}' "$config_err")"
+  echo "ERROR: could not list the services (docker compose config --services failed in ${repo_root})${why:+: ${why}}" >&2
   exit 1
 fi
 found=false
