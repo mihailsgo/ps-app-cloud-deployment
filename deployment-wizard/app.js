@@ -6,6 +6,7 @@ const session = require('express-session');
 
 const defaults = require('./config/defaults');
 const { requireAuth } = require('./lib/auth');
+const { refuseCrossSite } = require('./lib/sameOrigin');
 const authRoutes = require('./routes/auth');
 const wizardStepsRoutes = require('./routes/wizardSteps');
 const certRoutes = require('./routes/certRoutes');
@@ -47,6 +48,12 @@ function createApp() {
     if (req.path === '/login' || req.path === '/api/auth') return next();
     return requireAuth(req, res, next);
   });
+
+  // Refuse browser-labelled cross-origin POSTs (the session cookie is only
+  // SameSite=Strict, and the portal and Keycloak are same-site with this
+  // port). After the gate so an unauthenticated visitor still sees 401/redirect
+  // first; before every router, including the login POST.
+  app.use(refuseCrossSite);
 
   // Which topbar section is current, derived from the path so no route has
   // to remember to pass it. Consumed by views/partials/topbar.ejs to render
