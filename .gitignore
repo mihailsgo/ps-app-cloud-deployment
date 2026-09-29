@@ -58,6 +58,8 @@ PSDOCS/**
 .monitor-state/
 deployment-evidence.json
 deployment-evidence.json.previous
+# Written by support-bundle.sh: logs and redacted config for TrustLynx support
+support-bundles/
 
 # Large or local-only data - both hold real signed customer documents, never
 # release content

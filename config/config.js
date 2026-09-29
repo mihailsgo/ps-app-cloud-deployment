@@ -110,4 +110,16 @@
     CUSTOMER_DATA_CACHE_TTL_MS: 3600000,
     CUSTOMER_DATA_TIMEOUT_MS: 10000,
     CUSTOMER_DATA_RETRIES: 2,
+
+    // ── Signing audit log ──
+    // One JSON line per signing event (registered, signed, sealed, failed),
+    // appended to <dir>/audit-YYYY-MM.jsonl by ps-server 3.33 and newer.
+    // Read by the Deployment Wizard's Monitoring > Signing activity page.
+    // Holds signer e-mail addresses: see
+    // documentation/09-13-signing-activity-log.md for retention.
+    AUDIT_LOG: {
+      enabled: true,
+      dir: "/signed-output/.padsign-audit",
+      retentionMonths: 12
+    },
 };

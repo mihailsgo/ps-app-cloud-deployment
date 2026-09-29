@@ -1,0 +1,3 @@
+{"ID":"e8d78bba48dd","Name":"padsign-nginx-1","Service":"nginx","State":"running","Health":"healthy","Status":"Up 3 hours (healthy)","Image":"nginx:1.27-alpine"}
+{"ID":"dd667f3a8a3a","Name":"padsign-ps-server-1","Service":"ps-server","State":"running","Health":"","Status":"Up 90 minutes","Image":"mihailsgordijenko/ps-server:3.32@sha256:dd667f3a8a3a785cc9070e296e7709b2decfd301fac1d12d39f0536fb8913b4b"}
+{"ID":"7f937edc96c0","Name":"padsign-ps-client-1","Service":"ps-client","State":"exited","Health":"unhealthy","Status":"Exited (1) 5 minutes ago","Image":"mihailsgordijenko/ps-client:8.39@sha256:7f937edc96c03716ae910c3bcffa7c60c86c48043111c7b5dd2601f58e5f738a"}

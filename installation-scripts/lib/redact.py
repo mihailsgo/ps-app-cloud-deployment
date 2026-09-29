@@ -15,9 +15,50 @@ Redaction replaces the whole value with <redacted>. It deliberately does not
 print a hash or a prefix: a short hash of a low-entropy password is trivially
 brute-forced offline, and "the value changed" is already conveyed by the line
 appearing in a diff at all.
+
+redact_line() is what the importers use. Text that leaves the host
+(support-bundle.sh) goes through `--filter`, which adds, for configuration
+(redact_config_line + RedactingFilter):
+
+  - URLs: an http(s) URL outside the stack keeps only scheme://host[:port]
+    (a webhook's path or ?code= is its credential); the deployment's own
+    host (--keep-host), localhost and the stack's service names keep their
+    path. Secret query parameters and key=value pairs go anywhere.
+  - every value inside a `headers` block, whatever the header is called;
+  - the lines of a YAML block scalar under a secret key (`password: |`);
+  - a PEM private key, which becomes one `<private key redacted>` line.
+
+and for container logs (`--filter --log`, redact_log_line), where a secret
+has no config key to recognise it by: the rules run after the
+`docker compose logs --timestamps` prefix ("ps-server-1  | <time> "), a
+secret-named word followed by a value is redacted anywhere in the line
+(Spring's "Using generated security password: ..."), JWTs become
+<jwt redacted>, base64 runs of 200+ characters (drawn signatures,
+documents) become <base64 N chars elided>, other 200+ character token runs
+become <N chars elided>, and ps-server's signing activity lines
+("padsignAudit") shrink to their event and outcome: no signer, no file name.
+
+  python3 installation-scripts/lib/redact.py --filter --keep-host padsign.example.com < config.js
+  docker compose logs ps-server | python3 installation-scripts/lib/redact.py --filter --log
+
+Line endings are kept as they are; bytes that are not UTF-8 become U+FFFD.
+Without arguments it runs its self-test.
+
+Known limits of redaction. It is best effort, by key names and shapes, so
+whoever sends its output reads it first. Not recognised: a secret in plain
+prose without a `:` or `=` ("the password is hunter2"), Map-style dumps
+(Map { 'password' => 'x' }), URLs without a scheme or URL-encoded ones
+(hooks.example.com/T0/B0/x, https%3A%2F%2F...), ws:// and wss:// URLs, and
+secrets split across lines other than PEM keys, YAML block scalars and a
+value on the line after its key.
 """
 
+import io
+import ipaddress
+import json
 import re
+import sys
+import time
 
 # Key names that carry secret material in this stack's config files:
 # config.js (KEYCLOAK_CONFIG.credentials.secret, STAMP_API_KEY,
@@ -26,10 +67,19 @@ import re
 # (KEYCLOAK_ADMIN_PASSWORD, SPRING_SECURITY_USER_PASSWORD), DMSS
 # application.yml (keystore/datasource `password:`), .env files.
 SECRET_KEY_RE = re.compile(
-    r"(secret|passw(or)?d|pwd|api[_-]?key|apikey|token|credential|"
+    r"(secret|passw(or)?d|pwd|passphrase|api[_-]?key|apikey|token|credential|"
     r"private[_-]?key|authorization|cookie)",
     re.IGNORECASE,
 )
+# A key named `key` (REGISTER_PDF_API_KEYS: [{ company, key }]) or ending in
+# _key / -key / .key. Not keystore, keyAlias, keyUsage, *JsonKey or monkey:
+# those name a file, an alias or a field, not a secret.
+_KEY_NAME_RE = re.compile(r"(?:^|[_.\-])key$", re.IGNORECASE)
+# Names only the --filter modes treat as secret (see is_secret_name).
+# sig / signature only as a name or a header's last word (X-Hook-Signature):
+# config/constants.json's UI strings are called PS_NO_SIGNATURE.
+_FILTER_NAME_RE = re.compile(r"(?i)ticket|hmac.*key|(?:^|[_.\-])(?:pass|bearer)$|(?:^|[.\-])(?:sig|signature)$|^auth$")
+_CAMEL_KEY_RE = re.compile(r"[a-z0-9]Key$")
 
 REDACTED = "<redacted>"
 
@@ -37,17 +87,33 @@ REDACTED = "<redacted>"
 _ASSIGNMENT_RE = re.compile(
     r"""^(?P<prefix>\s*(?:-\s*|export\s+)?["']?(?P<key>[A-Za-z0-9_.\-]+)["']?\s*[:=]\s*)(?P<value>.*)$"""
 )
-# Inline object members such as: headers: { "Authorization": "Bearer abc" }
+# Inline object members such as: headers: { "Authorization": "Bearer abc" }.
+# A key starts only where a run of key characters starts, so a long run is
+# tried once, not from each of its positions (that was quadratic).
 _INLINE_MEMBER_RE = re.compile(
-    r"""(?P<prefix>["']?(?P<key>[A-Za-z0-9_.\-]+)["']?\s*:\s*)(?P<quote>["'])(?P<value>(?:(?!(?P=quote)).)*)(?P=quote)"""
+    r"""(?P<prefix>["']?(?<![A-Za-z0-9_.\-])(?P<key>[A-Za-z0-9_.\-]+)["']?\s*:\s*)(?P<quote>["'])(?P<value>(?:(?!(?P=quote)).)*)(?P=quote)"""
 )
 _BEARER_RE = re.compile(r"(?i)\b(bearer|basic)\s+[A-Za-z0-9._~+/=\-]{6,}")
-# userinfo in URLs: scheme://user:password@host
-_URL_USERINFO_RE = re.compile(r"(?P<scheme>[a-z][a-z0-9+.\-]*://)(?P<user>[^/\s:@]+):(?P<pw>[^/\s@]+)@", re.IGNORECASE)
+# userinfo in URLs: scheme://user:password@host (same start rule)
+_URL_USERINFO_RE = re.compile(r"(?P<scheme>(?<![a-z0-9+.\-])[a-z][a-z0-9+.\-]*://)(?P<user>[^/\s:@]+):(?P<pw>[^/\s@]+)@", re.IGNORECASE)
 
 
 def is_secret_key(key):
-    return bool(key) and bool(SECRET_KEY_RE.search(key))
+    return bool(key) and bool(SECRET_KEY_RE.search(key) or _KEY_NAME_RE.search(key))
+
+
+def is_secret_name(key):
+    """is_secret_key() plus the names only the --filter modes treat as
+    secret (redact_line()'s importers keep is_secret_key()): *ticket*
+    (OTCSTICKET), a *_pass / -pass suffix (DB_PASS), bearer as a name or
+    suffix, sig / signature as a name or a header's last word, auth,
+    hmac...key, and a camel-case ...Key
+    (hmacKey, signingKey) - but not *JsonKey, which names a JSON field."""
+    if is_secret_key(key):
+        return True
+    if not key:
+        return False
+    return bool(_FILTER_NAME_RE.search(key) or (_CAMEL_KEY_RE.search(key) and not key.endswith("JsonKey")))
 
 
 def _redact_value_keep_punctuation(value):
@@ -68,14 +134,17 @@ def _redact_value_keep_punctuation(value):
     return f"{quote}{REDACTED}{quote}{trailing}"
 
 
-def redact_line(line):
-    """Return `line` with any secret-bearing value replaced by <redacted>."""
+def redact_line(line, is_secret=None):
+    """Return `line` with any secret-bearing value replaced by <redacted>.
+    `is_secret` decides which key names are secret (default is_secret_key;
+    the --filter modes pass is_secret_name)."""
+    is_secret = is_secret or is_secret_key
     m = _ASSIGNMENT_RE.match(line)
-    if m and is_secret_key(m.group("key")):
+    if m and is_secret(m.group("key")):
         line = m.group("prefix") + _redact_value_keep_punctuation(m.group("value"))
 
     def _member(mm):
-        if is_secret_key(mm.group("key")):
+        if is_secret(mm.group("key")):
             q = mm.group("quote")
             return f"{mm.group('prefix')}{q}{REDACTED}{q}"
         return mm.group(0)
@@ -91,8 +160,433 @@ def redact_json_value(key, value):
     return REDACTED if is_secret_key(key) else value
 
 
-if __name__ == "__main__":
-    # Self-test: `python3 installation-scripts/lib/redact.py`
+# ── URLs ────────────────────────────────────────────────────────────────────
+# A webhook URL is a capability: whoever has https://hooks.example.com/T0/B0/x
+# or ...?code=x can post to it. Outside the stack only scheme://host[:port]
+# is kept. The deployment's own URLs (--keep-host), localhost, private
+# addresses and the stack's service names keep their path, which support
+# does need; their secret query parameters still go (_QUERY_SECRET_RE,
+# _KV_RE). JSON-escaped slashes (https:\/\/...) count, and keep their style.
+_URL_RE = re.compile(r"""(?i)\bhttps?:(?:\\?/){2}[^\s"'<>`]*[^\s"'<>`;,.:)\]}\\]""")
+_URL_PARTS_RE = re.compile(r"(?is)(https?:)((?:\\?/){2})(.*)")
+_LOCAL_HOSTS = {"localhost", "host.docker.internal", "keycloak", "ps-server", "ps-client", "nginx", "wizard"}
+# Query parameters that carry a capability without a secret-looking name.
+_QUERY_SECRET_RE = re.compile(r"(?i)(?P<prefix>[?&;](?:code|sig|signature|key|token|access_token|api_key|apikey|password|secret)=)(?P<value>[^&\s\"'<>#;,]+)")
+URL_PATH_REDACTED = "/" + REDACTED
+
+
+def _is_local_host(host, keep_hosts):
+    host = host.lower().strip("[]")
+    if not host:
+        return False
+    if host in _LOCAL_HOSTS or host in keep_hosts:
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+        # Loopback, RFC 1918 and link-local: container and LAN addresses
+        # (nginx prints http://172.18.0.5:3001/... for its upstreams).
+        return ip.is_loopback or ip.is_private or ip.is_link_local
+    except ValueError:
+        pass
+    # dmss-archive-services, pdf-converter: a dot-less name resolves only on
+    # the Docker network or the host, never to a public endpoint.
+    return "." not in host and ":" not in host
+
+
+def _redact_url(url, keep_hosts):
+    m = _URL_PARTS_RE.match(url)
+    scheme, slashes, rest = m.group(1), m.group(2), m.group(3)
+    authority = re.match(r"[^/\\?#]*", rest).group(0)
+    tail = rest[len(authority):]
+    hostport = authority
+    if "@" in authority:
+        userinfo, _, hostport = authority.rpartition("@")
+        # user:password@ keeps the user; a bare token@ is all secret.
+        authority = (f"{userinfo.split(':', 1)[0]}:{REDACTED}@{hostport}" if ":" in userinfo
+                     else f"{REDACTED}@{hostport}")
+    host = hostport.split("]")[0] + "]" if hostport.startswith("[") else hostport.split(":")[0]
+    if _is_local_host(host, keep_hosts) or tail in ("", "/", "\\/"):
+        return scheme + slashes + authority + tail
+    return scheme + slashes + authority + ("\\" if "\\" in slashes else "") + URL_PATH_REDACTED
+
+
+def redact_urls(line, keep_hosts=()):
+    """Cut every non-local http(s) URL after its host; see _URL_RE."""
+    if "/" not in line:
+        return line
+    keep = {h.lower() for h in keep_hosts}
+    return _URL_RE.sub(lambda m: _redact_url(m.group(0), keep), line)
+
+
+# ── Rules for both --filter modes ──────────────────────────────────────────
+_JWT_RE = re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*")
+JWT_REDACTED = "<jwt redacted>"
+# A drawn signature, a PDF or any other payload, with its data: URI prefix
+# when it has one.
+_BASE64_RUN_RE = re.compile(r"(?:data:[a-z]+/[a-z0-9.+-]+;base64,)?[A-Za-z0-9+/]{200,}={0,2}")
+# Any other run of 200+ token characters: base64url, an opaque token. Also
+# what keeps the per-key rules linear (_PROSE_SECRET_RE backtracks within a
+# run of key characters).
+_OPAQUE_RUN_RE = re.compile(r"[A-Za-z0-9+/_.\-]{200,}={0,2}")
+# key=value anywhere in the line: query strings and form bodies
+# (grant_type=client_credentials&client_secret=...), which redact_line's
+# line-start rule never sees behind a log line's timestamp. Starts only at
+# the beginning of a key-character run, so a long run costs one pass.
+_KV_RE = re.compile(r"""(?P<prefix>(?<![A-Za-z0-9_.\-])(?P<key>[A-Za-z0-9_.\-]+)=)(?P<value>[^\s&;,"'<>\[][^\s&;,"'<>]*)""")
+# Authorization schemes: the scheme word stays, the credential goes.
+_SCHEMES = {"bearer", "basic", "token", "app", "digest", "negotiate"}
+_AUTH_SCHEME_RE = re.compile(
+    r"""(?i)(?P<head>\bauthorization\b["']?(?:\s+header)?(?:\s+value)?\s*[:=]\s*["']?\[?)"""
+    r"""(?P<scheme>bearer|basic|token|app|digest|negotiate)\s+(?!<)[^\s"',;\]}]+""")
+# Bearer / Basic with any credential, even a short one (redact_line()'s
+# _BEARER_RE wants 6+ characters). Not before a word that makes it prose.
+_SCHEME_RE = re.compile(
+    r"""(?i)\b(?P<scheme>bearer|basic)\s+(?!<)(?!(?:token|tokens|auth|authentication|realm|only|scheme|header|flow|"""
+    r"""mode|info|the|a|an|and|or|to|of|is|check|config|settings)\b)[A-Za-z0-9._~+/=\-]+""")
+# Compact JSON members inside a quoted string with a harmless name:
+# data: '{"error":"x","access_token":"..."}' (ps-server's logError bodies),
+# SPRING_APPLICATION_JSON: '{"spring":{"datasource":{"password":"..."}}}'.
+_JSON_MEMBER_RE = re.compile(r'"(?P<key>[A-Za-z0-9_.\-]{1,64})"(?P<sep>\s*:\s*)"(?P<v>(?:[^"\\]|\\.)*)"')
+# A secret-named word and its value anywhere in the line: Spring's "Using
+# generated security password: <uuid>", util.inspect's "  password: 'x'"
+# behind a prefix, "token=...", header dumps (OTCSTICKET:"x",
+# x-api-key: x, otcsticket=[x]). Never an already redacted <...> value.
+_PROSE_SECRET_RE = re.compile(
+    r"""(?P<prefix>(?<![A-Za-z0-9_.\-])(?P<key>[A-Za-z0-9_.\-]*?(?:passw(?:or)?d|pwd|passphrase|secret|token|"""
+    r"""api[_-]?key|apikey|credential|authorization|cookie|ticket)[A-Za-z0-9_.\-]*)"""
+    r"""(?:["']?\s*=\s*|["']?:\s+|["']?:(?=["'\[])|["']:\s*)\[?)"""
+    r"""(?P<value>"[^"]*"|'[^']*'|[^\s,;&)}\]<>"'{\[][^\s,;&)}\]<>"']*)""",
+    re.IGNORECASE,
+)
+# Command lines: --db-password VALUE, ["--db-password","VALUE"], curl -u user:pw.
+_CLI_FLAG_RE = re.compile(r"""(?<![\w-])(?P<flag>--?[A-Za-z][A-Za-z0-9_.\-]*)(?P<sep>["']?\s*,\s*["']|\s+)(?P<value>[^\s"',\]<]+)""")
+_CURL_USER_RE = re.compile(r"""(?<![\w-])(?P<head>(?:-u|--user)(?:\s+|=)["']?[^\s:"'<]+:)(?P<pw>[^\s"'<]+)""")
+
+
+def _quoted_redacted(value):
+    q = value[0] if value[:1] in ("'", '"') and len(value) >= 2 and value[-1] == value[0] else ""
+    return f"{q}{REDACTED}{q}"
+
+
+def _kv_and_query(line):
+    if "=" not in line:
+        return line
+    line = _KV_RE.sub(
+        lambda mm: f"{mm.group('prefix')}{REDACTED}"
+        if is_secret_name(mm.group("key")) and mm.group("value").lower() not in _SCHEMES else mm.group(0), line)
+    return _QUERY_SECRET_RE.sub(lambda mm: f"{mm.group('prefix')}{REDACTED}", line)
+
+
+def _elide_runs(text):
+    """JWTs, then base64 and other 200+ character runs. JWTs first: a
+    token's payload segment is itself a long base64 run."""
+    text = _JWT_RE.sub(JWT_REDACTED, text)
+    text = _BASE64_RUN_RE.sub(_elide_base64, text)
+    return _OPAQUE_RUN_RE.sub(lambda mm: f"<{len(mm.group(0))} chars elided>", text)
+
+
+def _secret_rules(text):
+    """The per-key rules both --filter modes apply after redact_line()."""
+    text = _JSON_MEMBER_RE.sub(
+        lambda mm: f'"{mm.group("key")}"{mm.group("sep")}"{REDACTED}"' if is_secret_name(mm.group("key")) else mm.group(0), text)
+    text = _AUTH_SCHEME_RE.sub(lambda mm: f"{mm.group('head')}{mm.group('scheme')} {REDACTED}", text)
+    text = _SCHEME_RE.sub(lambda mm: f"{mm.group('scheme')} {REDACTED}", text)
+    text = _CURL_USER_RE.sub(lambda mm: f"{mm.group('head')}{REDACTED}", text)
+    text = _CLI_FLAG_RE.sub(
+        lambda mm: f"{mm.group('flag')}{mm.group('sep')}{REDACTED}" if is_secret_name(mm.group("flag").lstrip("-")) else mm.group(0), text)
+
+    def prose(mm):
+        value = mm.group("value")
+        if value.strip("\"'").lower() in _SCHEMES:
+            return mm.group(0)  # "Authorization: Token <redacted>": the scheme word stays
+        return f"{mm.group('prefix')}{_quoted_redacted(value)}"
+    return _PROSE_SECRET_RE.sub(prose, text)
+
+
+# ── Configuration ───────────────────────────────────────────────────────────
+# A comment keeps the old credential that was rotated out: `# password: x`,
+# `// STAMP_API_KEY = x`. The rules run on what follows the marker.
+_COMMENT_RE = re.compile(r"^(?P<mark>\s*(?:#+|//+|;+)\s?)(?P<rest>.*)$")
+# nginx: proxy_set_header X-API-KEY value; / set $secret "value";
+_NGINX_RE = re.compile(
+    r"""^(?P<head>\s*(?:proxy_set_header|add_header|more_set_headers|set|fastcgi_param|uwsgi_param|grpc_set_header)\s+"""
+    r"""(?P<name>\$?[A-Za-z0-9_.\-]+)\s+)(?P<value>"[^"]*"|'[^']*'|[^;\s"'][^;]*?)(?P<tail>\s*;.*)$""")
+
+
+def _config_text(text, keep_hosts):
+    text = redact_urls(_elide_runs(text), keep_hosts)
+    m = _NGINX_RE.match(text)
+    if m and is_secret_name(m.group("name").lstrip("$")) and not m.group("value").startswith("$"):
+        text = m.group("head") + _quoted_redacted(m.group("value")) + m.group("tail")
+    return _kv_and_query(_secret_rules(redact_line(text, is_secret_name)))
+
+
+def redact_config_line(line, keep_hosts=()):
+    """What `--filter` applies to each line of a configuration file:
+    redact_line() with is_secret_name, plus long runs, URLs (redact_urls),
+    compact JSON members, Authorization schemes, command-line flags, secret
+    words followed by a value anywhere, key=value / query parameters, nginx
+    header directives, and all of it inside comments too. URLs go before
+    redact_line(): its userinfo rule inserts a `<`, which would end the URL
+    match early."""
+    m = _COMMENT_RE.match(line)
+    if m and m.group("rest").strip():
+        return m.group("mark") + _config_text(m.group("rest"), keep_hosts)
+    return _config_text(line, keep_hosts)
+
+
+# ── Logs ────────────────────────────────────────────────────────────────────
+# `docker compose logs --timestamps`: "ps-server-1  | 2026-09-29T10:00:00.1Z ",
+# either part optional. redact_line()'s rules are anchored at the start of
+# the text, so they run on what follows.
+_LOG_PREFIX_RE = re.compile(r"^(?:\S+\s+\|\s)?(?:\d{4}-\d\d-\d\dT\S+\s)?")
+# Every word that can make redact_line() or _secret_rules() change a line.
+_SECRET_HINT_RE = re.compile(r"(?i)secret|pass|pwd|api[_-]?key|token|credential|private|auth|cookie|key|"
+                             r"bearer|basic|ticket|sig|://|:\\?/\\?/|-u\s|--user")
+# ps-server's signing activity log line (one JSON object per signing event):
+# the signer's e-mail address and the file name must not leave the host.
+_AUDIT_RE = re.compile(r'"padsignAudit"\s*:\s*1\b')
+_AUDIT_WORD_RE = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
+
+
+def _elide_base64(m):
+    text = m.group(0)
+    prefix = ""
+    if text.startswith("data:"):
+        # The media type is not secret and says what was there (image/png,
+        # application/pdf); only the payload goes.
+        prefix, _, text = text.partition(",")
+        prefix += ","
+    return f"{prefix}<base64 {len(text.rstrip('='))} chars elided>"
+
+
+def _audit_summary(text):
+    try:
+        entry = json.loads(text[text.index("{"):text.rindex("}") + 1])
+        event, outcome = str(entry["event"]), str(entry["outcome"])
+        if _AUDIT_WORD_RE.match(event) and _AUDIT_WORD_RE.match(outcome):
+            return f"<padsignAudit event={event} outcome={outcome} omitted>"
+    except (ValueError, KeyError, TypeError):
+        pass
+    return "<padsignAudit line omitted>"
+
+
+def redact_log_line(line, keep_hosts=()):
+    """The configuration rules (without the comment and nginx ones), applied
+    after the compose prefix and timestamp, plus signing activity lines
+    reduced to their event and outcome. Lines that name no secret skip the
+    per-key rules (a 24-hour log is hundreds of thousands of lines)."""
+    prefix = _LOG_PREFIX_RE.match(line).group(0)
+    text = line[len(prefix):]
+    if _AUDIT_RE.search(text):
+        return prefix + _audit_summary(text)
+    text = redact_urls(_elide_runs(text), keep_hosts)
+    if _SECRET_HINT_RE.search(text):
+        text = _secret_rules(redact_line(text, is_secret_name))
+    return prefix + _kv_and_query(text)
+
+
+# ── --filter: whole streams ─────────────────────────────────────────────────
+PRIVATE_KEY_REDACTED = "<private key redacted>"
+_PEM_BEGIN_RE = re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----")
+_PEM_END_RE = re.compile(r"-----END [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----")
+# A line of key material: base64 (in quotes, with a "\n" escape, a `+` or a
+# `,`, as string concatenation leaves it), an armour header, or nothing.
+_PEM_BODY_RE = re.compile(
+    r"""^[\s'"`+|]*(?:[A-Za-z0-9+/=]{1,80}(?:\\n)?|(?:Proc-Type|DEK-Info|Version|Comment|Hash|Charset):.*?)?['"`]?\s*\+?\s*,?\s*$""")
+# What may stand before BEGIN and stay as it is: `privateKey: "`.
+_KEY_OPEN_RE = re.compile(r"""^\s*(?:-\s*)?["']?[A-Za-z0-9_.\-]+["']?\s*[:=]\s*["'`]?$""")
+# `headers: {` in config.js (DOCUMENT_ROUTING webhooks), or a YAML `headers:`
+# mapping: every value in it is a credential, whatever the header is called.
+_HEADERS_JS_RE = re.compile(r"""(?:^|[\s{,])["']?headers["']?\s*:\s*\{""")
+_HEADERS_YAML_RE = re.compile(r"""^(?P<indent>\s*)["']?headers["']?\s*:\s*(?:#.*)?$""")
+_MEMBER_VALUE_RE = re.compile(
+    r"""(?P<k>["']?[A-Za-z0-9_.\-]+["']?\s*:\s*)(?P<v>"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`[^`]*`|[^,}\s][^,}]*?)(?=\s*(?:,|}|$))""")
+# `password: |` / `secret: >-`: a YAML block scalar under a secret key.
+_BLOCK_SCALAR_RE = re.compile(
+    r"""^(?P<indent>\s*)(?:-\s*)?["']?(?P<key>[A-Za-z0-9_.\-]+)["']?\s*:\s*[|>][-+0-9]*\s*(?:#.*)?$""")
+# `SESSION_SECRET:` / `password:` with its value on the next line.
+_EMPTY_VALUE_RE = re.compile(r"""^\s*(?:-\s*)?["']?(?P<key>[A-Za-z0-9_.\-]+)["']?\s*:\s*(?:#.*)?$""")
+_MAPPING_LINE_RE = re.compile(r"""^\s*(?:-\s*)?["']?[A-Za-z0-9_.\-]+["']?\s*:(?:\s|$)""")
+
+
+def _redact_members(text):
+    def one(m):
+        v = m.group("v")
+        q = v[0] if v[0] in "\"'`" and len(v) >= 2 and v[-1] == v[0] else ""
+        return f"{m.group('k')}{q}{REDACTED}{q}"
+    return _MEMBER_VALUE_RE.sub(one, text)
+
+
+def _close_brace(text, depth):
+    """Index just past the `}` that brings `depth` to 0, or None, and the
+    depth left at the end of `text`. Braces inside quotes do not count."""
+    quote = None
+    i = 0
+    while i < len(text):
+        c = text[i]
+        if quote:
+            if c == "\\":
+                i += 1
+            elif c == quote:
+                quote = None
+        elif c in "\"'`":
+            quote = c
+        elif c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return i, 0
+        i += 1
+    return None, depth
+
+
+class RedactingFilter:
+    """The `--filter` state machine. Per line: redact_config_line() or
+    redact_log_line(). Across lines, in both modes: a PEM private key
+    becomes one `<private key redacted>` line; without an END line it ends
+    at the first line that is not key material. Config mode also redacts
+    every value inside a `headers` block, the lines of a YAML block scalar
+    under a secret key, and a secret key's value on the line after it."""
+
+    def __init__(self, log=False, keep_hosts=()):
+        self.log = log
+        self.keep_hosts = tuple(keep_hosts)
+        self.in_pem = False
+        self.js_headers_depth = 0     # > 0: inside `headers: { ...`
+        self.yaml_block_indent = None  # inside a `headers:` mapping or secret block scalar
+        self.yaml_block_is_headers = False
+        self.value_next = False       # the previous line was `secret-key:` alone
+
+    def _line(self, text):
+        if self.log:
+            return redact_log_line(text, self.keep_hosts)
+        return redact_config_line(text, self.keep_hosts)
+
+    def _strip_log_prefix(self, text):
+        return text[len(_LOG_PREFIX_RE.match(text).group(0)):] if self.log else text
+
+    def _pem_head(self, head):
+        rest = self._strip_log_prefix(head)
+        if not rest.strip() or _KEY_OPEN_RE.match(rest):
+            return head
+        return self._line(head)
+
+    def _pem(self, body):
+        """Returns (handled, output). handled: the line was (part of) a key."""
+        if self.in_pem:
+            text = self._strip_log_prefix(body)
+            if _PEM_END_RE.search(text):
+                self.in_pem = False
+                return True, None
+            if _PEM_BODY_RE.match(text):
+                return True, None
+            self.in_pem = False       # not key material: an unterminated key ended
+            return False, body
+        begin = _PEM_BEGIN_RE.search(body)
+        if not begin:
+            return False, body
+        out = self._pem_head(body[:begin.start()]) + PRIVATE_KEY_REDACTED
+        end = _PEM_END_RE.search(body, begin.end())
+        if end:
+            rest = body[end.end():]
+            return True, out + (self._line(rest) if rest.strip() else rest)
+        self.in_pem = True
+        return True, out
+
+    def _config_blocks(self, body):
+        """Returns output for a line inside a headers block / secret block
+        scalar / after a secret key, or None when the line is not in one."""
+        if self.js_headers_depth:
+            close, depth = _close_brace(body, self.js_headers_depth)
+            if close is None:
+                self.js_headers_depth = depth
+                return _redact_members(body)
+            self.js_headers_depth = 0
+            return _redact_members(body[:close]) + self._line(body[close:])
+        if self.yaml_block_indent is not None:
+            indent = len(body) - len(body.lstrip())
+            if not body.strip():
+                return body
+            if indent > self.yaml_block_indent:
+                if self.yaml_block_is_headers:
+                    return _redact_members(body)
+                return body[:indent] + REDACTED
+            self.yaml_block_indent = None
+        if self.value_next:
+            if not body.strip():
+                return body
+            self.value_next = False
+            stripped = body.lstrip()
+            # A nested mapping (`credentials:` then `  secret: x`) is left to
+            # the per-line rules; a bare value is the secret itself.
+            if not _MAPPING_LINE_RE.match(body) and not stripped.startswith(("#", "//", "{", "[", "}", "]")):
+                return body[:len(body) - len(stripped)] + _redact_value_keep_punctuation(stripped)
+        return None
+
+    def feed(self, body):
+        """One line without its ending -> the redacted line, or None to drop it."""
+        handled, out = self._pem(body)
+        if handled:
+            return out
+        if self.log:
+            return self._line(body)
+        inside = self._config_blocks(body)
+        if inside is not None:
+            return inside
+        m = _HEADERS_JS_RE.search(body)
+        if m:
+            close, depth = _close_brace(body[m.end():], 1)
+            if close is None:
+                self.js_headers_depth = depth
+                return self._line(body[:m.end()]) + _redact_members(body[m.end():])
+            end = m.end() + close
+            return self._line(body[:m.end()]) + _redact_members(body[m.end():end]) + self._line(body[end:])
+        m = _HEADERS_YAML_RE.match(body)
+        if m:
+            self.yaml_block_indent, self.yaml_block_is_headers = len(m.group("indent")), True
+            return body
+        m = _BLOCK_SCALAR_RE.match(body)
+        if m and is_secret_name(m.group("key")):
+            self.yaml_block_indent, self.yaml_block_is_headers = len(m.group("indent")), False
+            return body
+        m = _EMPTY_VALUE_RE.match(body)
+        if m and is_secret_name(m.group("key")):
+            self.value_next = True
+            return body
+        return self._line(body)
+
+    def run(self, lines):
+        """Lines with their endings in, redacted lines with the same endings out."""
+        for line in lines:
+            body = line.rstrip("\r\n")
+            out = self.feed(body)
+            if out is not None:
+                yield out + line[len(body):]
+
+
+def _filter(log, keep_hosts):
+    """stdin -> stdout through RedactingFilter. Binary streams wrapped here,
+    so no platform newline translation (a Windows python3 would otherwise
+    write CRLF) and no locale encoding."""
+    src = io.TextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="replace", newline="")
+    dst = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace", newline="")
+    for out in RedactingFilter(log=log, keep_hosts=keep_hosts).run(src):
+        dst.write(out)
+    dst.flush()
+
+
+USAGE = """Usage:
+  python3 installation-scripts/lib/redact.py                  run the self-test
+  python3 installation-scripts/lib/redact.py --filter [--log] [--keep-host HOST]...
+      stdin -> stdout. Config text by default; --log also removes JWTs, base64
+      runs, secret words in prose and signing activity lines. --keep-host: a
+      host whose URLs keep their path (the deployment's own hostname).
+"""
+
+
+def _self_test():
     cases = {
         '    STAMP_API_KEY: "abcDEF123==",': '    STAMP_API_KEY: "<redacted>",',
         '        "secret": "s3cr3tExAmPl"': '        "secret": "<redacted>"',
@@ -106,12 +600,244 @@ if __name__ == "__main__":
         "COMPOSE_PROFILES=local-eseal": "COMPOSE_PROFILES=local-eseal",
         "  - SPRING_SECURITY_USER_PASSWORD=changeit": "  - SPRING_SECURITY_USER_PASSWORD=<redacted>",
         '    STAMP_LOCAL: { password: "changeit" },': '    STAMP_LOCAL: { password: "<redacted>" },',
+        # A log timestamp before the first colon is not a key that looks secret.
+        "2026-09-29T10:00:00Z ps-server ready": "2026-09-29T10:00:00Z ps-server ready",
+        # A member named `key` (REGISTER_PDF_API_KEYS entries), or *_key.
+        '      { company: "Amit", key: "tlx_pdf_LEAK1" },': '      { company: "Amit", key: "<redacted>" },',
+        '        key: "tlx_pdf_LEAK2"': '        key: "<redacted>"',
+        "  signing_key: abc": "  signing_key: <redacted>",
+        "  passphrase: hunter2": "  passphrase: <redacted>",
+        # ... but not names that merely contain "key".
+        "          keystore: file:/seal/seal.p12": "          keystore: file:/seal/seal.p12",
+        "  keyAlias: seal": "  keyAlias: seal",
+        "  key-alias: seal": "  key-alias: seal",
+        "  keyUsage: digitalSignature": "  keyUsage: digitalSignature",
+        '      containerExtensionJsonKey: "containerExtension"': '      containerExtensionJsonKey: "containerExtension"',
+        "  monkey: banana": "  monkey: banana",
     }
+    P = "c-1  | 2026-09-29T10:00:00.000000000Z "
+    log_cases = {
+        "2026-09-29T10:00:00Z Authorization: Bearer abcdef123456":
+            "2026-09-29T10:00:00Z Authorization: <redacted>",
+        "2026-09-29T10:00:01Z [apiProtect] Bearer token: eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.sig_part":
+            "2026-09-29T10:00:01Z [apiProtect] Bearer token: <jwt redacted>",
+        '{"signatureImage":"data:image/png;base64,' + "A" * 300 + '"}':
+            '{"signatureImage":"data:image/png;base64,<base64 300 chars elided>"}',
+        "[request:end] {path: '/api/stamp', status: 200}": "[request:end] {path: '/api/stamp', status: 200}",
+        "  data: 'grant_type=client_credentials&client_id=padsign-backend&client_secret=s3cr3tExAmPl',":
+            "  data: 'grant_type=client_credentials&client_id=padsign-backend&client_secret=<redacted>',",
+        "2026-09-29T10:00:02Z pulled sha256:" + "a" * 64: "2026-09-29T10:00:02Z pulled sha256:" + "a" * 64,
+        "      password: changeit": "      password: <redacted>",
+        "refresh " + "ab-cd_ef." * 30 + " done": "refresh <270 chars elided> done",
+        # Padding is not part of the payload count.
+        "img " + "B" * 298 + "==": "img <base64 298 chars elided>",
+        # docker compose logs --timestamps: "<service>-1  | <RFC3339> <text>".
+        "container-signature-1  | 2026-09-29T10:00:00.000000000Z   password: LEAKPW":
+            "container-signature-1  | 2026-09-29T10:00:00.000000000Z   password: <redacted>",
+        "ps-server-1  | 2026-09-29T10:00:00.000000000Z secret: LEAKSEC":
+            "ps-server-1  | 2026-09-29T10:00:00.000000000Z secret: <redacted>",
+        "ps-server-1  | 2026-09-29T10:00:00.000000000Z Authorization: Bearer abcdef123456":
+            "ps-server-1  | 2026-09-29T10:00:00.000000000Z Authorization: <redacted>",
+        # Spring Boot prints the endpoint password it generated.
+        "c-1  | 2026-09-29T10:00:00.000000000Z Using generated security password: 1b2c3d4e-LEAKGEN":
+            "c-1  | 2026-09-29T10:00:00.000000000Z Using generated security password: <redacted>",
+        "c-1  | 2026-09-29T10:00:00.000000000Z login failed, token=LEAKTOK1 user=bob":
+            "c-1  | 2026-09-29T10:00:00.000000000Z login failed, token=<redacted> user=bob",
+        # The wizard's access token (deployment-wizard/server.js), should its log ever get in.
+        "wizard-1  | 2026-09-29T10:00:00.000000000Z   Access token: " + "0f" * 32:
+            "wizard-1  | 2026-09-29T10:00:00.000000000Z   Access token: <redacted>",
+        # Prose that only mentions the words stays.
+        "ps-server-1  | 2026-09-29T10:00:00.000000000Z [apiProtect] Token valid: true":
+            "ps-server-1  | 2026-09-29T10:00:00.000000000Z [apiProtect] Token valid: true",
+        "k-1  | 2026-09-29 10:00:00,123 WARN type=LOGIN_ERROR, clientId=padsign-client, error=invalid_user_credentials":
+            "k-1  | 2026-09-29 10:00:00,123 WARN type=LOGIN_ERROR, clientId=padsign-client, error=invalid_user_credentials",
+        # Webhook URLs carry their capability in the path or query: host only.
+        "ps-server-1  | 2026-09-29T10:00:00.000000000Z [documentRouting:webhook] delivered { url: 'https://hooks.example.com/T0/B0/LEAK40', status: 200 }":
+            "ps-server-1  | 2026-09-29T10:00:00.000000000Z [documentRouting:webhook] delivered { url: 'https://hooks.example.com/<redacted>', status: 200 }",
+        "POST https://fn.azurewebsites.net/api/hook?code=LEAK41 failed": "POST https://fn.azurewebsites.net/<redacted> failed",
+        "GET https://u:LEAKUI@hooks.example.com:8443/x/y": "GET https://u:<redacted>@hooks.example.com:8443/<redacted>",
+        # In-stack and local URLs keep their path; secret query parameters still go.
+        "GET http://dmss-archive-services:8090/api/document/1?token=LEAKQ1&x=1":
+            "GET http://dmss-archive-services:8090/api/document/1?token=<redacted>&x=1",
+        "GET http://localhost:3001/api/x?sig=LEAKQ2": "GET http://localhost:3001/api/x?sig=<redacted>",
+        # The signing activity log: never its signer or file name.
+        'ps-server-1  | 2026-09-29T10:00:00.000000000Z {"padsignAudit":1,"ts":"2026-09-29T10:00:00Z","event":"signature.visual","outcome":"ok","user":"a@b.c","filename":"x.pdf"}':
+            "ps-server-1  | 2026-09-29T10:00:00.000000000Z <padsignAudit event=signature.visual outcome=ok omitted>",
+        'ps-server-1  | 2026-09-29T10:00:00.000000000Z {"padsignAudit":1,"user":"a@b.c", truncated':
+            "ps-server-1  | 2026-09-29T10:00:00.000000000Z <padsignAudit line omitted>",
+        # Compact JSON inside a quoted member with a harmless name (logError bodies).
+        P + """upstream { data: '{"error":"x","access_token":"LEAKN01"}' }""":
+            P + """upstream { data: '{"error":"x","access_token":"<redacted>"}' }""",
+        P + """data: '{"message":"bad","secret":"LEAKN02"}'""": P + """data: '{"message":"bad","secret":"<redacted>"}'""",
+        P + """body: '{"apiKey":"LEAKN07"}'""": P + """body: '{"apiKey":"<redacted>"}'""",
+        # Header dumps (container-signature forwards Authorization, OTCSTICKET).
+        P + 'headers: OTCSTICKET:"LEAK86", x-user-context:"u"': P + 'headers: OTCSTICKET:"<redacted>", x-user-context:"u"',
+        P + "otcsticket=[LEAK89] x=1": P + "otcsticket=<redacted>",
+        P + "hdr otcsticket=[LEAK90] x=1": P + "hdr otcsticket=[<redacted>] x=1",
+        P + "OTCSTICKET: LEAK92": P + "OTCSTICKET: <redacted>",
+        P + "sms send apiKey: LEAKN31 to=+371": P + "sms send apiKey: <redacted> to=+371",
+        P + "[a] x-api-key: LEAKd7": P + "[a] x-api-key: <redacted>",
+        P + "req Authorization: Token LEAKd8": P + "req Authorization: Token <redacted>",
+        P + "Authorization header value: App LEAKN33": P + "Authorization header value: App <redacted>",
+        "x Authorization=Basic dTpw": "x Authorization=Basic <redacted>",
+        "x Bearer abc12 end": "x Bearer <redacted> end",
+        "No Authorization header or not Bearer": "No Authorization header or not Bearer",
+        # JSON-escaped slashes keep their escaping.
+        '{"url":"https:\\/\\/hooks.example.com\\/services\\/T0\\/B0\\/LEAKESC"}': '{"url":"https:\\/\\/hooks.example.com\\/<redacted>"}',
+        # A URL's trailing punctuation is not part of it.
+        "x TSA https://tsa.sk.ee/x: timeout": "x TSA https://tsa.sk.ee/<redacted>: timeout",
+        # Private addresses keep their path (nginx prints upstream container IPs).
+        'nginx-1  | 2026-09-29T10:00:00.000000000Z upstream: "http://172.18.0.5:3001/api/x?token=LEAKU1", host':
+            'nginx-1  | 2026-09-29T10:00:00.000000000Z upstream: "http://172.18.0.5:3001/api/x?token=<redacted>", host',
+        # Command lines.
+        P + 'args ["start","--db-password","LEAKD09"]': P + 'args ["start","--db-password","<redacted>"]',
+        "x curl -H 'X-API-KEY: LEAKH1' https://localhost/": "x curl -H 'X-API-KEY: <redacted>' https://localhost/",
+    }
+    config_cases = {
+        # Compact JSON inside a quoted value.
+        """  SPRING_APPLICATION_JSON: '{"spring":{"datasource":{"password":"LEAKD01"}}}'""":
+            """  SPRING_APPLICATION_JSON: '{"spring":{"datasource":{"password":"<redacted>"}}}'""",
+        # Old credentials left in comments.
+        "#      password: LEAKCOM1": "#      password: <redacted>",
+        "  # KEYCLOAK_ADMIN_PASSWORD: LEAKCOM2": "  # KEYCLOAK_ADMIN_PASSWORD: <redacted>",
+        "// STAMP_API_KEY = LEAKCOM4": "// STAMP_API_KEY = <redacted>",
+        "# the password is rotated by upgrade.sh": "# the password is rotated by upgrade.sh",
+        "  # Keystore password for client certificate authentication": "  # Keystore password for client certificate authentication",
+        # Wider key names in filter mode.
+        "  DB_PASS: LEAKP1": "  DB_PASS: <redacted>",
+        "  KEYSTORE_PASS=LEAKP2": "  KEYSTORE_PASS=<redacted>",
+        "  auth: LEAKP3": "  auth: <redacted>",
+        "  hmacKey: LEAKP4": "  hmacKey: <redacted>",
+        "  signingKey: LEAKP5": "  signingKey: <redacted>",
+        "  X-Hook-Signature: LEAKP6": "  X-Hook-Signature: <redacted>",
+        "  sig: LEAKP7": "  sig: <redacted>",
+        "  bearer: LEAKP8": "  bearer: <redacted>",
+        "  otcsTicket: LEAKP9": "  otcsTicket: <redacted>",
+        "  sms: { apiKey: LEAKN32 }": "  sms: { apiKey: <redacted> }",
+        # ... and the names that are not secrets.
+        '      certInHexJsonKey: "certInHex"': '      certInHexJsonKey: "certInHex"',
+        "  keyAlias: seal": "  keyAlias: seal",
+        '      "bearer-only": true': '      "bearer-only": true',
+        "  signatureProfile: B_BES": "  signatureProfile: B_BES",
+        '        "ERROR_VISUAL_SIGNATURE": "Error in visual signature",': '        "ERROR_VISUAL_SIGNATURE": "Error in visual signature",',
+        "  forwardHttpHeaders: Authorization, OTCSTICKET, x-user-context, x-request-id":
+            "  forwardHttpHeaders: Authorization, OTCSTICKET, x-user-context, x-request-id",
+        # nginx directives.
+        "    proxy_set_header X-API-KEY LEAKD18;": "    proxy_set_header X-API-KEY <redacted>;",
+        '    set $secret "LEAKD19";': '    set $secret "<redacted>";',
+        "    proxy_set_header Authorization $http_authorization;": "    proxy_set_header Authorization $http_authorization;",
+        "    proxy_set_header Host $host;": "    proxy_set_header Host $host;",
+        # Command lines.
+        '    command: ["start", "--db-password", "LEAKD09"]': '    command: ["start", "--db-password", "<redacted>"]',
+        "    entrypoint: kc.sh --https-key-store-password LEAKD08 --optimized":
+            "    entrypoint: kc.sh --https-key-store-password <redacted> --optimized",
+        "      test: curl -u user:LEAKCU1 http://localhost/x": "      test: curl -u user:<redacted> http://localhost/x",
+        # URL hosts.
+        '  a: "http://10.0.0.5:8080/api/x"': '  a: "http://10.0.0.5:8080/api/x"',
+        '  a: "http://127.0.0.1.nip.io/api/x"': '  a: "http://127.0.0.1.nip.io/<redacted>"',
+        '  a: "https://dmss-evil.example.com/a/b"': '  a: "https://dmss-evil.example.com/<redacted>"',
+        '  a: "https://LEAKTOKUI@hooks.example.com/"': '  a: "https://<redacted>@hooks.example.com/"',
+        '  a: {"url":"https:\\/\\/hooks.example.com\\/services\\/LEAKESC2"}': '  a: {"url":"https:\\/\\/hooks.example.com\\/<redacted>"}',
+    }
+    # Whole streams through the --filter state machine: (log mode, keep hosts, in, out).
+    stream_cases = [
+        # A PEM key built by string concatenation, and util.inspect's shape in a log.
+        (False, (), '  privateKey: "-----BEGIN PRIVATE KEY-----\\n" +\n    "MIIEvLEAKPEM1\\n" +\n'
+                    '    "-----END PRIVATE KEY-----\\n",\n  next: 1,\n',
+         '  privateKey: "<private key redacted>\n  next: 1,\n'),
+        (True, (), P + "  key: '-----BEGIN PRIVATE KEY-----\\n' +\n" + P + "    'MIIEvLEAKPEM2\\n' +\n"
+                   + P + "    '-----END PRIVATE KEY-----\\n',\n" + P + "  ok: 1\n",
+         P + "  key: '<private key redacted>\n" + P + "  ok: 1\n"),
+        # No END: the key ends at the first line that is not key material.
+        (False, (), "k: |\n  -----BEGIN PRIVATE KEY-----\n  MIIELEAKPEM3\nnext: visible\n",
+         "k: |\n  <private key redacted>\nnext: visible\n"),
+        (False, (), "-----BEGIN PGP PRIVATE KEY BLOCK-----\nVersion: X\n\nlQOYBFLEAKPGP\n=abcd\n-----END PGP PRIVATE KEY BLOCK-----\nafter\n",
+         "<private key redacted>\nafter\n"),
+        # A value on the line after its key.
+        (False, (), '  SESSION_SECRET:\n    "LEAKC23",\n  PORT: 3001,\n', '  SESSION_SECRET:\n    "<redacted>",\n  PORT: 3001,\n'),
+        (False, (), "password:\n  LEAKC71\nuser: sa\n", "password:\n  <redacted>\nuser: sa\n"),
+        (False, (), "credentials:\n  secret: LEAKC72\n  id: x\n", "credentials:\n  secret: <redacted>\n  id: x\n"),
+        # A PEM private key becomes one line, in either mode; unterminated: to the end.
+        (False, (), "a: 1\nk: |\n  -----BEGIN PRIVATE KEY-----\n  MIIEv\n  -----END PRIVATE KEY-----\nb: 2\n",
+         "a: 1\nk: |\n  <private key redacted>\nb: 2\n"),
+        (True, (), "x-1  | 2026-09-29T10:00:00Z -----BEGIN RSA PRIVATE KEY-----\nx-1  | MIIE\n",
+         "x-1  | 2026-09-29T10:00:00Z <private key redacted>\n"),
+        (False, (), 'k: "-----BEGIN EC PRIVATE KEY-----\\nMHc\\n-----END EC PRIVATE KEY-----\\n",\n',
+         'k: "<private key redacted>\\n",\n'),
+        # Every value in a headers block, whatever the header is called.
+        (False, (), '  headers: { "X-Hook-Signature": "LEAK6", X-Auth: \'LEAK8\' },\n',
+         '  headers: { "X-Hook-Signature": "<redacted>", X-Auth: \'<redacted>\' },\n'),
+        (False, (), '  headers: {\n    "X-Webhook-Key": "LEAK7",\n    "X-Other": `LEAK9`\n  },\n  method: "POST",\n',
+         '  headers: {\n    "X-Webhook-Key": "<redacted>",\n    "X-Other": `<redacted>`\n  },\n  method: "POST",\n'),
+        (False, (), "  headers: {},\n  method: POST\n", "  headers: {},\n  method: POST\n"),
+        (False, (), "headers:\n  X-Sig: LEAK10\nnext: 1\n", "headers:\n  X-Sig: <redacted>\nnext: 1\n"),
+        # A YAML block scalar under a secret key.
+        (False, (), "  password: |\n    LEAKB1\n\n    LEAKB2\n  user: sa\n",
+         "  password: |\n    <redacted>\n\n    <redacted>\n  user: sa\n"),
+        # URLs in configuration: the deployment's own host keeps its path.
+        (False, ("padsign.example.com",),
+         'A: "https://padsign.example.com/archive/api/",\nB: "https://hooks.example.com/services/T0/B0/LEAK3",\n'
+         'C: "https://fn.example.net/api/hook?token=LEAK4",\nD: "jdbc:postgresql://db:5432/x?user=u&password=LEAK11",\n'
+         "  proxy_pass http://ps-server:3001/;\n",
+         'A: "https://padsign.example.com/archive/api/",\nB: "https://hooks.example.com/<redacted>",\n'
+         'C: "https://fn.example.net/<redacted>",\nD: "jdbc:postgresql://db:5432/x?user=u&password=<redacted>",\n'
+         "  proxy_pass http://ps-server:3001/;\n"),
+        # Line endings survive.
+        (False, (), "  password: x\r\nplain\n", "  password: <redacted>\r\nplain\n"),
+    ]
     failed = 0
-    for given, want in cases.items():
-        got = redact_line(given)
+    own = lambda line: redact_config_line(line, ("padsign.example.com",))  # noqa: E731
+    own.__name__ = "redact_config_line"
+    for fn, table in ((redact_line, cases), (redact_log_line, log_cases), (own, config_cases)):
+        for given, want in table.items():
+            got = fn(given)
+            if got != want:
+                failed += 1
+                print(f"FAIL {fn.__name__}\n  given: {given}\n  want:  {want}\n  got:   {got}")
+    for log, keep, given, want in stream_cases:
+        got = "".join(RedactingFilter(log=log, keep_hosts=keep).run(given.splitlines(keepends=True)))
         if got != want:
             failed += 1
-            print(f"FAIL\n  given: {given}\n  want:  {want}\n  got:   {got}")
-    print("redact.py self-test:", "FAIL" if failed else "OK", f"({len(cases) - failed}/{len(cases)})")
-    raise SystemExit(1 if failed else 0)
+            print(f"FAIL RedactingFilter(log={log})\n  given: {given!r}\n  want:  {want!r}\n  got:   {got!r}")
+    # Linear, not quadratic, in a long run of key characters: this took
+    # minutes before _OPAQUE_RUN_RE, and milliseconds with it.
+    started = time.monotonic()
+    got = redact_log_line("abc-def_" * 20000)
+    if got != "<160000 chars elided>" or time.monotonic() - started > 10:
+        failed += 1
+        print(f"FAIL redact_log_line on a 160000-character run: {got[:60]!r}, {time.monotonic() - started:.1f} s")
+    # 200 KB on one line, in both modes: a long run of key characters, and
+    # one full of key-looking words.
+    for name, big in (("run", "abc-def_" * 25000), ("words", "password: x token=y " * 10000)):
+        for fn in (redact_config_line, redact_log_line):
+            started = time.monotonic()
+            fn(big)
+            took = time.monotonic() - started
+            if took > 2:
+                failed += 1
+                print(f"FAIL {fn.__name__} on a 200 KB line ({name}): {took:.1f} s")
+    total = len(cases) + len(log_cases) + len(config_cases) + len(stream_cases) + 1 + 4
+    print("redact.py self-test:", "FAIL" if failed else "OK", f"({total - failed}/{total})")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    args = sys.argv[1:]
+    if not args:
+        raise SystemExit(_self_test())
+    log, keep, filter_mode = False, [], False
+    while args:
+        a = args.pop(0)
+        if a == "--filter":
+            filter_mode = True
+        elif a == "--log":
+            log = True
+        elif a == "--keep-host" and args and args[0] and not args[0].startswith("-"):
+            keep.append(args.pop(0))
+        else:
+            filter_mode = False
+            break
+    if not filter_mode:
+        sys.stderr.write(USAGE)
+        raise SystemExit(2)
+    _filter(log, keep)

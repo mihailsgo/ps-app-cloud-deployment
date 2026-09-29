@@ -158,6 +158,26 @@ Strategy options, `pathTemplate` tokens, per-company strategies, the
 receive-back buffer (`bufferOnly`, `bufferPath`) and the `webhook` events are
 described in [11. Document routing and receive-back](11-document-routing-and-receive-back.md).
 
+## Signing audit log
+
+`AUDIT_LOG` controls the signing audit log, one JSON line per signing event
+([9.13 Signing activity log](09-13-signing-activity-log.md)). Every event goes to
+ps-server's standard output; the block decides whether it is also written to files.
+
+```js
+AUDIT_LOG: { enabled: true, dir: "/signed-output/.padsign-audit", retentionMonths: 12 },
+```
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `AUDIT_LOG.enabled` | `true` | Append events to `<dir>/audit-YYYY-MM.jsonl` (one file per UTC month). `false` writes to standard output only. |
+| `AUDIT_LOG.dir` | `"/signed-output/.padsign-audit"` | Directory for the files, inside ps-server's container. This default is `signed-output/.padsign-audit/` on the host. |
+| `AUDIT_LOG.retentionMonths` | `12` | Files older than this many months are deleted at startup and daily. `0` keeps everything. |
+
+The log records signers' e-mail addresses, so set `retentionMonths` to your retention policy.
+An older ps-server ignores the block. `upgrade.sh` adds it to a `config.js` that lacks it
+([9.6](09-06-what-upgrade-does.md)).
+
 ## Customer data lookup (Virtual Printer)
 
 When `/api/registerPDF` receives `source=virtual-printer`, ps-server reads

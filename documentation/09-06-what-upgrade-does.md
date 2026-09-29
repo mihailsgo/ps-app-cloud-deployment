@@ -68,6 +68,13 @@ If `config/config.js` has no `DOCUMENT_ROUTING` key at all, appends a block
 with routing and both strategies disabled. An existing block is never
 changed ([11](11-document-routing-and-receive-back.md)).
 
+**Step 3b/6: Ensuring AUDIT_LOG config.**
+If `config/config.js` has no `AUDIT_LOG` key at all, appends a block that
+turns on the signing activity log in `signed-output/.padsign-audit/`, which
+the Deployment Wizard's Signing activity page reads. A ps-server at or
+above the `signing-audit` minimum in `release/capabilities.json` writes it;
+an older one ignores the block. An existing block is never changed.
+
 **Step 4/6: Ensuring signed-output volume.**
 Adds `./signed-output:/signed-output` to ps-server's volumes unless the
 effective compose model (`docker-compose.yml` plus any `COMPOSE_FILE`
@@ -114,7 +121,7 @@ one host. A changed `KC_HOSTNAME` changes the token issuer, so users sign in
 again.
 
 **Step 4e/6: Re-applying the config/config.js ownership model.**
-Steps 3 and 4b rewrite `config/config.js`. This step sets its group to the
+Steps 3, 3b and 4b rewrite `config/config.js`. This step sets its group to the
 group of the ps-server image step 2 pinned and its mode to 640, and checks
 from inside that image that it can read the file. If the group cannot be
 set, the file is made readable again and the fix is printed.

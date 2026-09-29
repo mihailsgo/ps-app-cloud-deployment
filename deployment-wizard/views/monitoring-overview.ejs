@@ -1,0 +1,79 @@
+<%- include('partials/head', { title: 'Overview — Monitoring — PadSign Deployment Wizard' }) %>
+<%- include('partials/topbar', { hostname, version, hasCompletedSetup, runActive }) %>
+<%- include('partials/collapsed-progress', { sessionNote: 'Service health, logs and signing activity' }) %>
+<main id="main" class="wizard-shell wizard-shell--wide mon-page">
+  <h1 class="visually-hidden">Monitoring</h1>
+  <%- include('partials/monitoring-tabs', { tab }) %>
+
+  <div id="sessionExpired" class="alert alert-warning" role="alert" hidden>Your session has expired. <a href="/login">Sign in again</a> to keep monitoring.</div>
+
+  <section class="card" aria-labelledby="svc-title">
+    <div class="mon-card-top">
+      <%- include('partials/card-head', { id: 'svc-title', title: 'Services', icon: 'server', sub: 'Refreshes every 10 seconds' }) %>
+      <button type="button" class="btn btn-secondary btn-sm" id="svcRefresh"><%- include('partials/icon', { name: 'refresh-cw', size: 16 }) %>Refresh</button>
+    </div>
+    <p class="hint"><span id="svcTime" aria-hidden="true">Loading…</span> <span id="svcUpdated" role="status"></span></p>
+    <div class="table-wrap" tabindex="0" role="region" aria-labelledby="svc-title">
+      <table class="data-table mon-svc-table" id="svcTable" role="table">
+        <thead role="rowgroup">
+          <tr role="row">
+            <th scope="col" role="columnheader">Service</th>
+            <th scope="col" role="columnheader">State</th>
+            <th scope="col" role="columnheader">Health</th>
+            <th scope="col" class="num" role="columnheader">Uptime</th>
+            <th scope="col" class="num" role="columnheader">Restarts</th>
+            <th scope="col" class="col-version" role="columnheader">Version</th>
+            <th scope="col" class="num" role="columnheader">CPU</th>
+            <th scope="col" class="num" role="columnheader">Memory</th>
+            <th scope="col" class="cell-actions" role="columnheader">Actions</th>
+          </tr>
+        </thead>
+        <tbody role="rowgroup">
+          <tr class="mon-empty-row" role="row"><td colspan="9" class="cell-empty" role="cell">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="mon-toolbar mon-toolbar--section">
+    <button type="button" class="btn btn-secondary btn-sm" id="statusRerun"><%- include('partials/icon', { name: 'rotate-ccw', size: 16 }) %>Re-run checks</button>
+    <span id="statusUpdated" class="hint" role="status">Checking alerts, certificate, disk and receive-back buffer…</span>
+  </div>
+
+  <div class="mon-grid mon-grid--flush">
+    <section class="card" aria-labelledby="alerts-title">
+      <%- include('partials/card-head', { id: 'alerts-title', title: 'Alerts', icon: 'bell', sub: 'Thresholds from monitor-status.sh' }) %>
+      <div id="alertsBody" aria-busy="true"><%- include('partials/monitoring-loading') %></div>
+    </section>
+    <section class="card" aria-labelledby="cert-title">
+      <%- include('partials/card-head', { id: 'cert-title', title: 'Certificate', icon: 'shield-check', sub: 'TLS certificate deployed to nginx' }) %>
+      <div id="certBody" aria-busy="true"><%- include('partials/monitoring-loading') %></div>
+    </section>
+    <section class="card" aria-labelledby="disk-title">
+      <%- include('partials/card-head', { id: 'disk-title', title: 'Disk', icon: 'hard-drive', sub: 'Filesystems holding the deployment data' }) %>
+      <div id="diskBody" aria-busy="true"><%- include('partials/monitoring-loading') %></div>
+    </section>
+    <section class="card" aria-labelledby="buffer-title">
+      <%- include('partials/card-head', { id: 'buffer-title', title: 'Receive-back buffer', icon: 'inbox', sub: 'Documents waiting to be delivered' }) %>
+      <div id="bufferBody" aria-busy="true"><%- include('partials/monitoring-loading') %></div>
+    </section>
+  </div>
+
+  <div class="modal-overlay" id="restart-modal">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="restart-modal-title">
+      <h2 id="restart-modal-title">Restart service?</h2>
+      <p id="restartBody"></p>
+      <div class="error-text" id="restartError" role="alert"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" id="restartCancel">Cancel</button>
+        <button type="button" class="btn btn-danger" id="restartConfirm">Restart</button>
+      </div>
+    </div>
+  </div>
+</main>
+<script src="/monitoring-common.js"></script>
+<script src="/monitoring.js"></script>
+<script>
+  initMonitoringOverview(<%- JSON.stringify({ runActive: Boolean(runActive) }).replace(/</g, '\\u003c') %>);
+</script>
+<%- include('partials/foot') %>

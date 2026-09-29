@@ -17,6 +17,11 @@ Release notes for the PadSign deployment package, newest first; versions follow 
 ### Added
 
 - `LICENSE` and `SECURITY.md` (how to report a vulnerability: support@trustlynx.com).
+- A **Monitoring** page in the Deployment Wizard, in the top bar once setup has completed: **Overview** (state, health, uptime, restarts, version, CPU and memory of every service, with a per-service restart), **Logs** (tail, since, live follow, filter, download), **Signing activity** (history of documents with filters, tiles and CSV export) and **Diagnostics** (the read-only configuration, certificate, Keycloak and alert-threshold checks, and a support bundle). It needs a wizard image that includes it. See [9.12](documentation/09-12-monitoring-from-the-wizard.md).
+- `installation-scripts/restart-service.sh` restarts one service and waits until it is healthy; the wizard's Restart button runs it. See [9.12](documentation/09-12-monitoring-from-the-wizard.md#restarting-a-service).
+- `installation-scripts/support-bundle.sh` writes a redacted archive of configuration, reports and service logs for TrustLynx support (`support-bundles/`, mode 600). `installation-scripts/lib/redact.py` gained `--filter` and `--log` for this. See [9.12](documentation/09-12-monitoring-from-the-wizard.md#support-bundles).
+- `monitor-status.sh --format json` prints the report as JSON, read-only and without a state file or webhook.
+- A signing audit log: ps-server writes one JSON line per signing event to its output and, with the new `AUDIT_LOG` block in `config/config.js`, to monthly files under `signed-output/.padsign-audit/` (12 months kept by default). It needs the ps-server version named by the `signing-audit` capability in `release/capabilities.json`; an older ps-server ignores the block. `upgrade.sh` adds the block to existing deployments, enabled. The log records signers' e-mail addresses, so set `retentionMonths` to your policy. See [9.13](documentation/09-13-signing-activity-log.md).
 
 ### Changed
 

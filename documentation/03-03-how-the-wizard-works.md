@@ -15,6 +15,7 @@ The wizard does not have its own install logic. Every action runs one of the scr
 | Verify & Go-Live (step 7) | `validate-config.sh` |
 | Upgrade (Dashboard) | `upgrade.sh`, previewed first with `upgrade.sh --plan-only` ([9.7](09-07-previewing-upgrade-changes.md)) |
 | Settings: hostname, certificate, features | `update-hostname.sh`, `renew-cert.sh`, `toggle-features.sh` ([9.1](09-01-changing-hostname.md), [9.2](09-02-renewing-the-tls-certificate.md), [9.4](09-04-toggling-features.md)) |
+| Monitoring: overview, diagnostics, restart, support bundle | `monitor-status.sh --format json`, the validation scripts, `restart-service.sh`, `support-bundle.sh` ([9.12](09-12-monitoring-from-the-wizard.md)) |
 
 So an install done in the wizard is the same as one done with
 [4. Install from the command line](04-install-from-the-command-line.md), and you can use the CLI
@@ -37,6 +38,10 @@ Your answers during the install are kept in your browser session in the wizard's
 wizard container restarts mid-install you lose those answers, never anything already written to
 disk. **Save & Exit** writes them to `.wizard-saved-progress.json` in the deployment directory
 (mode 600) so you can resume later; the Keycloak admin password is left out.
+
+The **Monitoring** section works the same way. It reads live state (container status, logs, the
+signing audit log) each time a page loads or refreshes, and collects nothing in the background, so
+the advice to stop the wizard after use still applies ([9.12](09-12-monitoring-from-the-wizard.md)).
 
 One wizard serves one deployment: the one in the directory it was started from.
 

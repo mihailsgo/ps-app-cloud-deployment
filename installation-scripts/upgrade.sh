@@ -94,6 +94,8 @@ What it does:
   1) Backs up docker-compose.yml and config.js (owner-only *.bak copies)
   2) Updates image tags in docker-compose.yml
   3) Ensures DOCUMENT_ROUTING config exists (disabled by default)
+  3b) Ensures AUDIT_LOG config exists (the signing activity log the
+      deployment wizard reads; see the signing-audit capability)
   4) Ensures signed-output volume mount and directory exist (the stores the
      effective compose model mounts; one mounted from outside the checkout,
      e.g. by an environment overlay, is left as it is)
@@ -112,7 +114,7 @@ What it does:
       alias at the hostname nginx/nginx.conf serves, if they name another
       one (then recreates keycloak/nginx in step 5)
   4e) Re-applies config/config.js's ownership model (group of the ps-server
-      image, mode 640, checked from inside that image) after steps 3/4b
+      image, mode 640, checked from inside that image) after steps 3/3b/4b
   5) Pulls new images and recreates changed containers
   6) Waits for the restarted services to be healthy; fails (exit 1) if not
 
@@ -389,10 +391,11 @@ print_unapproved_banner() {
 # assets). Splitting them is how you get a stack that boots and then 401s on
 # every seal, so they are reported and applied as one.
 
-MIGRATION_IDS=(document-routing signed-output compose-hostname local-eseal keycloak-backend-audience)
+MIGRATION_IDS=(document-routing signed-output signing-audit compose-hostname local-eseal keycloak-backend-audience)
 
 # ---- per-edit predicates (shared by _needed and _apply) ----
 need_document_routing()  { ! grep -q 'DOCUMENT_ROUTING' "$config_js"; }
+need_signing_audit()     { ! grep -q 'AUDIT_LOG' "$config_js"; }
 # signed-output: where the two stores live is decided by the EFFECTIVE compose
 # model (docker-compose.yml plus any COMPOSE_FILE overlay or override), not by
 # the checkout's layout. On an overlay host (documentation/09-11-start-at-boot-backups-and-customized-hosts.md) both are
@@ -528,6 +531,19 @@ DOCUMENT_ROUTING_BLOCK=$(cat <<'BLOCK'
 BLOCK
 )
 
+SIGNING_AUDIT_BLOCK=$(cat <<'BLOCK'
+
+    // Signing audit log (ps-server 3.33+): one JSON line per signing event in
+    // <dir>/audit-YYYY-MM.jsonl, read by the wizard's Signing activity page.
+    // See documentation/09-13-signing-activity-log.md.
+    AUDIT_LOG: {
+      enabled: true,
+      dir: "/signed-output/.padsign-audit",
+      retentionMonths: 12
+    },
+BLOCK
+)
+
 STAMP_LOCAL_BLOCK=$(cat <<'BLOCK'
 STAMP_MODE: "local",
     STAMP_LOCAL: {
@@ -588,6 +604,34 @@ mig_document_routing_apply() {
     fi
   else
     echo "  DOCUMENT_ROUTING already present"
+  fi
+}
+
+# ---- signing-audit ----
+# Turns the signing activity log on for a deployment whose config.js predates
+# it. An older ps-server ignores the block; the signing-audit capability in
+# release/capabilities.json names the one that writes it.
+mig_signing_audit_title() { echo 'Add AUDIT_LOG block (signing activity log, read by the wizard)'; }
+mig_signing_audit_files() { echo 'config/config.js'; }
+mig_signing_audit_needed() { need_signing_audit; }
+mig_signing_audit_body()  { printf '%s\n' "$SIGNING_AUDIT_BLOCK"; }
+mig_signing_audit_apply() {
+  if need_signing_audit; then
+    # The same insertion as document-routing: before the closing '};', in the
+    # file's own line endings, the literal passed through the environment.
+    SA_BLOCK="$SIGNING_AUDIT_BLOCK" perl -0777 -i -pe '
+      BEGIN { $b = $ENV{SA_BLOCK} }
+      $n = /\r\n/ ? "\r\n" : "\n";
+      ($t = $b) =~ s/\n/$n/g;
+      s/\r?\n\};\r?\n?\z/$n$t$n};$n/;
+    ' "$config_js"
+    if need_signing_audit; then
+      echo "  WARNING: could not locate the closing '};' in config/config.js — AUDIT_LOG not added" >&2
+    else
+      echo "  Added AUDIT_LOG"
+    fi
+  else
+    echo "  AUDIT_LOG already present"
   fi
 }
 
@@ -1149,6 +1193,10 @@ fi
 echo "Step 3/6: Ensuring DOCUMENT_ROUTING config..."
 mig_call document-routing apply
 
+# ── Step 3b: Ensure AUDIT_LOG ──
+echo "Step 3b/6: Ensuring AUDIT_LOG config..."
+mig_call signing-audit apply
+
 # ── Step 4: Ensure signed-output volume + directory ──
 echo "Step 4/6: Ensuring signed-output volume..."
 mig_call signed-output apply
@@ -1168,7 +1216,7 @@ echo "Step 4d/6: Ensuring KC_HOSTNAME and nginx alias match the served hostname.
 mig_call compose-hostname apply
 
 # ── Step 4e: config.js ownership model, after this run's own edits ──
-# Steps 3 and 4b rewrite config/config.js with perl -i / sed -i. Those write a
+# Steps 3, 3b and 4b rewrite config/config.js with perl -i / sed -i. Those write a
 # NEW file as the user running this script and keep its group only if that
 # user may set it, so a user who is neither root nor in the ps-server image's
 # group turns a 640 file ps-server 3.30 reads through its group into one it

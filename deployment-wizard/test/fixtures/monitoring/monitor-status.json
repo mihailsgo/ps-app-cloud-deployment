@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "generated": "2026-09-29T10:00:00Z",
+  "host": "padsign.example.com",
+  "thresholds": {
+    "restartDelta": 2,
+    "certDays": 14,
+    "diskPct": 85,
+    "bufferMax": 100,
+    "bufferMaxAgeHours": 72,
+    "failureMin": 1
+  },
+  "services": [
+    { "service": "ps-server", "state": "running", "health": "healthy", "restarts": 0 },
+    { "service": "ps-client", "state": "running", "health": "healthy", "restarts": 0 },
+    { "service": "dmss-container-and-signature-services", "state": "running", "health": "unhealthy", "restarts": 3 }
+  ],
+  "certificate": {
+    "host": "padsign.example.com",
+    "path": "/opt/padsign/nginx/certs/padsign.example.com.crt",
+    "found": true,
+    "notAfter": "Oct 09 23:59:59 2026 GMT",
+    "daysLeft": 10
+  },
+  "failures": {
+    "window": "in the last 500 log lines",
+    "counts": [
+      { "key": "archive_failure", "label": "archive failures", "count": 0 },
+      { "key": "signing_failure", "label": "signing failures", "count": 0 }
+    ]
+  },
+  "disk": {
+    "stores": [
+      { "name": "signed-output", "path": "/opt/padsign/signed-output", "exists": true, "size": "1.2G", "inTree": true, "volume": false }
+    ],
+    "filesystems": [
+      { "mount": "/", "path": "/opt/padsign", "usedPct": 41 }
+    ]
+  },
+  "buffer": { "state": "ok", "count": 0, "oldestAgeHours": null, "error": null },
+  "alerts": [
+    { "key": "service_unhealthy", "message": "dmss-container-and-signature-services is unhealthy (3 restarts)", "samples": [] },
+    { "key": "certificate_risk", "message": "Certificate for padsign.example.com expires in 10 days", "samples": [] }
+  ]
+}
