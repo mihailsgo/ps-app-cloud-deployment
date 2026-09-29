@@ -91,6 +91,44 @@ test('monitoring view overview: the services table has scoped headers and a labe
   assert.match(html, /id="svcUpdated" role="status"/);
 });
 
+test('monitoring view overview: the four cards start in a busy "Checking…" state with a decorative progress bar', async () => {
+  const html = await render(PAGES.overview.view, PAGES.overview.locals);
+  for (const id of ['alertsBody', 'certBody', 'diskBody', 'bufferBody']) {
+    assert.match(html, new RegExp(
+      `<div id="${id}" role="status" aria-live="polite" aria-busy="true">\\s*` +
+      '<p class="mon-loading">Checking… this can take up to a minute\\.</p>\\s*' +
+      '<div class="mon-progress" aria-hidden="true"></div>\\s*</div>'
+    ), `#${id}`);
+  }
+  assert.doesNotMatch(html, /Body"[^>]*>\s*Loading…/);
+});
+
+test('monitoring view overview: the services table can be updated in place (keyed rows, hideable Version column)', async () => {
+  const html = await render(PAGES.overview.view, PAGES.overview.locals);
+  assert.match(html, /<table class="data-table mon-svc-table" id="svcTable">/);
+  assert.match(html, /<th scope="col" class="col-version">Version<\/th>/);
+  // The placeholder is the one row without a data-service key.
+  assert.match(html, /<tr class="mon-empty-row"><td colspan="9" class="cell-empty">Loading…<\/td><\/tr>/);
+  const source = fs.readFileSync(path.join(__dirname, '..', 'public', 'monitoring.js'), 'utf8');
+  assert.match(source, /setAttribute\('data-service', row\.service\)/);
+  for (const label of ['State', 'Health', 'Uptime', 'Restarts', 'Version', 'CPU', 'Memory']) {
+    assert.ok(source.includes(`data-label="${label}"`), `data-label="${label}"`);
+  }
+  // The refresh must never rebuild the whole tbody from the service list.
+  assert.doesNotMatch(source, /tbody\.innerHTML = payload\.services/);
+  assert.match(source, /diffRows\(/);
+  assert.match(source, /changedIndexes\(/);
+});
+
+test('monitoring view activity: tiles, table and pager have ids so the page can hide them; the banner stays a status region', async () => {
+  const html = await render(PAGES.activity.view, PAGES.activity.locals);
+  for (const id of ['actTiles', 'actTableWrap', 'actPager', 'actSummary']) assert.match(html, new RegExp(`id="${id}"`), id);
+  assert.match(html, /<div id="activitySource" class="alert alert-warning" role="status" hidden><\/div>/);
+  const source = fs.readFileSync(path.join(__dirname, '..', 'public', 'monitoring.js'), 'utf8');
+  assert.match(source, /parseActivityParams\(location\.search/);
+  assert.match(source, /history\.replaceState\(null, '', activityPageUrl\(/);
+});
+
 test('monitoring view logs: the log viewer is focusable and named, the follow button reports its state', async () => {
   const html = await render(PAGES.logs.view, PAGES.logs.locals);
   assert.match(html, /<pre id="logView" class="log log-viewer" tabindex="0" aria-label="Log output">/);
@@ -177,5 +215,31 @@ test('stylesheet: the Monitoring classes the views use are defined', () => {
   }
   // Design tokens only: no raw hex colours other than the two log-line tints
   // (drawn on the dark log background) and the pill/text colours shared with .badge-*.
+  // The defects found in the running UI stay fixed. Each is a string check on
+  // the rule, so a refactor that drops one fails here.
+  const rule = (selector) => {
+    const at = monitoring.indexOf(selector + ' {');
+    assert.ok(at >= 0, `${selector} rule exists`);
+    return monitoring.slice(at, monitoring.indexOf('}', at));
+  };
+  assert.match(rule('.mon-page .checklist li > :not(.badge)'), /overflow-wrap: anywhere/);
+  assert.match(rule('.mon-page .checklist li > :not(.badge)'), /min-width: 0/);
+  assert.match(rule('.mon-sample'), /font-family: var\(--font-mono\)/);
+  assert.match(rule('.mon-sample'), /overflow-wrap: anywhere/);
+  assert.match(rule('.pill'), /overflow-wrap: anywhere/);
+  assert.match(rule('.data-table .pill'), /white-space: nowrap/);
+  // Filter icon: 16px wide at 12px from the left, so the text starts at >= 38px.
+  const padLeft = /padding-left: ([\d.]+)rem/.exec(rule('.mon-toolbar .mon-search input[type="search"]'));
+  assert.ok(padLeft && Number(padLeft[1]) * 16 >= 38, 'search input leaves room for its icon');
+  // Services table: version folds into the Service cell at <= 1100px, cards at <= 720px.
+  assert.match(monitoring, /@media \(max-width: 1100px\) \{[^@]*\.mon-svc-table \.col-version \{ display: none; \}/);
+  assert.match(monitoring, /@media \(max-width: 1100px\) \{[^@]*\.mon-svc-table \.svc-version \{ display: block; \}/);
+  assert.match(monitoring, /\.mon-svc-table td\[data-label\]::before \{[^}]*content: attr\(data-label\)/);
+  assert.match(monitoring, /\.mon-svc-table tbody tr \{\s*display: grid/);
+  assert.match(monitoring, /\.mon-svc-table thead \{\s*position: absolute/, 'header row is visually hidden, not display: none');
+  assert.match(rule('.mon-svc-table .cell-actions .btn'), /white-space: nowrap/);
+  // Loading bar: animated, and static for people who ask for reduced motion.
+  assert.match(monitoring, /@keyframes mon-indeterminate/);
+  assert.match(monitoring, /@media \(prefers-reduced-motion: reduce\) \{\s*\.mon-progress::after \{ animation: none;/);
   assert.doesNotMatch(monitoring, /var\(--(?!tlx-|color-|font-|fs-|fw-|space-|radius-|shadow-|lh-|field-border|focus|danger|gold-ink)[a-z0-9-]+\)/);
 });

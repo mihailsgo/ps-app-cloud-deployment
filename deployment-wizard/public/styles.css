@@ -1093,7 +1093,10 @@ body.is-welcome { background: var(--tlx-navy); }
 /* ---------- Monitoring ---------- */
 /* The Monitoring pages (Overview, Logs, Signing activity, Diagnostics). They
    reuse .card, .badge-*, .checklist, .alert-*, .log and the button variants;
-   only what is missing is defined here. No animations are added. */
+   only what is missing is defined here. The one animation is the indeterminate
+   bar of the Overview loading state, and it stands still for people who ask
+   for reduced motion. Breakpoints: 1100px (services table drops its Version
+   column into the Service cell) and 720px (services become stacked cards). */
 .wizard-shell--wide { max-width: 1200px; }
 
 /* .alert and .run-actions set their own display, which would otherwise
@@ -1159,11 +1162,32 @@ body.is-welcome { background: var(--tlx-navy); }
 
 .mon-search { position: relative; display: flex; align-items: center; }
 .mon-search svg { position: absolute; left: var(--space-3); color: var(--color-text-muted); pointer-events: none; }
-.mon-search input { padding-left: 2.25rem; min-width: 14rem; }
+/* The icon sits 12px from the left and is 16px wide, so the text starts at
+   2.5rem (40px). The selector matches .mon-toolbar input[type="search"]'s
+   specificity; a plain ".mon-search input" lost to its padding and let the
+   icon overlap the placeholder and typed text. */
+.mon-toolbar .mon-search input[type="search"] { padding-left: 2.5rem; min-width: 14rem; }
 
 .mon-page .card > .alert { margin: var(--space-4) 0 0; }
-.mon-page .hint { margin: 0 0 var(--space-3); }
+.mon-page .hint { margin: 0 0 var(--space-3); overflow-wrap: anywhere; }
 .mon-toolbar .hint { margin: 0; }
+
+/* Long unbroken text (a certificate path in an alert, a mount point) must
+   wrap inside its card instead of running past the edge. Flex children need
+   min-width: 0 or they refuse to shrink below their longest word. */
+.mon-page .checklist li { min-width: 0; }
+.mon-page .checklist li > :not(.badge) { min-width: 0; flex: 1 1 auto; overflow-wrap: anywhere; }
+/* Log excerpts an alert quotes: one per line, small, monospace, wrapped. */
+.mon-sample {
+  display: block;
+  margin-top: var(--space-1);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+  color: var(--tlx-slate-700);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 
 /* Tables. .table-wrap is the scroll container, so a wide table scrolls
    inside its card instead of widening the page. */
@@ -1189,7 +1213,32 @@ body.is-welcome { background: var(--tlx-navy); }
 .data-table .cell-actions > * + * { margin-left: var(--space-2); }
 .data-table .cell-empty { padding: var(--space-5) var(--space-3); text-align: center; color: var(--tlx-slate-700); }
 .data-table .cell-mono { font-family: var(--font-mono); font-size: var(--fs-xs); }
-.data-table .col-toggle { width: 2.5rem; padding-right: 0; }
+.data-table .col-toggle { width: 2.5rem; min-width: 2.5rem; max-width: 2.5rem; padding-right: 0; }
+
+/* Services table. Wide: nine columns. Up to 1100px the image tag moves from
+   its own column (kept in the DOM, hidden) to a muted second line under the
+   service name, and padding/type tighten so that Service, State, Health,
+   Uptime, Restarts, CPU, Memory and both buttons fit at 800px without
+   scrolling. */
+.mon-svc-table { min-width: 0; }
+.mon-svc-table tbody th { font-weight: var(--fw-semibold); text-align: left; }
+.svc-name { display: block; overflow-wrap: anywhere; }
+.svc-version { display: none; margin-top: 2px; font-weight: var(--fw-regular); color: var(--color-text-muted); overflow-wrap: anywhere; }
+.mon-svc-table .cell-actions { text-align: right; }
+.mon-svc-table .cell-actions .btn { white-space: nowrap; }
+
+@media (max-width: 1100px) {
+  .mon-svc-table .col-version { display: none; }
+  .mon-svc-table .svc-version { display: block; }
+  .mon-svc-table th,
+  .mon-svc-table td { padding-inline: 0.4rem; }
+  /* Headers may wrap ("Restarts" over two lines is fine); the body keeps
+     numbers on one line via .num. */
+  .mon-svc-table thead th { white-space: normal; font-size: var(--fs-2xs); letter-spacing: 0.03em; vertical-align: bottom; }
+  .mon-svc-table tbody th { min-width: 6rem; }
+  .mon-svc-table .cell-actions .btn-sm { min-height: 30px; padding: 0.2rem 0.55rem; font-size: var(--fs-xs); }
+  .mon-svc-table .cell-actions > * + * { margin-left: var(--space-1); }
+}
 
 .row-toggle {
   display: inline-flex;
@@ -1220,9 +1269,14 @@ body.is-welcome { background: var(--tlx-navy); }
   font-size: var(--fs-xs);
   font-weight: var(--fw-semibold);
   line-height: 1.4;
-  white-space: nowrap;
   border-radius: var(--radius-pill);
+  /* A long value wraps inside its container instead of overflowing it. In a
+     table cell the pill stays on one line (below): break-anywhere would let
+     the automatic column layout squeeze it to a few letters. */
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
+.data-table .pill { white-space: nowrap; overflow-wrap: normal; }
 .pill-ok { background: rgba(47, 143, 91, 0.12); color: #1f6b43; }
 .pill-warn { background: rgba(201, 138, 30, 0.16); color: #7a520d; }
 .pill-fail { background: rgba(192, 57, 43, 0.10); color: #a8321f; }
@@ -1233,9 +1287,31 @@ body.is-welcome { background: var(--tlx-navy); }
 .mon-grid--flush { margin-top: 0; }
 .wizard-shell .mon-grid .card + .card { margin-top: 0; }
 .mon-grid .card { display: flex; flex-direction: column; gap: var(--space-3); }
-.mon-metric { font-family: var(--font-display); font-size: var(--fs-lg); font-weight: var(--fw-semibold); color: var(--color-brand); margin: 0; }
+.mon-metric { font-family: var(--font-display); font-size: var(--fs-lg); font-weight: var(--fw-semibold); color: var(--color-brand); margin: 0; overflow-wrap: anywhere; }
 .mon-note { margin: 0; font-size: var(--fs-sm); color: var(--tlx-slate-700); overflow-wrap: anywhere; }
 .mon-meter-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-1) var(--space-3); font-size: var(--fs-sm); }
+.mon-meter-row > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+
+/* Loading state of the four cards: a sentence plus an indeterminate bar.
+   The bar is decorative (aria-hidden); the card carries aria-busy. */
+.mon-loading { margin: 0 0 var(--space-3); font-size: var(--fs-sm); color: var(--tlx-slate-700); }
+.mon-progress { position: relative; height: 4px; overflow: hidden; background: var(--tlx-slate-100); border-radius: var(--radius-pill); }
+.mon-progress::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 35%;
+  background: var(--color-accent);
+  border-radius: inherit;
+  animation: mon-indeterminate 1.6s ease-in-out infinite;
+}
+@keyframes mon-indeterminate {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(300%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mon-progress::after { animation: none; width: 100%; opacity: 0.5; }
+}
 .mon-meter-row + .mon-meter-row { margin-top: var(--space-3); }
 .mon-meter-row meter { grid-column: 1 / -1; width: 100%; height: 0.75rem; }
 
@@ -1284,9 +1360,59 @@ body.is-welcome { background: var(--tlx-navy); }
   .mon-toolbar .mon-field { flex: 1 1 9rem; }
   .mon-toolbar .mon-field select,
   .mon-toolbar .mon-field input { width: 100%; }
-  .mon-search input { min-width: 0; width: 100%; }
+  .mon-toolbar .mon-search input[type="search"] { min-width: 0; width: 100%; }
   .mon-search { flex: 1 1 100%; }
   .mon-pager { justify-content: space-between; }
+
+  /* Services: one card per row. Table semantics stay in the DOM (and the
+     header row stays readable to screen readers); data-label, set by
+     monitoring.js on each cell, is printed in front of its value. */
+  .mon-svc-table,
+  .mon-svc-table tbody { display: block; }
+  .mon-svc-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .mon-svc-table tbody tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-1) var(--space-4);
+    align-items: center;
+    padding: var(--space-3);
+    border-top: 1px solid var(--color-border);
+  }
+  .mon-svc-table tbody tr:first-child { border-top: 0; }
+  .mon-svc-table tbody th,
+  .mon-svc-table tbody td { display: block; padding: 0; border-top: 0; }
+  .mon-svc-table tbody th { grid-column: 1 / -1; margin-bottom: var(--space-1); font-size: var(--fs-base); }
+  .mon-svc-table td[data-label] { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--space-2); min-width: 0; }
+  .mon-svc-table td[data-label]::before {
+    content: attr(data-label);
+    font-family: var(--font-body);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semibold);
+    color: var(--color-text-muted);
+  }
+  /* The version is already the second line of the Service cell. Needs the
+     attribute selector to outrank td[data-label] above. */
+  .mon-svc-table td.col-version[data-label] { display: none; }
+  /* Uptime, Restarts, CPU, Memory: label left, value right. */
+  .mon-svc-table td.num[data-label] { justify-content: space-between; }
+  .mon-svc-table td.cell-actions { grid-column: 1 / -1; margin-top: var(--space-2); text-align: left; }
+  .mon-svc-table td.cell-empty { grid-column: 1 / -1; text-align: left; padding: var(--space-3) 0; }
+
+  /* Signing activity keeps its table and scrolls sideways inside .table-wrap.
+     A cell holding a long address wraps at a readable width instead of
+     stretching the first columns, and the "nothing to show" message starts
+     at the left edge so it is on screen when the table is scrolled home. */
+  #activityTable { min-width: 680px; }
+  #activityTable .cell-wrap { min-width: 7rem; max-width: 14rem; }
+  #activityTable .cell-empty { text-align: left; }
 }
 
 /* ---------- 9. Responsive ---------- */
