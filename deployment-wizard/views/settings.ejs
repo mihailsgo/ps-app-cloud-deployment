@@ -4,7 +4,7 @@
 <main id="main" class="wizard-shell">
 
   <% if (runActive) { %>
-    <p class="subtitle" style="color:var(--gold);">
+    <p class="subtitle" style="color:var(--gold-ink);">
       A run is currently in progress —
       <a href="/settings/progress?runId=<%= encodeURIComponent(activeRunId) %>">view live progress</a>.
     </p>
@@ -132,34 +132,34 @@
 
     <div class="field toggle-row">
       <label class="toggle-switch">
-        <input type="checkbox" id="feature-routing" <%= features.routing ? 'checked' : '' %>>
+        <input type="checkbox" id="feature-routing" aria-labelledby="feature-routing-label" aria-describedby="feature-routing-desc" <%= features.routing ? 'checked' : '' %>>
         <span class="toggle-track"><span class="toggle-knob"></span></span>
       </label>
       <div>
-        <span class="toggle-label">Document routing</span>
-        <p class="hint" style="margin:0.2rem 0 0;">Save signed documents to disk automatically after signing completes.</p>
+        <span class="toggle-label" id="feature-routing-label">Document routing</span>
+        <p class="hint" id="feature-routing-desc" style="margin:0.2rem 0 0;">Save signed documents to disk automatically after signing completes.</p>
       </div>
     </div>
 
     <div class="field toggle-row">
       <label class="toggle-switch">
-        <input type="checkbox" id="feature-demo" <%= features.demo ? 'checked' : '' %>>
+        <input type="checkbox" id="feature-demo" aria-labelledby="feature-demo-label" aria-describedby="feature-demo-desc" <%= features.demo ? 'checked' : '' %>>
         <span class="toggle-track"><span class="toggle-knob"></span></span>
       </label>
       <div>
-        <span class="toggle-label">Demo mode</span>
-        <p class="hint" style="margin:0.2rem 0 0;">Enables demo-only UI affordances in the client app. Do not use in production.</p>
+        <span class="toggle-label" id="feature-demo-label">Demo mode</span>
+        <p class="hint" id="feature-demo-desc" style="margin:0.2rem 0 0;">Enables demo-only UI affordances in the client app. Do not use in production.</p>
       </div>
     </div>
 
     <div class="field toggle-row">
       <label class="toggle-switch">
-        <input type="checkbox" id="feature-localEseal" <%= features.localEseal ? 'checked' : '' %>>
+        <input type="checkbox" id="feature-localEseal" aria-labelledby="feature-localEseal-label" aria-describedby="feature-localEseal-desc" <%= features.localEseal ? 'checked' : '' %>>
         <span class="toggle-track"><span class="toggle-knob"></span></span>
       </label>
       <div>
-        <span class="toggle-label">Local e-sealing</span>
-        <p class="hint" style="margin:0.2rem 0 0;">
+        <span class="toggle-label" id="feature-localEseal-label">Local e-sealing</span>
+        <p class="hint" id="feature-localEseal-desc" style="margin:0.2rem 0 0;">
           Provision the in-stack e-sealing container instead of calling an external cloud e-sealing service.
         </p>
       </div>
@@ -178,7 +178,7 @@
     <h2 id="confirm-modal-title"></h2>
     <p id="confirm-modal-body"></p>
     <div class="modal-actions">
-      <button type="button" class="btn btn-link" onclick="closeModal('confirm-modal')">Cancel</button>
+      <button type="button" class="btn btn-secondary" onclick="closeModal('confirm-modal')">Cancel</button>
       <button type="button" class="btn btn-primary" id="confirm-modal-action">Confirm</button>
     </div>
   </div>

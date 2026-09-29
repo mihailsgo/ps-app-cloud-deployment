@@ -1,19 +1,21 @@
 # 3.2 Walkthrough
 
 This page walks through a first install in the wizard, screen by screen. The step numbers match the
-progress rail at the top of the wizard (1 Welcome to 7 Verify & Go-Live). You need the wizard
+step rail on the left of the wizard (1 Welcome to 7 Verify & Go-Live); on a narrow screen the rail
+is replaced by a "Step N of 7" header at the top. You need the wizard
 running and its access token ([3.1 Starting the wizard](03-01-starting-the-wizard.md)), and your
 certificate and private key files at hand.
 
-> The screenshots come from a real run and may differ slightly from the wizard you are running
-> (colours, layout, example values). The button and field names in the text are authoritative.
+> The screenshots use the example host `padsign.example.com` and may differ slightly from the
+> wizard you are running (example values, check results). The button and field names in the text
+> are authoritative.
 
-Two controls are available on every step:
+Two controls are available on steps 2 to 7:
 
-- **The progress rail is clickable.** Click any step you have already reached to go back to it, for
+- **The step rail is clickable.** Click any step you have already reached to go back to it, for
   example to fix a typo. Steps you have not reached are greyed out, and the wizard refuses a
   hand-typed URL for a later step too.
-- **Save & Exit** (right of the rail) saves your answers and signs you out. The next time you
+- **Save & Exit** (in the top bar) saves your answers and signs you out. The next time you
   unlock the wizard, the Welcome screen offers **Resume Setup** or **Start Over**. The Keycloak admin
   password is never saved; re-enter it in step 2 before you deploy.
 

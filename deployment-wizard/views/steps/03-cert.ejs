@@ -1,52 +1,69 @@
-<%- include('../partials/head', { title: 'TLS Certificate — PadSign Deployment Wizard' }) %>
-<%- include('../partials/topbar', { hostname, version, hasCompletedSetup, runActive }) %>
-<main id="main" class="wizard-shell">
-  <%- include('../partials/stepProgress', { current: 3, furthestStepReached: wizard.furthestStepReached }) %>
-
-  <div class="card">
-    <h1>TLS Certificate</h1>
-    <p class="subtitle">
-      For <strong><%= wizard.host %></strong>. Provide a fullchain certificate (leaf + intermediates) and its
-      matching private key — either as files or pasted text. Validated the same way
-      <code>validate-certs.sh</code> already checks it before any container starts.
-    </p>
-
-    <div class="field">
-      <label for="crtFile">Certificate file (.crt / fullchain.pem)</label>
-      <input type="file" id="crtFile" accept=".crt,.pem,.cer">
-      <p class="hint">Or paste PEM text below instead.</p>
-      <textarea id="crtText" rows="4" style="width:100%; font-family:monospace; font-size:0.8rem;" placeholder="-----BEGIN CERTIFICATE-----"></textarea>
+<%- include('../partials/head', { title: 'TLS Certificate — PadSign Deployment Wizard', bodyClass: 'is-onboarding' }) %>
+<%- include('../partials/wizard-layout-start', { current: 3, furthestStepReached: wizard.furthestStepReached, hostname, version, hasCompletedSetup, runActive }) %>
+  <div class="form-col">
+    <div class="page-head">
+      <span class="eyebrow">Step 3 · TLS Certificate</span>
+      <h1 class="page-title">TLS Certificate</h1>
+      <p class="page-lead">
+        For <strong><%= wizard.host %></strong>. Provide a fullchain certificate (leaf + intermediates) and its
+        matching private key — either as files or pasted text. Validated the same way
+        <code>validate-certs.sh</code> already checks it before any container starts.
+      </p>
     </div>
 
-    <div class="field">
-      <label for="keyFile">Private key file (.key)</label>
-      <input type="file" id="keyFile" accept=".key,.pem">
-      <p class="hint">Or paste PEM text below instead. Never stored beyond this validation step.</p>
-      <textarea id="keyText" rows="4" style="width:100%; font-family:monospace; font-size:0.8rem;" placeholder="-----BEGIN PRIVATE KEY-----"></textarea>
-    </div>
+    <section class="card" aria-labelledby="sec-cert">
+      <%- include('../partials/card-head', { id: 'sec-cert', icon: 'lock', title: 'Certificate' }) %>
+      <div class="field">
+        <label for="crtFile">Certificate file (.crt / fullchain.pem)</label>
+        <input type="file" id="crtFile" accept=".crt,.pem,.cer" aria-describedby="crtFile-hint">
+        <p class="hint" id="crtFile-hint">Or paste PEM text below instead.</p>
+        <textarea id="crtText" rows="4" aria-label="Certificate, pasted as PEM text" placeholder="-----BEGIN CERTIFICATE-----"></textarea>
+      </div>
+    </section>
 
-    <div class="field">
-      <label style="display:flex; align-items:center; gap:0.5rem; font-weight:400;">
-        <input type="checkbox" id="allowSelfSigned" style="width:auto;">
+    <section class="card" aria-labelledby="sec-key">
+      <%- include('../partials/card-head', { id: 'sec-key', icon: 'lock', title: 'Private key' }) %>
+      <div class="field">
+        <label for="keyFile">Private key file (.key)</label>
+        <input type="file" id="keyFile" accept=".key,.pem" aria-describedby="keyFile-hint">
+        <p class="hint" id="keyFile-hint">Or paste PEM text below instead. Never stored beyond this validation step.</p>
+        <textarea id="keyText" rows="4" aria-label="Private key, pasted as PEM text" placeholder="-----BEGIN PRIVATE KEY-----"></textarea>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="sec-validate">
+      <%- include('../partials/card-head', { id: 'sec-validate', icon: 'shield-check', title: 'Validation' }) %>
+      <label class="check-label">
+        <input type="checkbox" id="allowSelfSigned">
         Allow self-signed / skip chain verification (development only)
       </label>
-    </div>
 
-    <button id="validateBtn" type="button" class="btn btn-secondary">Validate certificate</button>
-    <span id="validateStatus" class="subtitle" role="status" style="margin:0 0 0 0.75rem;"></span>
+      <div class="inline-status">
+        <button id="validateBtn" type="button" class="btn btn-secondary">Validate certificate</button>
+        <span id="validateStatus" class="subtitle" role="status"></span>
+      </div>
 
-    <div id="resultBox" style="margin-top:1.25rem;" aria-live="polite"></div>
-
-    <hr class="divider">
-    <%
-      // No href until validation passes — pointer-events:none alone stopped
-      // the mouse but not Tab + Enter.
-    %>
-    <a id="nextLink" class="btn btn-primary is-disabled" aria-disabled="true">Next: Feature Toggles</a>
-    <span id="nextHint" class="hint" style="display:inline-block; margin-left:0.5rem;">Validate a certificate to continue.</span>
-    <a href="/wizard/step/2" class="btn btn-link">Back</a>
+      <div id="resultBox" class="result-box" aria-live="polite"></div>
+    </section>
   </div>
-</main>
+
+  <%- include('../partials/summary', {
+    rows: [
+      { id: 'sum-url', label: 'Public URL', value: wizard.host ? 'https://' + wizard.host : '', fallback: 'Not set yet' },
+      { id: 'sum-role', label: 'Realm role', value: wizard.companyRole || '', fallback: 'Not set yet' },
+      { id: 'sum-cert', label: 'Certificate', value: '', fallback: 'Not validated yet' }
+    ],
+    next: { n: 4, label: 'Feature Toggles' }
+  }) %>
+<%
+  // nextLink is rendered with no href until validation passes:
+  // pointer-events:none alone stopped the mouse but not Tab + Enter.
+%>
+<%- include('../partials/wizard-layout-end', { actionbar: {
+  back: { href: '/wizard/step/2', label: 'Back' },
+  hint: { id: 'nextHint', text: 'Validate a certificate to continue.' },
+  next: { kind: 'link', id: 'nextLink', label: 'Next: Feature Toggles', disabled: true }
+} }) %>
 <script>
   const badgeClass = { ok: 'badge-ok', fail: 'badge-fail', warn: 'badge-warn' };
 
@@ -61,11 +78,18 @@
 
   // escapeHtml comes from /wizard-ui.js.
 
+  function setCertSummary(validated) {
+    const el = document.getElementById('sum-cert');
+    el.textContent = validated ? 'Validated' : 'Not validated yet';
+    el.classList.toggle('is-empty', !validated);
+  }
+
   function lockNext() {
     const nextLink = document.getElementById('nextLink');
     nextLink.removeAttribute('href');
     nextLink.classList.add('is-disabled');
     nextLink.setAttribute('aria-disabled', 'true');
+    setCertSummary(false);
   }
 
   function unlockNext() {
@@ -75,6 +99,7 @@
     nextLink.removeAttribute('aria-disabled');
     const hint = document.getElementById('nextHint');
     if (hint) hint.remove();
+    setCertSummary(true);
     nextLink.focus();
   }
 

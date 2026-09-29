@@ -1,0 +1,33 @@
+<%
+  // Sticky footer of an onboarding step. Expects:
+  //   back   optional { href, label }                    secondary, left
+  //   next   { kind: 'submit' | 'button' | 'link',       accent, right
+  //            label, id?, form?, href?, disabled? }
+  //          A disabled link is rendered WITHOUT an href (and with
+  //          .is-disabled / aria-disabled): pointer-events:none alone stops
+  //          the mouse but not Tab + Enter. The page's own script adds the
+  //          href once its condition is met.
+  //   hint   optional { id, text }: page-level status left of the Next control
+  const backLink = typeof back !== 'undefined' ? back : null;
+  const hintLine = typeof hint !== 'undefined' ? hint : null;
+  const idAttr = next.id ? ` id="${next.id}"` : '';
+-%>
+<footer class="actionbar">
+  <% if (backLink) { %>
+    <a href="<%= backLink.href %>" class="btn btn-secondary"><%= backLink.label %></a>
+  <% } %>
+  <div class="actionbar__next">
+    <% if (hintLine) { %>
+      <span id="<%= hintLine.id %>" class="hint actionbar__hint"><%= hintLine.text %></span>
+    <% } %>
+    <% if (next.kind === 'submit') { %>
+      <button type="submit"<%- idAttr %> class="btn btn-primary"<% if (next.form) { %> form="<%= next.form %>"<% } %>><%= next.label %></button>
+    <% } else if (next.kind === 'button') { %>
+      <button type="button"<%- idAttr %> class="btn btn-primary"><%= next.label %></button>
+    <% } else if (next.disabled) { %>
+      <a<%- idAttr %> class="btn btn-primary is-disabled" aria-disabled="true"><%= next.label %></a>
+    <% } else { %>
+      <a<%- idAttr %> href="<%= next.href %>" class="btn btn-primary"><%= next.label %></a>
+    <% } %>
+  </div>
+</footer>

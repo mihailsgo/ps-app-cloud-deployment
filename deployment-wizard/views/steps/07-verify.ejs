@@ -1,30 +1,35 @@
-<%- include('../partials/head', { title: 'Verify — PadSign Deployment Wizard' }) %>
-<%- include('../partials/topbar', { hostname, version, hasCompletedSetup, runActive }) %>
-<main id="main" class="wizard-shell">
-  <%- include('../partials/stepProgress', { current: 7, furthestStepReached: wizard.furthestStepReached }) %>
+<%- include('../partials/head', { title: 'Verify — PadSign Deployment Wizard', bodyClass: 'is-onboarding' }) %>
+<%- include('../partials/wizard-layout-start', { current: 7, furthestStepReached: wizard.furthestStepReached, hostname, version, hasCompletedSetup, runActive }) %>
+  <div class="form-col form-col--wide">
+    <div class="page-head">
+      <span class="eyebrow">Step 7 · Verify &amp; Go-Live</span>
+      <h1 class="page-title">Verify &amp; Go-Live Checklist</h1>
+      <p class="page-lead">
+        Same checks as <code>validate-config.sh</code>. Failures are shown but won't block you from
+        continuing — fix them at your own pace, they'll keep showing up here until resolved.
+      </p>
+    </div>
 
-  <div class="card">
-    <h1>Verify &amp; Go-Live Checklist</h1>
-    <p class="subtitle">
-      Same checks as <code>validate-config.sh</code>. Failures are shown but won't block you from
-      continuing — fix them at your own pace, they'll keep showing up here until resolved.
-    </p>
+    <section class="card" aria-labelledby="sec-checks">
+      <%- include('../partials/card-head', { id: 'sec-checks', icon: 'badge-check', title: 'Configuration checks' }) %>
+      <p id="verifyStatus" class="status-line" role="status">Running checks…</p>
+      <div id="resultBox" class="result-box" aria-live="polite"></div>
+    </section>
 
-    <p id="verifyStatus" class="subtitle" role="status">Running checks…</p>
-    <div id="resultBox" aria-live="polite"></div>
-
-    <ul class="checklist">
-      <li>
-        <span class="badge badge-warn">TODO</span>
-        <span>Delete the demo <code>test</code> Keycloak user before production use.</span>
-      </li>
-    </ul>
-
-    <hr class="divider">
-    <a href="/dashboard" class="btn btn-primary">Continue to Dashboard</a>
-    <a href="/wizard/step/6?runId=<%= wizard.lastRunId %>" class="btn btn-link">Back to deploy log</a>
+    <section class="card" aria-labelledby="sec-before-prod">
+      <%- include('../partials/card-head', { id: 'sec-before-prod', icon: 'clipboard-check', title: 'Before production' }) %>
+      <ul class="checklist">
+        <li>
+          <span class="badge badge-warn">TODO</span>
+          <span>Delete the demo <code>test</code> Keycloak user before production use.</span>
+        </li>
+      </ul>
+    </section>
   </div>
-</main>
+<%- include('../partials/wizard-layout-end', { actionbar: {
+  back: { href: '/wizard/step/6?runId=' + (wizard.lastRunId || ''), label: 'Back to deploy log' },
+  next: { kind: 'link', href: '/dashboard', label: 'Continue to Dashboard' }
+} }) %>
 <script>
   const badgeClass = { ok: 'badge-ok', fail: 'badge-fail', warn: 'badge-warn' };
   // escapeHtml comes from /wizard-ui.js.

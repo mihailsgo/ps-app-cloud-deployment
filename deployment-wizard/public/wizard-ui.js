@@ -125,12 +125,19 @@ function copyText(text, onDone) {
   }
 }
 
-// A run has finished — re-enable the topbar links that were server-rendered
-// as locked while it was in flight.
+// A run has finished — re-enable the topbar and step-rail links that were
+// server-rendered as locked while it was in flight. Rail links are rendered
+// without an href while locked (so the keyboard can't follow them either);
+// their target waits in data-href.
 function unlockTopbarNav() {
-  Array.prototype.forEach.call(document.querySelectorAll('.topbar .is-disabled'), function (el) {
+  Array.prototype.forEach.call(document.querySelectorAll('.topbar .is-disabled, .rail .is-disabled'), function (el) {
     el.classList.remove('is-disabled');
     el.removeAttribute('aria-disabled');
+    if (el.hasAttribute('data-href')) {
+      el.setAttribute('href', el.getAttribute('data-href'));
+      el.removeAttribute('data-href');
+      el.removeAttribute('role');
+    }
   });
   var note = document.getElementById('topbar-lock-note');
   if (note) note.remove();

@@ -1,35 +1,38 @@
-<%- include('../partials/head', { title: 'Deploy — PadSign Deployment Wizard' }) %>
-<%- include('../partials/topbar', { hostname, version, hasCompletedSetup, runActive }) %>
-<main id="main" class="wizard-shell">
-  <%- include('../partials/stepProgress', { current: 6, furthestStepReached: wizard.furthestStepReached }) %>
+<%- include('../partials/head', { title: 'Deploy — PadSign Deployment Wizard', bodyClass: 'is-onboarding' }) %>
+<%- include('../partials/wizard-layout-start', { current: 6, furthestStepReached: wizard.furthestStepReached, hostname, version, hasCompletedSetup, runActive }) %>
+  <div class="form-col form-col--wide">
+    <div class="page-head">
+      <span class="eyebrow">Step 6 · Deploy</span>
+      <h1 class="page-title">Deploying</h1>
+      <p class="page-lead">Running the same steps as a direct <code>bootstrap.sh</code> invocation.</p>
+    </div>
 
-  <div class="card">
-    <h1>Deploying</h1>
-    <p class="subtitle">Running the same steps as a direct <code>bootstrap.sh</code> invocation.</p>
+    <section class="card" aria-labelledby="sec-deploy">
+      <%- include('../partials/card-head', { id: 'sec-deploy', icon: 'server', title: 'Deployment' }) %>
 
-    <ul class="checklist" id="deploySteps" aria-live="polite" aria-relevant="additions text"
-        aria-label="Deployment steps"></ul>
+      <ul class="checklist" id="deploySteps" aria-live="polite" aria-relevant="additions text"
+          aria-label="Deployment steps"></ul>
 
-    <p id="overallStatus" class="subtitle" role="status" style="margin-top:1rem;"></p>
+      <p id="overallStatus" class="status-line" role="status"></p>
 
-    <div id="runActions" class="run-actions" hidden></div>
+      <div id="runActions" class="run-actions" hidden></div>
 
-    <details style="margin-top:1rem;">
-      <summary style="cursor:pointer; color:var(--ink-2); font-size:0.85rem;">Raw output</summary>
-      <pre id="rawLog" tabindex="0" style="background:var(--navy-dark); color:#dce8ff; padding:1rem; border-radius:8px; max-height:320px; overflow:auto; font-size:0.78rem; white-space:pre-wrap;"></pre>
-    </details>
-
-    <hr class="divider">
-    <%
-      // Rendered without an href while disabled. The old version kept the
-      // href and relied on pointer-events:none, which stops the mouse but
-      // not the keyboard — Tab + Enter walked straight past the gate into
-      // step 7 mid-deploy.
-    %>
-    <a id="continueLink" class="btn btn-primary is-disabled" aria-disabled="true">Continue to Verify</a>
-    <span id="continueHint" class="hint" style="display:inline-block; margin-left:0.5rem;">Available once the deploy finishes successfully.</span>
+      <details class="raw-output">
+        <summary>Raw output</summary>
+        <pre id="rawLog" class="log" tabindex="0"></pre>
+      </details>
+    </section>
   </div>
-</main>
+<%
+  // continueLink is rendered without an href while disabled: relying on
+  // pointer-events:none stops the mouse but not the keyboard, and Tab +
+  // Enter walked straight past the gate into step 7 mid-deploy. No Back
+  // while running; run-progress.js adds its own Back on failure.
+%>
+<%- include('../partials/wizard-layout-end', { actionbar: {
+  hint: { id: 'continueHint', text: 'Available once the deploy finishes successfully.' },
+  next: { kind: 'link', id: 'continueLink', label: 'Continue to Verify', disabled: true }
+} }) %>
 <script src="/run-progress.js"></script>
 <script>
   initRunProgress({
