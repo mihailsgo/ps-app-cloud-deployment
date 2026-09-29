@@ -1,30 +1,54 @@
-<%- include('../partials/head', { title: 'Feature Toggles — PadSign Deployment Wizard' }) %>
-<%- include('../partials/topbar', { hostname, version, hasCompletedSetup, runActive }) %>
-<main id="main" class="wizard-shell">
-  <%- include('../partials/stepProgress', { current: 4, furthestStepReached: wizard.furthestStepReached }) %>
+<%- include('../partials/head', { title: 'Feature Toggles — PadSign Deployment Wizard', bodyClass: 'is-onboarding' }) %>
+<%- include('../partials/wizard-layout-start', { current: 4, furthestStepReached: wizard.furthestStepReached, hostname, version, hasCompletedSetup, runActive }) %>
+  <form id="features-form" class="form-col" method="post" action="/wizard/step/4">
+    <div class="page-head">
+      <span class="eyebrow">Step 4 · Feature Toggles</span>
+      <h1 class="page-title">Feature Toggles</h1>
+    </div>
 
-  <div class="card">
-    <h1>Feature Toggles</h1>
-    <p class="subtitle">All off by default — turn on only what this deployment needs.</p>
-
-    <form method="post" action="/wizard/step/4">
-      <% features.forEach((f) => { %>
-        <div class="field toggle-row">
-          <label class="toggle-switch">
-            <input type="checkbox" name="<%= f.key %>" <%= wizard.features[f.key] ? 'checked' : '' %>>
-            <span class="toggle-track"><span class="toggle-knob"></span></span>
-          </label>
-          <div>
-            <span class="toggle-label"><%= f.label %></span>
-            <p class="hint" style="margin:0.2rem 0 0;"><%= f.description %></p>
+    <section class="card" aria-labelledby="sec-features">
+      <%- include('../partials/card-head', { id: 'sec-features', icon: 'toggle-right', title: 'Optional features', sub: 'All off by default — turn on only what this deployment needs.' }) %>
+      <div class="toggle-list">
+        <% features.forEach((f) => { %>
+          <div class="field toggle-row">
+            <label class="toggle-switch">
+              <input type="checkbox" name="<%= f.key %>" <%= wizard.features[f.key] ? 'checked' : '' %>
+                     aria-labelledby="<%= f.key %>-label" aria-describedby="<%= f.key %>-desc">
+              <span class="toggle-track"><span class="toggle-knob"></span></span>
+            </label>
+            <div>
+              <span class="toggle-label" id="<%= f.key %>-label"><%= f.label %></span>
+              <p class="hint" id="<%= f.key %>-desc"><%= f.description %></p>
+            </div>
           </div>
-        </div>
-      <% }) %>
+        <% }) %>
+      </div>
+    </section>
+  </form>
 
-      <hr class="divider">
-      <button type="submit" class="btn btn-primary">Next: Review</button>
-      <a href="/wizard/step/3" class="btn btn-link">Back</a>
-    </form>
-  </div>
-</main>
+  <%- include('../partials/summary', {
+    rows: [
+      { id: 'sum-url', label: 'Public URL', value: wizard.host ? 'https://' + wizard.host : '', fallback: 'Not set yet' },
+      { id: 'sum-role', label: 'Realm role', value: wizard.companyRole || '', fallback: 'Not set yet' },
+      { id: 'sum-cert', label: 'Certificate', value: 'Validated', fallback: 'Not validated yet' },
+      { id: 'sum-features', label: 'Features', value: features.filter((f) => wizard.features[f.key]).length + ' of ' + features.length + ' on', fallback: '' }
+    ],
+    next: { n: 5, label: 'Review & Confirm' }
+  }) %>
+<%- include('../partials/wizard-layout-end', { actionbar: {
+  back: { href: '/wizard/step/3', label: 'Back' },
+  next: { kind: 'submit', form: 'features-form', label: 'Next: Review' }
+} }) %>
+<script>
+  // Live count of features switched on, for the summary panel.
+  (function () {
+    const inputs = document.querySelectorAll('#features-form input[type="checkbox"]');
+    const out = document.getElementById('sum-features');
+    function refresh() {
+      const on = Array.prototype.filter.call(inputs, (i) => i.checked).length;
+      out.textContent = on + ' of ' + inputs.length + ' on';
+    }
+    Array.prototype.forEach.call(inputs, (i) => i.addEventListener('change', refresh));
+  })();
+</script>
 <%- include('../partials/foot') %>

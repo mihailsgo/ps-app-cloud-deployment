@@ -9,12 +9,12 @@
       <p class="dashboard-version-number">v<%= tags.serverTag || '?' %> <span class="subtitle" style="font-size:0.85rem;">/ v<%= tags.clientTag || '?' %></span></p>
       <p class="subtitle">Installed on <code><%= host || 'this host' %></code></p>
       <% if (runActive) { %>
-        <p class="subtitle" style="color:var(--gold);">
+        <p class="subtitle" style="color:var(--gold-ink);">
           A run is currently in progress —
           <a href="/upgrade/progress?runId=<%= encodeURIComponent(activeRunId) %>">view live progress</a>.
         </p>
       <% } else if (staleLock) { %>
-        <p class="subtitle" style="color:var(--gold);">
+        <p class="subtitle" style="color:var(--gold-ink);">
           A run (<%= staleLock.scriptName %>) was in progress when the wizard last started and may have
           completed or failed while it was down — check <code>docker compose logs</code>.
         </p>

@@ -1,66 +1,63 @@
 <%
-  // Expects: current (1-7), furthestStepReached (1-7, from wizard session).
-  // Onboarding-only (Welcome through Verify) — Dashboard/Upgrade use
-  // collapsed-progress.ejs instead, in the same layout slot.
+  // Vertical stepper inside the onboarding rail (partials/wizard-layout-start.ejs).
+  // Expects: current (1-7), furthestStepReached (1-7, from wizard session),
+  // runActive (optional). Onboarding-only (Welcome through Verify);
+  // Dashboard/Upgrade use collapsed-progress.ejs instead.
+  // `sub` is the current step's sub-label under its name.
   const STEPS = [
-    { n: 1, label: 'Welcome', url: '/' },
-    { n: 2, label: 'Host & Company', url: '/wizard/step/2' },
-    { n: 3, label: 'TLS Certificate', url: '/wizard/step/3' },
-    { n: 4, label: 'Feature Toggles', url: '/wizard/step/4' },
-    { n: 5, label: 'Review & Confirm', url: '/wizard/step/5' },
-    { n: 6, label: 'Deploy', url: '/wizard/step/6' },
-    { n: 7, label: 'Verify & Go-Live', url: '/wizard/step/7' }
+    { n: 1, label: 'Welcome', url: '/', sub: '' },
+    { n: 2, label: 'Host & Company', url: '/wizard/step/2', sub: 'Hostname and Keycloak realm' },
+    { n: 3, label: 'TLS Certificate', url: '/wizard/step/3', sub: 'Certificate and private key' },
+    { n: 4, label: 'Feature Toggles', url: '/wizard/step/4', sub: 'Optional features' },
+    { n: 5, label: 'Review & Confirm', url: '/wizard/step/5', sub: 'Check before deploying' },
+    { n: 6, label: 'Deploy', url: '/wizard/step/6', sub: 'Runs bootstrap.sh' },
+    { n: 7, label: 'Verify & Go-Live', url: '/wizard/step/7', sub: 'validate-config.sh checks' }
   ];
   const furthest = typeof furthestStepReached !== 'undefined' ? furthestStepReached : current;
-  const progressPct = Math.max(0, Math.min(100, ((current - 1) / (STEPS.length - 1)) * 100));
-  const currentLabel = (STEPS.find((s) => s.n === current) || {}).label || '';
-%>
-<nav class="step-rail" aria-label="Setup progress">
-  <div class="step-track">
-    <div class="step-track-line"></div>
-    <div class="step-track-line-active" style="width: <%= progressPct %>%;"></div>
-    <ol class="step-dots">
-      <% STEPS.forEach((s) => {
-        // Done-ness is a function of `furthest`, not of where the cursor
-        // happens to be. `furthestStepReached` is the lowest step still
-        // outstanding, so anything below it is genuinely completed and
-        // anything above it is locked. The old version derived all three
-        // states from `current` alone, which meant `status === 'done'`
-        // implied `s.n < current` — so the `s.n <= furthest` clause could
-        // never widen anything, and going back to fix a typo meant clicking
-        // Next through every step to return.
-        //
-        // requireReached() in routes/wizardSteps.js enforces the same bound
-        // server-side, so a hand-typed URL still can't skip ahead.
-        const locked = s.n > furthest;
-        const isCurrent = s.n === current;
-        const status = isCurrent ? 'current' : locked ? 'upcoming' : (s.n < furthest ? 'done' : 'reached');
-        const clickable = !locked && !isCurrent;
-        const glyph = status === 'done' ? '✓' : s.n;
-        const suffix = { done: ' (completed)', reached: ' (available)', upcoming: ' (not yet available)', current: '' }[status];
-        const aria = `Step ${s.n}: ${s.label}${suffix}`;
-      %>
-        <li class="step-dot-col">
-          <% if (clickable) { %>
-            <a href="<%= s.url %>" class="step-dot step-dot-<%= status %>" aria-label="<%= aria %>"><span aria-hidden="true"><%= glyph %></span></a>
+  // The run lock covers the rail as well as the top bar: reachable steps are
+  // rendered without an href while a run is in flight, and unlockTopbarNav()
+  // (public/wizard-ui.js) restores it from data-href when the run finishes.
+  const locked = typeof runActive !== 'undefined' && runActive;
+-%>
+<nav class="rail__steps" aria-label="Setup progress">
+  <ol class="stepper">
+    <% STEPS.forEach((s) => {
+      // Done-ness is a function of `furthest`, not of where the cursor
+      // happens to be. `furthestStepReached` is the lowest step still
+      // outstanding, so anything below it is genuinely completed and
+      // anything above it is locked. Deriving all states from `current`
+      // alone meant going back to fix a typo required clicking Next through
+      // every step to return.
+      //
+      // requireReached() in routes/wizardSteps.js enforces the same bound
+      // server-side, so a hand-typed URL still can't skip ahead.
+      const beyond = s.n > furthest;
+      const isCurrent = s.n === current;
+      const status = isCurrent ? 'current' : beyond ? 'upcoming' : (s.n < furthest ? 'done' : 'reached');
+      const clickable = !beyond && !isCurrent;
+      const suffix = { done: ' (completed)', reached: ' (available)', upcoming: ' (not yet available)', current: '' }[status];
+      const aria = `Step ${s.n}: ${s.label}${suffix}`;
+    %>
+      <li class="step step--<%= status %>"<%- isCurrent ? ' aria-current="step"' : '' %>>
+        <div class="step__track" aria-hidden="true">
+          <span class="step__marker"><% if (status === 'done') { %><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 6 9 17l-5-5"/></svg><% } else { %><%= s.n %><% } %></span>
+          <span class="step__line"></span>
+        </div>
+        <div class="step__text">
+          <% if (clickable && !locked) { %>
+            <a href="<%= s.url %>" class="step__label" aria-label="<%= aria %>"><%= s.label %></a>
+          <% } else if (clickable) { %>
+            <a class="step__label is-disabled" role="link" aria-disabled="true" data-href="<%= s.url %>" aria-label="<%= aria %>"><%= s.label %></a>
           <% } else { %>
-            <span class="step-dot step-dot-<%= status %>" <%- status === 'current' ? 'aria-current="step"' : '' %> aria-label="<%= aria %>"><span aria-hidden="true"><%= glyph %></span></span>
+            <span class="step__label"><span aria-hidden="true"><%= s.label %></span><span class="visually-hidden"><%= aria %></span></span>
           <% } %>
-          <span class="step-dot-label step-dot-label-<%= status %>" aria-hidden="true"><%= s.label %></span>
-        </li>
-      <% }) %>
-    </ol>
-  </div>
-  <div class="step-rail-right">
-    <span class="step-rail-current-label"><%= currentLabel %></span>
-    <button type="button" class="step-rail-exit-link" onclick="openModal('exit-modal')">Save &amp; Exit</button>
-  </div>
+          <% if (status === 'done') { %>
+            <span class="step__sub" aria-hidden="true">Completed</span>
+          <% } else if (isCurrent && s.sub) { %>
+            <span class="step__sub"><%= s.sub %></span>
+          <% } %>
+        </div>
+      </li>
+    <% }) %>
+  </ol>
 </nav>
-<%- include('modal', {
-  id: 'exit',
-  title: 'Save & exit setup?',
-  body: 'Your progress will be saved. You can resume at ' + currentLabel + ' next time you sign in.',
-  cancelLabel: 'Keep Setting Up',
-  confirmLabel: 'Save & Exit',
-  confirmAction: '/api/wizard/save-and-exit'
-}) %>

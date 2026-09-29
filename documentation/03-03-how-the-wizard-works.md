@@ -88,7 +88,7 @@ on the host. The difference is who can trigger it: anyone with the token and a r
 
 ## Keyboard and screen-reader use
 
-Every control can be reached with `Tab` and has a visible focus ring. The progress rail is a list of
+Every control can be reached with `Tab` and has a visible focus ring. The step rail is a list of
 links. Dialogs keep focus inside while open and close with `Esc`. Live progress and the final result
 are announced to screen readers. Buttons that are waiting for something (**Next: Feature Toggles**,
 **Continue to Verify**) say in plain text what unlocks them. A "Skip to main content" link comes

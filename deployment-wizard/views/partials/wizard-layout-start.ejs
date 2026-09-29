@@ -1,0 +1,51 @@
+<%
+  // Opens the onboarding shell (steps 2-7): step rail, mobile step header,
+  // onboarding top bar and <main id="main" class="content">. Close it with
+  // wizard-layout-end.ejs. Expects: current, furthestStepReached, hostname,
+  // version (nullable), hasCompletedSetup, runActive.
+  const LABELS = { 1: 'Welcome', 2: 'Host & Company', 3: 'TLS Certificate', 4: 'Feature Toggles', 5: 'Review & Confirm', 6: 'Deploy', 7: 'Verify & Go-Live' };
+  const currentLabel = LABELS[current] || '';
+  const homeHref = hasCompletedSetup ? '/dashboard' : '/';
+-%>
+<%# The Save & Exit dialog lives outside the rail: the rail is hidden below
+    960px and would take the dialog with it. %>
+<%- include('modal', {
+  id: 'exit',
+  title: 'Save & exit setup?',
+  body: 'Your progress will be saved. You can resume at ' + currentLabel + ' next time you sign in.',
+  cancelLabel: 'Keep Setting Up',
+  confirmLabel: 'Save & Exit',
+  confirmClass: 'btn-accent',
+  confirmAction: '/api/wizard/save-and-exit'
+}) %>
+<div class="wizard">
+  <div class="mobile-steps">
+    <img src="/logo-white.png" alt="TrustLynx" width="96" height="28">
+    <span class="mobile-steps__label">Step <%= current %> of 7 · <strong><%= currentLabel %></strong></span>
+  </div>
+
+  <aside class="rail" aria-label="Setup steps">
+    <div class="rail__art" aria-hidden="true"><img class="rail__fingerprint" src="/fingerprint.png" alt=""></div>
+    <div class="rail__brand">
+      <a href="<%= homeHref %>" class="rail__home" aria-label="PadSign Deployment Wizard — home"><img class="rail__logo" src="/logo-white.png" alt="" width="128" height="38"></a>
+      <div class="rail__product">
+        <span class="eyebrow eyebrow-light">Deployment wizard</span>
+        <span class="rail__title">PadSign</span>
+      </div>
+    </div>
+
+    <%- include('stepProgress', { current, furthestStepReached, runActive }) %>
+
+    <div class="rail__spacer"></div>
+    <div class="rail__installer">
+      <span class="rail__installer-label">Installer</span>
+      <div class="rail__installer-values">
+        <span title="Configured hostname"><%= hostname %></span>
+        <% if (version) { %><span title="Installed ps-server / ps-client tags">v<%= version %></span><% } %>
+      </div>
+    </div>
+  </aside>
+
+  <div class="main">
+    <%- include('topbar', { variant: 'onboarding', current, hostname, version, hasCompletedSetup, runActive }) %>
+    <main id="main" class="content">

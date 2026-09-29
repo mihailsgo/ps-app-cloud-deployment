@@ -1,51 +1,69 @@
-<%- include('../partials/head', { title: 'Host & Company — PadSign Deployment Wizard' }) %>
-<%- include('../partials/topbar', { hostname, version, hasCompletedSetup, runActive }) %>
-<main id="main" class="wizard-shell">
-  <%- include('../partials/stepProgress', { current: 2, furthestStepReached: wizard.furthestStepReached }) %>
-
-  <div class="card">
-    <h1>Host &amp; Company</h1>
-    <p class="subtitle">This becomes the hostname clients reach PadSign at, and the Keycloak realm/admin setup.</p>
+<%- include('../partials/head', { title: 'Host & Company — PadSign Deployment Wizard', bodyClass: 'is-onboarding' }) %>
+<%- include('../partials/wizard-layout-start', { current: 2, furthestStepReached: wizard.furthestStepReached, hostname, version, hasCompletedSetup, runActive }) %>
+  <form id="host-form" class="form-col" method="post" action="/wizard/step/2" novalidate>
+    <div class="page-head">
+      <span class="eyebrow">Step 2 · Host &amp; Company</span>
+      <h1 class="page-title">Host &amp; Company</h1>
+      <p class="page-lead">Set the hostname clients use to reach PadSign, and the Keycloak realm and admin account this deployment is configured with.</p>
+    </div>
 
     <% if (error) { %>
-      <p class="error-text"><%= error %></p>
+      <p class="error-text" role="alert"><%= error %></p>
     <% } %>
 
-    <form method="post" action="/wizard/step/2">
+    <section class="card" aria-labelledby="sec-endpoint">
+      <%- include('../partials/card-head', { id: 'sec-endpoint', icon: 'globe', title: 'Public endpoint', sub: 'Where clients reach PadSign, and who it is set up for' }) %>
       <div class="field">
         <label for="host">Hostname</label>
-        <input type="text" id="host" name="host" placeholder="padsign.client.com" value="<%= wizard.host || '' %>" required>
-        <p class="hint" id="dns-hint" aria-live="polite"></p>
+        <input type="text" id="host" name="host" placeholder="padsign.client.com" value="<%= wizard.host || '' %>"
+               autocomplete="off" spellcheck="false" aria-describedby="host-hint dns-hint" required>
+        <p class="hint" id="host-hint" data-hint="Fully qualified domain name, without https://. The TLS certificate in the next step must match it.">Fully qualified domain name, without https://. The TLS certificate in the next step must match it.</p>
+        <p class="hint hint-live" id="dns-hint" aria-live="polite"></p>
       </div>
 
       <div class="field">
         <label for="companyRole">Company / role name</label>
-        <input type="text" id="companyRole" name="companyRole" placeholder="Acme Corp" value="<%= wizard.companyRole || '' %>" required>
-        <p class="hint">Used as the Keycloak realm role for this client.</p>
+        <input type="text" id="companyRole" name="companyRole" placeholder="Acme Corp" value="<%= wizard.companyRole || '' %>"
+               autocomplete="organization" aria-describedby="companyRole-hint" required>
+        <p class="hint" id="companyRole-hint" data-hint="Used as the Keycloak realm role for this client.">Used as the Keycloak realm role for this client.</p>
       </div>
+    </section>
 
-      <div class="field">
-        <label for="realm">Keycloak realm name</label>
-        <input type="text" id="realm" name="realm" value="<%= wizard.realm || 'padsign' %>">
-      </div>
+    <section class="card" aria-labelledby="sec-keycloak">
+      <%- include('../partials/card-head', { id: 'sec-keycloak', icon: 'shield-check', title: 'Keycloak administration', sub: 'The realm and admin account used to configure sign-in' }) %>
+      <div class="grid-2">
+        <div class="field">
+          <label for="realm">Keycloak realm name</label>
+          <input type="text" id="realm" name="realm" value="<%= wizard.realm || 'padsign' %>" autocomplete="off" spellcheck="false">
+        </div>
 
-      <div class="field">
-        <label for="adminUser">Keycloak admin username</label>
-        <input type="text" id="adminUser" name="adminUser" value="<%= wizard.adminUser || 'admin' %>">
+        <div class="field">
+          <label for="adminUser">Keycloak admin username</label>
+          <input type="text" id="adminUser" name="adminUser" value="<%= wizard.adminUser || 'admin' %>" autocomplete="username" spellcheck="false">
+        </div>
       </div>
 
       <div class="field">
         <label for="adminPass">Keycloak admin password</label>
-        <input type="password" id="adminPass" name="adminPass" required>
-        <p class="hint">Do not use the default "admin" in a production deployment.</p>
+        <input type="password" id="adminPass" name="adminPass" autocomplete="new-password" aria-describedby="adminPass-hint" required>
+        <p class="hint" id="adminPass-hint" data-hint="Do not use the default &quot;admin&quot; in a production deployment.">Do not use the default "admin" in a production deployment.</p>
       </div>
+    </section>
+  </form>
 
-      <hr class="divider">
-      <button type="submit" class="btn btn-primary">Next: TLS Certificate</button>
-      <a href="/" class="btn btn-link">Back</a>
-    </form>
-  </div>
-</main>
+  <%- include('../partials/summary', {
+    rows: [
+      { id: 'sum-url', label: 'Public URL', value: wizard.host ? 'https://' + wizard.host : '', fallback: 'https://padsign.client.com' },
+      { id: 'sum-role', label: 'Realm role', value: wizard.companyRole || '', fallback: 'Not set yet' },
+      { id: 'sum-realm', label: 'Realm', value: wizard.realm || 'padsign', fallback: 'Not set yet', half: true },
+      { id: 'sum-admin', label: 'Admin user', value: wizard.adminUser || 'admin', fallback: 'Not set yet', half: true }
+    ],
+    next: { n: 3, label: 'TLS Certificate', note: 'Issued for the hostname you set here.' }
+  }) %>
+<%- include('../partials/wizard-layout-end', { actionbar: {
+  back: { href: '/', label: 'Back' },
+  next: { kind: 'submit', form: 'host-form', label: 'Next: TLS Certificate' }
+} }) %>
 <script>
   const hostInput = document.getElementById('host');
   const hint = document.getElementById('dns-hint');
@@ -66,5 +84,60 @@
       }
     }, 500);
   });
+
+  // Live summary panel. The realm role is shown exactly as typed:
+  // bootstrap.sh --company-role takes the raw value. Never the password.
+  (function () {
+    function setSummary(id, value, fallback) {
+      const el = document.getElementById(id);
+      el.textContent = value || fallback;
+      el.classList.toggle('is-empty', !value);
+    }
+    function val(id) { return document.getElementById(id).value.trim(); }
+    function refresh() {
+      setSummary('sum-url', val('host') ? 'https://' + val('host') : '', 'https://padsign.client.com');
+      setSummary('sum-role', val('companyRole'), 'Not set yet');
+      setSummary('sum-realm', val('realm'), 'Not set yet');
+      setSummary('sum-admin', val('adminUser'), 'Not set yet');
+    }
+    ['host', 'companyRole', 'realm', 'adminUser'].forEach((id) => {
+      document.getElementById(id).addEventListener('input', refresh);
+    });
+  })();
+
+  // Required-field check, mirroring routes/wizardSteps.js (host, companyRole
+  // and adminPass are required there; nothing else is checked here). The
+  // server stays the source of truth: without this script, the form still
+  // posts and the server answers with its own error.
+  (function () {
+    const RULES = {
+      host: 'Enter the hostname clients will use.',
+      companyRole: 'Enter the company or role name.',
+      adminPass: 'Enter the Keycloak admin password.'
+    };
+    function check(id) {
+      const input = document.getElementById(id);
+      const field = input.closest('.field');
+      const hintEl = field.querySelector('.hint[data-hint]');
+      // Same test as the server's `if (!host)`: only an empty value fails.
+      const msg = input.value ? '' : RULES[id];
+      field.classList.toggle('field--error', !!msg);
+      if (msg) input.setAttribute('aria-invalid', 'true'); else input.removeAttribute('aria-invalid');
+      hintEl.textContent = msg || hintEl.getAttribute('data-hint');
+      return !msg;
+    }
+    Object.keys(RULES).forEach((id) => {
+      document.getElementById(id).addEventListener('input', () => {
+        if (document.getElementById(id).getAttribute('aria-invalid') === 'true') check(id);
+      });
+    });
+    document.getElementById('host-form').addEventListener('submit', (e) => {
+      const invalid = Object.keys(RULES).filter((id) => !check(id));
+      if (invalid.length) {
+        e.preventDefault();
+        document.getElementById(invalid[0]).focus();
+      }
+    });
+  })();
 </script>
 <%- include('../partials/foot') %>
