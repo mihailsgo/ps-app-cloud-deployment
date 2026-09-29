@@ -42,5 +42,6 @@ minimum in that file, so this only matters on a host that still runs older image
 | `closable-download-route` | Archive PDF download with the user's token, so the download route can be closed at nginx, [6.1](06-01-route-protection.md) |
 | `per-company-api-keys` | Per-company API keys (`REGISTER_PDF_API_KEYS`), [7.5](07-05-register-pdf-api.md) |
 | `durable-routing-archive` | Signed PDFs stay in `signed-output/` after the Manager acknowledges them, [11](11-document-routing-and-receive-back.md) |
+| `signing-audit` | Signing audit log (`AUDIT_LOG`) and the wizard's Signing activity tab, [9.13](09-13-signing-activity-log.md) |
 
 What changed between releases is in [`CHANGELOG.md`](../CHANGELOG.md).

@@ -38,6 +38,7 @@ relative to that directory.
 |---|---|
 | `docs/` | Documents stored by the fallback archive service (this is document content, not documentation). Mode 770, owned by the fallback service's user. Never delete or commit it. |
 | `signed-output/` | Signed documents written by document routing, and the receive-back buffer ([11](11-document-routing-and-receive-back.md)). Mode 750, owned by ps-server's user. |
+| `signed-output/.padsign-audit/` | The signing audit log, one `audit-YYYY-MM.jsonl` file per UTC month. Mode 750, files 640, owned by ps-server's user. Holds signers' e-mail addresses ([9.13](09-13-signing-activity-log.md)). |
 | Docker volume `keycloak_data` | Keycloak's database (realm, clients, users). Back it up; `docker compose down -v` deletes it. |
 
 ## Scripts and their inputs
@@ -45,6 +46,8 @@ relative to that directory.
 | Path | Purpose |
 |---|---|
 | `installation-scripts/` | All install, upgrade, validation and operations scripts. Each prints its options with `--help`. |
+| `installation-scripts/restart-service.sh` | Restarts one service and waits until it is healthy ([9.12](09-12-monitoring-from-the-wizard.md#restarting-a-service)). |
+| `installation-scripts/support-bundle.sh` | Collects a redacted support bundle ([9.12](09-12-monitoring-from-the-wizard.md#support-bundles)). |
 | `installation-scripts/certs/` | Where you stage `<host>.crt` and `<host>.key` before an install or certificate change. Git-ignored. |
 | `installation-scripts/lib/` | Helpers used by the scripts. Not run directly. |
 | `installation-scripts/assets/dmss-digital-stamping-service/` | Pristine demo files that local e-sealing copies into `dmss-digital-stamping-service/` (never overwriting yours). |
@@ -63,6 +66,7 @@ All git-ignored.
 | `.rollback-snapshots/` | `upgrade.sh` | Snapshots that `rollback.sh` restores ([9.8 Rollback](09-08-rollback.md)). |
 | `deployment-evidence.json`, `deployment-evidence.json.previous` | `bootstrap.sh`, `upgrade.sh`, `postdeploy-check.sh` | Record of what is deployed: git revision, image tags and digests, config checksums, service state and restart counts. |
 | `.monitor-state/` | `monitor-status.sh` | State kept between monitoring runs ([9.10](09-10-monitoring-and-alerting.md)). |
+| `support-bundles/` | `support-bundle.sh`, the wizard's Support bundle | The `padsign-support-<host>-<UTC time>.tar.gz` archives. Directory mode 700, archives mode 600 ([9.12](09-12-monitoring-from-the-wizard.md#support-bundles)). Delete them after use. |
 | `.wizard-saved-progress.json` | Deployment Wizard | Answers saved with **Save & Exit** (no password), mode 600. |
 
 ## Release metadata

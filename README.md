@@ -96,6 +96,8 @@ through [6. Production hardening](documentation/06-production-hardening.md) befo
    - [9.9 Health checks and startup](documentation/09-09-health-checks-and-startup.md)
    - [9.10 Monitoring and alerting](documentation/09-10-monitoring-and-alerting.md)
    - [9.11 Start at boot, backups and customized hosts](documentation/09-11-start-at-boot-backups-and-customized-hosts.md)
+   - [9.12 Monitoring from the wizard](documentation/09-12-monitoring-from-the-wizard.md)
+   - [9.13 Signing activity log](documentation/09-13-signing-activity-log.md)
 10. [Local e-sealing](documentation/10-local-e-sealing.md)
     - [10.1 Concepts and glossary](documentation/10-01-concepts-and-glossary.md)
     - [10.2 Architecture](documentation/10-02-architecture.md)

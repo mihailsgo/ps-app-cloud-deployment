@@ -30,11 +30,20 @@ docker compose logs --tail 100 <service>      # keycloak, ps-server, nginx, ps-c
 | No Keycloak admin credential works | [8.3 Admin password and break-glass recovery](08-03-admin-password-and-break-glass.md) |
 | Deployment Wizard problems (access token, port 8443, stuck progress) | [3.4 Troubleshooting the wizard](03-04-troubleshooting-the-wizard.md) |
 
-If the issue is not listed, collect `validate-config.sh` output,
-`monitor-status.sh` output (a read-only report,
-[9.10](09-10-monitoring-and-alerting.md)) and the relevant logs, and contact
-TrustLynx support ([14.5 Support](14-05-support.md)). Both reports keep
-secrets out of their output; check logs for tokens before you send them.
+If the issue is not listed, collect a support bundle and contact TrustLynx
+support ([14.5 Support](14-05-support.md)):
+
+```bash
+cd /opt/padsign
+./installation-scripts/support-bundle.sh --since 24h
+```
+
+or use **Monitoring > Diagnostics** in the wizard
+([9.12](09-12-monitoring-from-the-wizard.md#support-bundles)). The bundle holds
+the `validate-config.sh` and `monitor-status.sh` reports
+([9.10](09-10-monitoring-and-alerting.md)), redacted configuration and the
+service logs, with secrets removed. Logs can still contain signers' names and
+e-mail addresses, so check the bundle before you send it.
 
 ## Sub-sections
 
