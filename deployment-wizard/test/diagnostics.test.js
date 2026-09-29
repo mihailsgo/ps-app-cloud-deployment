@@ -177,6 +177,19 @@ test('runCheck(): a runner throwing degrades to a single warn row; passed stays 
   assert.match(result.checks[0].message, /Configuration could not be run: boom/);
 });
 
+test('runCheck(): an invalid host yields one warn row for every check and runs nothing', async () => {
+  let called = false;
+  const stub = async () => { called = true; return { checks: [{ status: 'ok', message: 'x' }] }; };
+  const deps = {
+    validateConfig: stub, checkLiveCert: stub, checkServedCert: stub, runMonitorStatus: stub, exec: stub
+  };
+  for (const { id } of CHECKS) {
+    const result = await runCheck(id, { host: 'bad host;rm', companyRole: 'R', deps });
+    assert.deepEqual(result.checks, [{ status: 'warn', message: 'The configured hostname is not valid.' }], id);
+  }
+  assert.equal(called, false);
+});
+
 test('runCheck(): an empty checks array becomes a warn row, never a silent pass', async () => {
   const validateConfig = async () => ({ passed: true, checks: [], raw: '' });
   const result = await runCheck('config', { deps: { validateConfig } });

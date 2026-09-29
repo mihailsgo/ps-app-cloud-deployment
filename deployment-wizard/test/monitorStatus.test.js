@@ -84,6 +84,16 @@ test('runMonitorStatus(): the error never carries the script path or arguments',
   assert.match(result.error, /exited with code 127/);
 });
 
+test('runMonitorStatus(): an invalid host is refused without running the script', async () => {
+  let called = false;
+  const exec = async () => { called = true; return { stdout: fixtureJson }; };
+  for (const host of ['-oProxyCommand=x', 'a b', 'a;b', 'host/../x', '.leading', 'trailing-']) {
+    const result = await runMonitorStatus({ host, exec });
+    assert.deepEqual(result, { ok: false, error: 'Invalid hostname.' }, host);
+  }
+  assert.equal(called, false);
+});
+
 test('runMonitorStatus(): passes --host only when a host is given', async () => {
   let seenArgs;
   const exec = async (cmd, args) => {

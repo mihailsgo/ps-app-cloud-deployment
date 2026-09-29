@@ -10,6 +10,7 @@ const { checkLiveCert, checkServedCert } = require('./certValidator');
 const { runMonitorStatus, alertSeverity } = require('./monitorStatus');
 const { parseHelperCheckOutput } = require('./outputParser');
 const { describeExecFailure } = require('./execError');
+const { isValidHost } = require('./hostName');
 
 const VERIFY_KEYCLOAK_SCRIPT = projectPath('installation-scripts', 'verify-keycloak.sh');
 
@@ -120,6 +121,11 @@ async function runCheck(id, { host, companyRole, deps = {} } = {}) {
   const noHost = () => finish([{ status: 'warn', message: 'No hostname is configured yet.' }]);
 
   try {
+    // Unlike a missing host, an invalid one is refused for every check
+    // (config and alerts pass it to their scripts too).
+    if (host && !isValidHost(host)) {
+      return finish([{ status: 'warn', message: 'The configured hostname is not valid.' }]);
+    }
     if (NEEDS_HOST.has(id) && !host) return noHost();
 
     if (id === 'config') {

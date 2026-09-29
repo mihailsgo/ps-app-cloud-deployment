@@ -6,6 +6,7 @@ const path = require('path');
 const { HOST_PROJECT_DIR, projectPath } = require('./paths');
 const { parseHelperCheckOutput } = require('./outputParser');
 const { describeExecFailure } = require('./execError');
+const { isValidHost } = require('./hostName');
 
 const BUNDLE_DIR = projectPath('support-bundles');
 const SUPPORT_BUNDLE_SCRIPT = projectPath('installation-scripts', 'support-bundle.sh');
@@ -76,6 +77,11 @@ async function createBundle({ host, since = '24h', exec, dir = BUNDLE_DIR } = {}
   if (!SINCE_CHOICES.includes(since)) {
     const err = new Error(`since must be one of: ${SINCE_CHOICES.join(', ')}`);
     err.code = 'BAD_SINCE';
+    throw err;
+  }
+  if (host && !isValidHost(host)) {
+    const err = new Error('Invalid hostname.');
+    err.code = 'BAD_HOST';
     throw err;
   }
   if (inProgress) {

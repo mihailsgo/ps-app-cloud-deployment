@@ -137,6 +137,19 @@ test('createBundle(): rejects an invalid `since` with code BAD_SINCE', async () 
   );
 });
 
+test('createBundle(): rejects an invalid host with code BAD_HOST and never runs the script', async () => {
+  let called = false;
+  const exec = async () => { called = true; return { stdout: '' }; };
+  for (const host of ['-x', 'a b', 'a/b', 'a;b', 'a\nb']) {
+    await assert.rejects(() => createBundle({ host, exec, dir: tmpDir() }), (err) => {
+      assert.equal(err.code, 'BAD_HOST');
+      return true;
+    }, host);
+  }
+  assert.equal(called, false);
+  assert.equal(isBundleRunning(), false);
+});
+
 test('createBundle(): resolves { name, sizeBytes, checks } when the script reports a valid bundle', async () => {
   const dir = tmpDir();
   const name = 'padsign-support-padsign.example.com-20260929T100000Z.tar.gz';

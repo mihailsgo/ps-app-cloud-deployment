@@ -6,6 +6,7 @@ const execFileP = promisify(execFile);
 
 const { HOST_PROJECT_DIR, projectPath } = require('./paths');
 const { describeExecFailure } = require('./execError');
+const { isValidHost } = require('./hostName');
 
 const MONITOR_STATUS_SCRIPT = projectPath('installation-scripts', 'monitor-status.sh');
 
@@ -29,6 +30,8 @@ function alertSeverity(key) {
 // module is written ahead of installation-scripts/monitor-status.sh, which a
 // parallel task is still authoring — every test supplies its own `exec`.
 async function runMonitorStatus({ host, exec = execFileP } = {}) {
+  if (host && !isValidHost(host)) return { ok: false, error: 'Invalid hostname.' };
+
   const args = [MONITOR_STATUS_SCRIPT, '--format', 'json', ...(host ? ['--host', host] : [])];
 
   let stdout;
