@@ -177,6 +177,24 @@ test('runCheck(): a runner throwing degrades to a single warn row; passed stays 
   assert.match(result.checks[0].message, /Configuration could not be run: boom/);
 });
 
+test('runCheck(): an empty checks array becomes a warn row, never a silent pass', async () => {
+  const validateConfig = async () => ({ passed: true, checks: [], raw: '' });
+  const result = await runCheck('config', { deps: { validateConfig } });
+  assert.deepEqual(result.checks, [{ status: 'warn', message: 'Configuration produced no results.' }]);
+});
+
+test('runCheck("keycloak"): exit 1 with only stderr (no parseable rows) is not a green card', async () => {
+  const exec = async () => {
+    const err = new Error('Command failed');
+    err.code = 1;
+    err.stdout = '';
+    err.stderr = 'ERROR: cannot reach keycloak\n';
+    throw err;
+  };
+  const result = await runCheck('keycloak', { host: 'padsign.example.com', companyRole: 'R', deps: { exec } });
+  assert.deepEqual(result.checks, [{ status: 'warn', message: 'Keycloak realm and clients produced no results.' }]);
+});
+
 test('runCheck(): a failed exec is reported without the command line', async () => {
   const exec = async () => {
     const err = new Error('Command failed: bash /opt/padsign/installation-scripts/verify-keycloak.sh --host h --company-role R');

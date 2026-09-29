@@ -98,17 +98,25 @@ async function runCheck(id, { host, companyRole, deps = {} } = {}) {
   } = deps;
 
   const startedAt = Date.now();
-  const finish = (checks) => ({
-    id: def.id,
-    label: def.label,
-    // A warn-only result still counts as passed — only a FAIL should flip
-    // the card red. Diagnostics deliberately drops `raw` (present on
-    // configValidator/certValidator's own return shape): it can be large
-    // and nothing downstream of runCheck() needs the untrimmed script output.
-    passed: checks.every((c) => c.status !== 'fail'),
-    checks,
-    durationMs: Date.now() - startedAt
-  });
+  const finish = (rawChecks) => {
+    // A script that exits 1 having printed only to stderr parses to zero
+    // rows, and zero FAILs would otherwise read as a green "passed" card.
+    // "Ran but told us nothing" is a warning, never a pass.
+    const checks = rawChecks && rawChecks.length
+      ? rawChecks
+      : [{ status: 'warn', message: `${def.label} produced no results.` }];
+    return {
+      id: def.id,
+      label: def.label,
+      // A warn-only result still counts as passed — only a FAIL should flip
+      // the card red. Diagnostics deliberately drops `raw` (present on
+      // configValidator/certValidator's own return shape): it can be large
+      // and nothing downstream of runCheck() needs the untrimmed script output.
+      passed: checks.every((c) => c.status !== 'fail'),
+      checks,
+      durationMs: Date.now() - startedAt
+    };
+  };
   const noHost = () => finish([{ status: 'warn', message: 'No hostname is configured yet.' }]);
 
   try {
