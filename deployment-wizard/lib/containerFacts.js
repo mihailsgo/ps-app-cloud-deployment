@@ -15,16 +15,19 @@ const { parseComposePsOutput } = require('./dockerFacts');
 // Monitoring rather than the Dashboard.
 //
 // `exec`/`now` are injectable ({ exec, now }, both defaulting to the real
-// thing) so every test below runs without a Docker daemon — this dev
-// machine has none.
+// thing) so test/containerFacts.test.js runs without a Docker daemon.
 
 const EXEC_OPTS = { cwd: HOST_PROJECT_DIR, maxBuffer: 8 * 1024 * 1024 };
 const CACHE_MS = 30000; // the compose service list rarely changes; skip the shell-out on every 10s poll tick
 
 let cache = { at: -Infinity, list: [] };
+let listInFlight = null;
+let overviewInFlight = null;
 
 function _resetCache() {
   cache = { at: -Infinity, list: [] };
+  listInFlight = null;
+  overviewInFlight = null;
 }
 
 // `docker compose config --services` lists every service the compose file
@@ -32,27 +35,39 @@ function _resetCache() {
 // container is still a row in the Overview table, via getOverview's
 // state:'missing'). 'wizard' is excluded — it is this container itself, not
 // part of the PadSign stack it is monitoring.
+//
+// Callers always get a copy (a caller sorting or pushing must not corrupt the
+// cache), and overlapping calls while nothing is cached share one exec.
 async function listStackServices({ exec = execFileP, now = Date.now } = {}) {
   const t = now();
-  if (t - cache.at < CACHE_MS) return cache.list;
+  if (t - cache.at < CACHE_MS) return cache.list.slice();
+  if (listInFlight) return (await listInFlight).slice();
 
+  const pending = (async () => {
+    try {
+      const { stdout } = await exec('docker', ['compose', 'config', '--services'], {
+        ...EXEC_OPTS,
+        timeout: 10000
+      });
+      const list = String(stdout)
+        .split(/\r?\n/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .filter((s) => s !== 'wizard')
+        .sort();
+      cache = { at: t, list };
+      return list;
+    } catch (err) {
+      // Docker unreachable this tick — keep showing the last known list rather
+      // than blanking the whole table; [] only ever means "never succeeded".
+      return cache.list;
+    }
+  })();
+  listInFlight = pending;
   try {
-    const { stdout } = await exec('docker', ['compose', 'config', '--services'], {
-      ...EXEC_OPTS,
-      timeout: 10000
-    });
-    const list = String(stdout)
-      .split(/\r?\n/)
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .filter((s) => s !== 'wizard')
-      .sort();
-    cache = { at: t, list };
-    return list;
-  } catch (err) {
-    // Docker unreachable this tick — keep showing the last known list rather
-    // than blanking the whole table; [] only ever means "never succeeded".
-    return cache.list;
+    return (await pending).slice();
+  } finally {
+    if (listInFlight === pending) listInFlight = null;
   }
 }
 
@@ -85,9 +100,10 @@ function parseSize(str) {
 
 // The tag separator is the LAST colon after the LAST slash — a digest
 // suffix (`@sha256:...`) and a `registry:port/` prefix both contain colons
-// that are not it. No tag at all defaults to 'latest', same as Docker.
+// that are not it. A real image string with no tag defaults to 'latest', same
+// as Docker; a missing/empty image is null (unknown), not a made-up 'latest'.
 function imageTag(image) {
-  if (typeof image !== 'string') return 'latest';
+  if (typeof image !== 'string' || image === '') return null;
   const withoutDigest = image.split('@')[0];
   const lastSlash = withoutDigest.lastIndexOf('/');
   const lastColon = withoutDigest.lastIndexOf(':');
@@ -134,7 +150,7 @@ function parseInspect(inspectArray, nowMs) {
       startedAt: state.StartedAt || null,
       uptimeSec,
       image,
-      imageTag: imageTag(image || ''),
+      imageTag: imageTag(image),
       lastProbe
     });
   }
@@ -170,7 +186,9 @@ function parseStats(stdout) {
     }
     if (!obj || !obj.ID) continue;
     const [usage, limit] = String(obj.MemUsage || '').split('/').map((s) => s.trim());
-    map.set(obj.ID, {
+    // Always the 12-char prefix, so a full-length ID (some Docker versions,
+    // --no-trunc) still joins against getOverview's containerId.slice(0, 12).
+    map.set(String(obj.ID).slice(0, 12), {
       cpuPct: parsePercent(obj.CPUPerc),
       memUsageBytes: parseSize(usage),
       memLimitBytes: parseSize(limit),
@@ -189,7 +207,30 @@ function parseStats(stdout) {
 // rather than taking the whole page down — this function is polled every
 // 10s, and a flaky `docker stats` shouldn't blank the state/health columns
 // that `docker inspect` already answered.
-async function getOverview({ exec = execFileP, now = Date.now } = {}) {
+//
+// Single-flight: the UI polls every 10s and a slow tick (docker stats alone
+// takes ~2s) can overlap the next one, so overlapping calls share one run
+// instead of piling up docker processes.
+function getOverview(options = {}) {
+  if (overviewInFlight) return overviewInFlight;
+  const pending = computeOverview(options).finally(() => {
+    if (overviewInFlight === pending) overviewInFlight = null;
+  });
+  overviewInFlight = pending;
+  return pending;
+}
+
+function tryParseJsonArray(text) {
+  if (typeof text !== 'string' || !text.trim()) return null;
+  try {
+    const parsed = JSON.parse(text);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+async function computeOverview({ exec = execFileP, now = Date.now } = {}) {
   const nowMs = now();
   const generatedAt = new Date(nowMs).toISOString();
   const services = await listStackServices({ exec, now: () => nowMs });
@@ -207,11 +248,20 @@ async function getOverview({ exec = execFileP, now = Date.now } = {}) {
     return { generatedAt, dockerAvailable: false, services: [] };
   }
 
-  const idByService = new Map();
+  // Only containers of stack services are inspected/statted — `compose ps`
+  // also lists the wizard's own container, which is neither shown nor worth a
+  // docker call. When a service has several containers (a recreate leaving an
+  // old one behind, or scaling), the running one is the one worth reporting.
+  const stackSet = new Set(services);
+  const psByService = new Map();
   for (const row of psRows) {
-    if (row && row.Service && row.ID) idByService.set(row.Service, row.ID);
+    if (!row || !row.Service || !row.ID || !stackSet.has(row.Service)) continue;
+    const current = psByService.get(row.Service);
+    if (!current || (current.State !== 'running' && row.State === 'running')) {
+      psByService.set(row.Service, row);
+    }
   }
-  const ids = [...idByService.values()];
+  const ids = [...psByService.values()].map((row) => row.ID);
 
   let inspectMap = new Map();
   if (ids.length > 0) {
@@ -219,7 +269,11 @@ async function getOverview({ exec = execFileP, now = Date.now } = {}) {
       const { stdout } = await exec('docker', ['inspect', ...ids], { ...EXEC_OPTS, timeout: 10000 });
       inspectMap = parseInspect(JSON.parse(stdout), nowMs);
     } catch (err) {
-      inspectMap = new Map(); // degrade to "no per-container detail" for this tick, not a thrown error
+      // `docker inspect` exits 1 when one id vanished (a container recreated
+      // between our `ps` and `inspect`) but still prints the JSON array for
+      // the ids it found — salvage that instead of blanking every row.
+      const partial = tryParseJsonArray(err && err.stdout);
+      inspectMap = partial ? parseInspect(partial, nowMs) : new Map();
     }
   }
 
@@ -246,14 +300,18 @@ async function getOverview({ exec = execFileP, now = Date.now } = {}) {
   const rows = services.map((service) => {
     const info = inspectMap.get(service);
     if (!info) {
+      const psRow = psByService.get(service);
+      // 'missing' means compose does not know a container for this service at
+      // all. If compose ps listed one but inspect did not return it, show what
+      // ps knows (state/health/image) rather than claiming it is gone.
       return {
         service,
-        state: 'missing',
-        health: null,
+        state: psRow ? (psRow.State || null) : 'missing',
+        health: psRow ? (psRow.Health || 'none') : null,
         restarts: null,
         uptimeSec: null,
-        imageTag: null,
-        image: null,
+        imageTag: psRow ? imageTag(psRow.Image) : null,
+        image: psRow ? (psRow.Image || null) : null,
         lastProbe: null,
         cpuPct: null,
         memUsageBytes: null,

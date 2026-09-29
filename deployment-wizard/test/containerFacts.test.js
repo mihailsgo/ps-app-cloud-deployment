@@ -62,6 +62,12 @@ test('imageTag: extracts the tag, ignoring a digest suffix and a registry:port p
   assert.equal(imageTag('registry:5000/repo/img'), 'latest');
 });
 
+test('imageTag: empty or missing image is null, not "latest"', () => {
+  assert.equal(imageTag(''), null);
+  assert.equal(imageTag(undefined), null);
+  assert.equal(imageTag(null), null);
+});
+
 // ---- parseInspect ----
 
 test('parseInspect: maps by compose service, computing uptime/health/lastProbe from the fixture', () => {
@@ -153,7 +159,43 @@ test('parseStats: an unparsable field degrades to null, never throws', () => {
   assert.equal(row.pids, null);
 });
 
+test('parseStats: keys by the first 12 chars so a full-length ID still joins', () => {
+  const fullId = 'dd667f3a8a3a785cc9070e296e7709b2decfd301fac1d12d39f0536fb8913b4b';
+  const line = JSON.stringify({ ID: fullId, Name: 'x', CPUPerc: '1%', MemUsage: '1MiB / 1GiB', MemPerc: '1%', NetIO: '-', BlockIO: '-', PIDs: '1' });
+  const map = parseStats(`${line}\n`);
+  assert.ok(map.has(fullId.slice(0, 12)));
+});
+
 // ---- listStackServices ----
+
+test('listStackServices: returns a copy; mutating a result does not corrupt the cache', async () => {
+  _resetCache();
+  const exec = async () => ({ stdout: 'nginx\nps-server\n' });
+  const first = await listStackServices({ exec, now: () => 1000 });
+  first.push('tampered');
+  const second = await listStackServices({ exec, now: () => 1000 });
+  assert.deepEqual(second, ['nginx', 'ps-server']);
+  second.push('tampered');
+  const third = await listStackServices({ exec, now: () => 1000 });
+  assert.deepEqual(third, ['nginx', 'ps-server']);
+});
+
+test('listStackServices: concurrent first calls share one exec', async () => {
+  _resetCache();
+  let calls = 0;
+  const exec = async () => {
+    calls += 1;
+    await new Promise((r) => setTimeout(r, 20));
+    return { stdout: 'nginx\nps-server\n' };
+  };
+  const [a, b] = await Promise.all([
+    listStackServices({ exec, now: () => 1000 }),
+    listStackServices({ exec, now: () => 1000 })
+  ]);
+  assert.equal(calls, 1);
+  assert.deepEqual(a, ['nginx', 'ps-server']);
+  assert.deepEqual(b, ['nginx', 'ps-server']);
+});
 
 test('listStackServices: trims, drops blanks, removes "wizard", sorts', async () => {
   _resetCache();
@@ -283,6 +325,117 @@ test('getOverview: a failing "docker stats" degrades cpu/mem to null without thr
   assert.equal(nginxRow.cpuPct, null);
   assert.equal(nginxRow.memUsageBytes, null);
   assert.equal(nginxRow.memPct, null);
+});
+
+const NOW = () => Date.parse('2026-09-29T08:00:00.000Z');
+
+test('getOverview: partial "docker inspect" failure salvages stdout and falls back to compose ps for the rest', async () => {
+  _resetCache();
+  const survivors = JSON.stringify(JSON.parse(readFixture('inspect.json')).slice(0, 1)); // nginx only
+  const exec = async (file, args) => {
+    if (args[0] === 'compose' && args[1] === 'config') return { stdout: 'nginx\nps-server\nother\n' };
+    if (args[0] === 'compose' && args[1] === 'ps') return { stdout: readFixture('compose-ps.json') };
+    if (args[0] === 'inspect') {
+      // docker inspect exits 1 when one id vanished, but still prints the rest
+      const err = new Error('Error: No such object: dd667f3a8a3a');
+      err.code = 1;
+      err.stdout = survivors;
+      throw err;
+    }
+    if (args[0] === 'stats') return { stdout: readFixture('stats.ndjson') };
+    throw new Error(`unexpected: ${args.join(' ')}`);
+  };
+
+  const result = await getOverview({ exec, now: NOW });
+  const byName = Object.fromEntries(result.services.map((r) => [r.service, r]));
+
+  assert.equal(byName.nginx.state, 'running');
+  assert.equal(byName.nginx.restarts, 0, 'salvaged from the partial inspect JSON');
+
+  assert.equal(byName['ps-server'].state, 'running', 'compose ps State, not "missing"');
+  assert.equal(byName['ps-server'].health, 'none', 'compose ps reported an empty Health');
+  assert.equal(byName['ps-server'].restarts, null);
+  assert.equal(byName['ps-server'].imageTag, '3.32');
+
+  assert.equal(byName.other.state, 'missing', 'no compose ps row at all');
+});
+
+test('getOverview: inspect failing outright without usable stdout falls back to compose ps rows', async () => {
+  _resetCache();
+  const exec = async (file, args) => {
+    if (args[0] === 'compose' && args[1] === 'config') return { stdout: 'nginx\nps-client\n' };
+    if (args[0] === 'compose' && args[1] === 'ps') return { stdout: readFixture('compose-ps.json') };
+    if (args[0] === 'inspect') throw new Error('boom');
+    throw new Error(`unexpected: ${args.join(' ')}`);
+  };
+  const result = await getOverview({ exec, now: NOW });
+  const byName = Object.fromEntries(result.services.map((r) => [r.service, r]));
+  assert.equal(byName.nginx.state, 'running');
+  assert.equal(byName.nginx.health, 'healthy');
+  assert.equal(byName['ps-client'].state, 'exited');
+  assert.equal(byName['ps-client'].health, 'unhealthy');
+});
+
+test('getOverview: accepts the older single-JSON-array "compose ps" format', async () => {
+  _resetCache();
+  const asArray = JSON.stringify(readFixture('compose-ps.json').trim().split('\n').map((l) => JSON.parse(l)));
+  const exec = fakeExecFor({
+    services: 'nginx\nps-client\nps-server\n',
+    ps: asArray,
+    inspect: readFixture('inspect.json'),
+    stats: readFixture('stats.ndjson')
+  });
+  const result = await getOverview({ exec, now: NOW });
+  assert.equal(result.services.length, 3);
+  assert.equal(result.services.find((r) => r.service === 'nginx').cpuPct, 0.15);
+});
+
+test('getOverview: overlapping calls share one in-flight promise', async () => {
+  _resetCache();
+  let psCalls = 0;
+  const exec = async (file, args) => {
+    if (args[0] === 'compose' && args[1] === 'config') return { stdout: 'nginx\n' };
+    if (args[0] === 'compose' && args[1] === 'ps') {
+      psCalls += 1;
+      await new Promise((r) => setTimeout(r, 20));
+      return { stdout: '' };
+    }
+    throw new Error(`unexpected: ${args.join(' ')}`);
+  };
+  const [a, b] = await Promise.all([getOverview({ exec, now: NOW }), getOverview({ exec, now: NOW })]);
+  assert.equal(psCalls, 1);
+  assert.deepEqual(a, b);
+});
+
+test('getOverview: only stack services are inspected (the wizard container is excluded)', async () => {
+  _resetCache();
+  const wizardLine = JSON.stringify({ ID: 'ffffffffffff', Name: 'padsign-wizard-1', Service: 'wizard', State: 'running', Health: '', Status: 'Up', Image: 'x:1' });
+  let inspected = null;
+  const exec = async (file, args) => {
+    if (args[0] === 'compose' && args[1] === 'config') return { stdout: 'nginx\nwizard\n' };
+    if (args[0] === 'compose' && args[1] === 'ps') return { stdout: `${readFixture('compose-ps.json')}${wizardLine}\n` };
+    if (args[0] === 'inspect') { inspected = args.slice(1); return { stdout: readFixture('inspect.json') }; }
+    if (args[0] === 'stats') return { stdout: readFixture('stats.ndjson') };
+    throw new Error(`unexpected: ${args.join(' ')}`);
+  };
+  const result = await getOverview({ exec, now: NOW });
+  assert.deepEqual(inspected, ['e8d78bba48dd'], 'only nginx (the sole stack service) is inspected');
+  assert.deepEqual(result.services.map((r) => r.service), ['nginx']);
+});
+
+test('getOverview: when a service has several containers the running one wins', async () => {
+  _resetCache();
+  const old = JSON.stringify({ ID: 'aaaaaaaaaaaa', Name: 'padsign-nginx-old', Service: 'nginx', State: 'exited', Health: '', Status: 'Exited', Image: 'nginx:1.0' });
+  let inspected = null;
+  const exec = async (file, args) => {
+    if (args[0] === 'compose' && args[1] === 'config') return { stdout: 'nginx\n' };
+    if (args[0] === 'compose' && args[1] === 'ps') return { stdout: `${old}\n${readFixture('compose-ps.json')}` };
+    if (args[0] === 'inspect') { inspected = args.slice(1); return { stdout: readFixture('inspect.json') }; }
+    if (args[0] === 'stats') return { stdout: readFixture('stats.ndjson') };
+    throw new Error(`unexpected: ${args.join(' ')}`);
+  };
+  await getOverview({ exec, now: NOW });
+  assert.deepEqual(inspected, ['e8d78bba48dd']);
 });
 
 test('getOverview: no containers at all -> inspect/stats are skipped, everything is "missing"', async () => {
