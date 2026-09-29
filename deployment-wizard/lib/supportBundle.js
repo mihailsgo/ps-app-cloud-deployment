@@ -12,8 +12,9 @@ const BUNDLE_DIR = projectPath('support-bundles');
 const SUPPORT_BUNDLE_SCRIPT = projectPath('installation-scripts', 'support-bundle.sh');
 
 // Matches exactly what support-bundle.sh names its output:
-// padsign-support-<host>-<YYYYMMDDTHHMMSSZ>.tar.gz. Deliberately strict — see
-// module-level note below on why.
+// padsign-support-<host>-<YYYYMMDDTHHMMSSZ>.tar.gz. Deliberately strict: the
+// download route hands a file from the host to a browser, so a name must
+// never be able to escape support-bundles/.
 const NAME_RE = /^padsign-support-[A-Za-z0-9.-]+-\d{8}T\d{6}Z\.tar\.gz$/;
 
 const SINCE_CHOICES = ['1h', '6h', '24h', '72h', '168h'];
@@ -22,7 +23,9 @@ const SINCE_CHOICES = ['1h', '6h', '24h', '72h', '168h'];
 // scriptRunner.js's run lock: support-bundle.sh is read-only diagnostics, not
 // a mutating deploy/upgrade run, so it must not fight over (or be blocked by)
 // scriptRunner's lock, but two bundles writing into BUNDLE_DIR concurrently
-// is still worth serializing.
+// is still worth serializing. Process-local by design: the wizard is a single
+// container running a single Node process, so there is nothing to share it
+// with (and a lock file would only go stale when the container restarts).
 let inProgress = false;
 
 function isBundleRunning() {
@@ -40,32 +43,37 @@ function parseBundleOutput(stdout) {
     const m = /^BUNDLE (.+)$/.exec(line);
     if (m) bundlePath = m[1].trim(); // keep the LAST match, in case of a retry line earlier
   }
-  return { path: bundlePath, checks: parseHelperCheckOutput(text).checks };
+  // The BUNDLE line is skipped so it is not folded into the last OK/WARN
+  // row's message as a continuation line.
+  const { checks } = parseHelperCheckOutput(text, { skip: (line) => /^BUNDLE /.test(line) });
+  return { path: bundlePath, checks };
 }
 
-// The download route hands whatever this resolves to straight to a browser,
-// so a script that reports a path outside its own --output-dir (or a name
-// shaped to smuggle a traversal) must never be trusted. Requires the
-// basename to match NAME_RE AND the real, existing file to live directly
-// inside the real path of `dir` — both checks, not just the regex, since a
-// symlink inside `dir` could otherwise point anywhere.
+// The single trust decision for "is this file a bundle we may hand out?",
+// used both for the path the script reports and for a name the browser sends
+// back. It judges the file AFTER symlinks are resolved - a name that merely
+// looks right proves nothing when `dir` could hold a link pointing anywhere.
+// The resolved file must be a regular file whose parent directory is exactly
+// the real `dir` (directly inside it, not merely somewhere below it) and
+// whose own resolved name matches NAME_RE. Because the returned name is the
+// resolved basename, anything createBundle() reports also round-trips through
+// resolveBundle(). Returns the resolved absolute path, or null.
+function resolveInDir(candidate, dir) {
+  try {
+    const realDir = fs.realpathSync(dir);
+    const resolved = fs.realpathSync(candidate);
+    if (path.dirname(resolved) !== realDir) return null;
+    if (!NAME_RE.test(path.basename(resolved))) return null;
+    if (!fs.statSync(resolved).isFile()) return null;
+    return resolved;
+  } catch (err) {
+    return null; // missing file/dir, permission error, ... - all "not a bundle"
+  }
+}
+
 function resolveReportedPath(reportedPath, dir) {
   if (!reportedPath) return null;
-  const basename = path.basename(reportedPath);
-  if (!NAME_RE.test(basename)) return null;
-
-  let resolvedDir;
-  let resolvedPath;
-  try {
-    resolvedDir = fs.realpathSync(dir);
-    resolvedPath = fs.realpathSync(reportedPath);
-  } catch (err) {
-    return null;
-  }
-
-  const rel = path.relative(resolvedDir, resolvedPath);
-  if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return null;
-  return resolvedPath;
+  return resolveInDir(reportedPath, dir);
 }
 
 // Runs support-bundle.sh and returns the resulting bundle's name/size, plus
@@ -132,20 +140,12 @@ async function createBundle({ host, since = '24h', exec, dir = BUNDLE_DIR } = {}
 // null — never throws, so a route can treat null as a plain 404.
 function resolveBundle(name, { dir = BUNDLE_DIR } = {}) {
   if (typeof name !== 'string' || !NAME_RE.test(name)) return null;
+  // Belt and braces: NAME_RE's character class already forbids '/' and '\',
+  // and '..' can only survive inside the host part. Kept so this stays safe
+  // even if NAME_RE is loosened later.
   if (name.includes('/') || name.includes('\\') || name.includes('..')) return null;
 
-  const candidate = path.join(dir, name);
-  if (!fs.existsSync(candidate)) return null;
-
-  try {
-    const resolvedDir = fs.realpathSync(dir);
-    const resolvedCandidate = fs.realpathSync(candidate);
-    const rel = path.relative(resolvedDir, resolvedCandidate);
-    if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return null;
-    return resolvedCandidate;
-  } catch (err) {
-    return null;
-  }
+  return resolveInDir(path.join(dir, name), dir);
 }
 
 // Lists previously generated bundles, newest first. Never throws — a
@@ -162,7 +162,10 @@ function listBundles({ dir = BUNDLE_DIR, limit = 10 } = {}) {
     .filter((name) => NAME_RE.test(name))
     .map((name) => {
       try {
-        const stat = fs.statSync(path.join(dir, name));
+        // lstat, not stat: a symlink (or a directory) that merely has a
+        // bundle's name is neither listed nor downloadable.
+        const stat = fs.lstatSync(path.join(dir, name));
+        if (!stat.isFile()) return null;
         return { name, sizeBytes: stat.size, createdAt: stat.mtime.toISOString(), mtimeMs: stat.mtimeMs };
       } catch (err) {
         return null; // vanished between readdir and stat — skip it

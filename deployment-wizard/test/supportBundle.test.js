@@ -5,6 +5,7 @@ const path = require('path');
 const os = require('os');
 
 const test = require('node:test');
+const { after } = test;
 const assert = require('node:assert/strict');
 
 const {
@@ -18,9 +19,32 @@ const {
   isBundleRunning
 } = require('../lib/supportBundle');
 
+const tmpDirs = [];
+
 function tmpDir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'padsign-support-bundle-test-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'padsign-support-bundle-test-'));
+  tmpDirs.push(dir);
+  return dir;
 }
+
+after(() => {
+  for (const dir of tmpDirs) fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// Creating a symlink needs a privilege on Windows; where it is unavailable
+// the symlink-escape tests are skipped rather than failed.
+const SYMLINKS_UNAVAILABLE = (() => {
+  const dir = tmpDir();
+  try {
+    fs.writeFileSync(path.join(dir, 't'), 'x');
+    fs.symlinkSync(path.join(dir, 't'), path.join(dir, 'l'), 'file');
+    return false;
+  } catch (err) {
+    return 'symlinks are not available on this platform/user';
+  }
+})();
+
+const GOOD_NAME = 'padsign-support-padsign.example.com-20260929T100000Z.tar.gz';
 
 // ---- parseBundleOutput ----
 
@@ -35,6 +59,13 @@ test('parseBundleOutput(): extracts checks and the BUNDLE path from a normal run
   assert.equal(result.checks.length, 2);
   assert.equal(result.checks[0].status, 'ok');
   assert.equal(result.checks[1].status, 'warn');
+});
+
+test('parseBundleOutput(): the BUNDLE line is not folded into the last check\'s message', () => {
+  const result = parseBundleOutput(`  WARN config: redacted\nBUNDLE /x/${GOOD_NAME}\n`);
+  assert.equal(result.checks.length, 1);
+  assert.equal(result.checks[0].message, 'config: redacted');
+  assert.equal(result.path, `/x/${GOOD_NAME}`);
 });
 
 test('parseBundleOutput(): handles CRLF line endings', () => {
@@ -83,6 +114,27 @@ test('resolveBundle(): accepts an existing file matching NAME_RE inside dir', ()
   assert.equal(fs.realpathSync(resolved), fs.realpathSync(path.join(dir, name)));
 });
 
+test('resolveBundle(): a directory named like a bundle is not a bundle', () => {
+  const dir = tmpDir();
+  fs.mkdirSync(path.join(dir, GOOD_NAME));
+  assert.equal(resolveBundle(GOOD_NAME, { dir }), null);
+});
+
+test('resolveBundle(): a symlink escaping dir is refused', { skip: SYMLINKS_UNAVAILABLE }, () => {
+  const dir = tmpDir();
+  const outside = tmpDir();
+  fs.writeFileSync(path.join(outside, 'secret.txt'), 'top secret');
+  fs.symlinkSync(path.join(outside, 'secret.txt'), path.join(dir, GOOD_NAME), 'file');
+  assert.equal(resolveBundle(GOOD_NAME, { dir }), null);
+});
+
+test('resolveBundle(): a symlink to a badly named file inside dir is refused', { skip: SYMLINKS_UNAVAILABLE }, () => {
+  const dir = tmpDir();
+  fs.writeFileSync(path.join(dir, 'notes.txt'), 'x');
+  fs.symlinkSync(path.join(dir, 'notes.txt'), path.join(dir, GOOD_NAME), 'file');
+  assert.equal(resolveBundle(GOOD_NAME, { dir }), null, 'the RESOLVED name must match NAME_RE too');
+});
+
 test('NAME_RE: sanity-checks a well-formed bundle name', () => {
   assert.match('padsign-support-padsign.example.com-20260929T100000Z.tar.gz', NAME_RE);
   assert.doesNotMatch('padsign-support-h-2026092T100000Z.tar.gz', NAME_RE); // short date
@@ -115,6 +167,20 @@ test('listBundles(): orders newest first and ignores non-matching files', () => 
   assert.equal(list[0].sizeBytes, 2);
   assert.equal(typeof list[0].createdAt, 'string');
   assert.ok(!isNaN(Date.parse(list[0].createdAt)));
+});
+
+test('listBundles(): ignores a directory named like a bundle', () => {
+  const dir = tmpDir();
+  fs.mkdirSync(path.join(dir, GOOD_NAME));
+  assert.deepEqual(listBundles({ dir }), []);
+});
+
+test('listBundles(): ignores a symlink named like a bundle', { skip: SYMLINKS_UNAVAILABLE }, () => {
+  const dir = tmpDir();
+  const outside = tmpDir();
+  fs.writeFileSync(path.join(outside, 'secret.txt'), 'top secret');
+  fs.symlinkSync(path.join(outside, 'secret.txt'), path.join(dir, GOOD_NAME), 'file');
+  assert.deepEqual(listBundles({ dir }), []);
 });
 
 test('listBundles(): respects limit', () => {
@@ -168,6 +234,35 @@ test('createBundle(): resolves { name, sizeBytes, checks } when the script repor
   assert.ok(result.sizeBytes > 0);
   assert.equal(result.checks.length, 1);
   assert.equal(isBundleRunning(), false);
+  assert.ok(resolveBundle(result.name, { dir }), 'a reported name must round-trip through resolveBundle');
+});
+
+test('createBundle(): rejects a reported path that is a symlink escaping dir', { skip: SYMLINKS_UNAVAILABLE }, async () => {
+  const dir = tmpDir();
+  const outside = tmpDir();
+  const target = path.join(outside, 'secret.txt');
+  const link = path.join(dir, GOOD_NAME);
+  fs.writeFileSync(target, 'top secret');
+  fs.symlinkSync(target, link, 'file');
+  const exec = async () => ({ stdout: `BUNDLE ${link}\n`, stderr: '' });
+  await assert.rejects(() => createBundle({ exec, dir }), /did not report a bundle/);
+  assert.equal(isBundleRunning(), false);
+});
+
+test('createBundle(): rejects a reported path that is a directory', async () => {
+  const dir = tmpDir();
+  fs.mkdirSync(path.join(dir, GOOD_NAME));
+  const exec = async () => ({ stdout: `BUNDLE ${path.join(dir, GOOD_NAME)}\n`, stderr: '' });
+  await assert.rejects(() => createBundle({ exec, dir }), /did not report a bundle/);
+});
+
+test('createBundle(): rejects a file in a subdirectory of dir (must be directly inside)', async () => {
+  const dir = tmpDir();
+  fs.mkdirSync(path.join(dir, 'sub'));
+  const nested = path.join(dir, 'sub', GOOD_NAME);
+  fs.writeFileSync(nested, 'x');
+  const exec = async () => ({ stdout: `BUNDLE ${nested}\n`, stderr: '' });
+  await assert.rejects(() => createBundle({ exec, dir }), /did not report a bundle/);
 });
 
 test('createBundle(): rejects when the reported bundle path resolves outside `dir`', async () => {
