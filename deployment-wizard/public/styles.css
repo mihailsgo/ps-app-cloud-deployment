@@ -1364,9 +1364,12 @@ body.is-welcome { background: var(--tlx-navy); }
   .mon-search { flex: 1 1 100%; }
   .mon-pager { justify-content: space-between; }
 
-  /* Services: one card per row. Table semantics stay in the DOM (and the
-     header row stays readable to screen readers); data-label, set by
-     monitoring.js on each cell, is printed in front of its value. */
+  /* Services: one card per row. display: block/grid makes some browsers
+     stop exposing a table, so the roles (table, rowgroup, row, columnheader,
+     rowheader, cell) are set explicitly in monitoring-overview.ejs and
+     monitoring.js; the header row is clipped, not display: none, so it stays
+     readable to screen readers. data-label, set by monitoring.js on each
+     cell, is printed in front of its value. */
   .mon-svc-table,
   .mon-svc-table tbody { display: block; }
   .mon-svc-table thead {

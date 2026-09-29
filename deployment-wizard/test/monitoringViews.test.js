@@ -95,7 +95,7 @@ test('monitoring view overview: the four cards start in a busy "Checking…" sta
   const html = await render(PAGES.overview.view, PAGES.overview.locals);
   for (const id of ['alertsBody', 'certBody', 'diskBody', 'bufferBody']) {
     assert.match(html, new RegExp(
-      `<div id="${id}" role="status" aria-live="polite" aria-busy="true">\\s*` +
+      `<div id="${id}" aria-busy="true">\\s*` +
       '<p class="mon-loading">Checking… this can take up to a minute\\.</p>\\s*' +
       '<div class="mon-progress" aria-hidden="true"></div>\\s*</div>'
     ), `#${id}`);
@@ -105,10 +105,10 @@ test('monitoring view overview: the four cards start in a busy "Checking…" sta
 
 test('monitoring view overview: the services table can be updated in place (keyed rows, hideable Version column)', async () => {
   const html = await render(PAGES.overview.view, PAGES.overview.locals);
-  assert.match(html, /<table class="data-table mon-svc-table" id="svcTable">/);
-  assert.match(html, /<th scope="col" class="col-version">Version<\/th>/);
+  assert.match(html, /<table class="data-table mon-svc-table" id="svcTable" role="table">/);
+  assert.match(html, /<th scope="col" class="col-version" role="columnheader">Version<\/th>/);
   // The placeholder is the one row without a data-service key.
-  assert.match(html, /<tr class="mon-empty-row"><td colspan="9" class="cell-empty">Loading…<\/td><\/tr>/);
+  assert.match(html, /<tr class="mon-empty-row" role="row"><td colspan="9" class="cell-empty" role="cell">Loading…<\/td><\/tr>/);
   const source = fs.readFileSync(path.join(__dirname, '..', 'public', 'monitoring.js'), 'utf8');
   assert.match(source, /setAttribute\('data-service', row\.service\)/);
   for (const label of ['State', 'Health', 'Uptime', 'Restarts', 'Version', 'CPU', 'Memory']) {
@@ -131,7 +131,9 @@ test('monitoring view activity: tiles, table and pager have ids so the page can 
 
 test('monitoring view logs: the log viewer is focusable and named, the follow button reports its state', async () => {
   const html = await render(PAGES.logs.view, PAGES.logs.locals);
-  assert.match(html, /<pre id="logView" class="log log-viewer" tabindex="0" aria-label="Log output">/);
+  // A region, not role="log": a log role is a live region and would announce every line.
+  assert.match(html, /<pre id="logView" class="log log-viewer" tabindex="0" role="region" aria-label="Log output">/);
+  assert.match(html, /id="logReconnect"[^>]*hidden>Reconnect<\/button>/);
   assert.match(html, /id="logFollow" aria-pressed="true"/);
   assert.match(html, /<option value="ps-server" selected>/);
   assert.match(html, /href="\/api\/monitoring\/logs\/download\?service=ps-server&amp;tail=200"/);
@@ -166,6 +168,84 @@ test('monitoring view diagnostics: HTML in a check label is escaped', async () =
     checks: [{ id: 'x', label: '<img src=x onerror=alert(1)>', description: 'd' }]
   });
   assert.doesNotMatch(html, /<img src=x/);
+});
+
+test('monitoring views: no chatty live regions (cards, check results, stat values); status elements carry the summaries', async () => {
+  const overview = await render(PAGES.overview.view, PAGES.overview.locals);
+  for (const id of ['alertsBody', 'certBody', 'diskBody', 'bufferBody']) {
+    assert.doesNotMatch(overview, new RegExp(`id="${id}"[^>]*(role="status"|aria-live)`), id);
+  }
+  assert.match(overview, /id="statusUpdated" class="hint" role="status"/);
+  const diag = await render(PAGES.diagnostics.view, PAGES.diagnostics.locals);
+  assert.doesNotMatch(diag, /id="chk-result-config"[^>]*aria-live/);
+  assert.doesNotMatch(diag, /id="chk-meta-config"[^>]*role=/);
+  assert.match(diag, /id="runAllStatus" role="status"/);
+  const activity = await render(PAGES.activity.view, PAGES.activity.locals);
+  assert.doesNotMatch(activity, /stat-tile__value[^>]*aria-labelledby/);
+});
+
+test('monitoring view overview: the services table sets its table roles explicitly (CSS stacks the cards on phones)', async () => {
+  const html = await render(PAGES.overview.view, PAGES.overview.locals);
+  assert.match(html, /<thead role="rowgroup">\s*<tr role="row">/);
+  assert.match(html, /<tbody role="rowgroup">/);
+  assert.equal((html.match(/role="columnheader"/g) || []).length, 9);
+  const source = fs.readFileSync(path.join(__dirname, '..', 'public', 'monitoring.js'), 'utf8');
+  assert.match(source, /setAttribute\('role', 'row'\)/);
+  assert.match(source, /<th scope="row" role="rowheader">/);
+  assert.match(source, /<td role="cell" data-label="State">/);
+  assert.match(source, /<td class="cell-actions" role="cell">/);
+});
+
+test('monitoring view diagnostics: a bundle with an odd size or date still renders ("0 B", no throw)', async () => {
+  const html = await render(PAGES.diagnostics.view, {
+    ...PAGES.diagnostics.locals,
+    bundles: [
+      { name: 'zero.tar.gz', sizeBytes: 0, createdAt: 'not a date' },
+      { name: 'small.tar.gz', sizeBytes: 300, createdAt: null },
+      { name: 'big.tar.gz', sizeBytes: 3 * 1048576, createdAt: '2026-09-29T10:00:00.000Z' },
+      { name: 'unknown.tar.gz', sizeBytes: undefined, createdAt: undefined }
+    ]
+  });
+  assert.match(html, /zero\.tar\.gz<\/a>\s*<span class="hint">0 B · <\/span>/);
+  assert.match(html, /300 B/);
+  assert.doesNotMatch(html, /\b1 KiB/);
+  assert.match(html, /3\.0 MiB · 2026-09-29 10:00 UTC/);
+  assert.doesNotMatch(html, /Invalid|NaN|undefined/);
+});
+
+test('monitoring.js: review fixes stay wired (log stream, downloads, paging, Run all)', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'public', 'monitoring.js'), 'utf8');
+  // Logs: generic closed-stream message, Reconnect button + one automatic retry, bfcache restore.
+  assert.match(source, /Could not open the log stream - reload the page \(the service may have been removed, or too many Logs tabs are open\)\./);
+  assert.match(source, /Reconnecting in 3 seconds/);
+  assert.match(source, /setTimeout\(function \(\) \{ connect\(true\); \}, 3000\)/);
+  assert.match(source, /addEventListener\('pageshow', function \(ev\) \{\s*if \(ev\.persisted/);
+  // Follow off keeps the lines: it must not call connect() (which clears the view).
+  const followHandler = /followBtn\.addEventListener\('click', function \(\) \{[\s\S]*?\n  \}\);/.exec(source)[0];
+  assert.match(followHandler, /Stopped following\. /);
+  assert.match(followHandler, /if \(follow\) \{ connect\(\); return; \}/);
+  assert.equal((followHandler.match(/\bconnect\(/g) || []).length, 1, 'only turning Follow ON reconnects');
+  // Long lines are cut before they reach the DOM.
+  assert.match(source, /var line = truncateLogLine\(rawLine\)/);
+  // Downloads never save an error body as a file.
+  assert.match(source, /guardDownload\(downloadLink, 'follow'/);
+  assert.match(source, /guardDownload\(csvLink, 'blob'/);
+  assert.match(source, /bundleList\.addEventListener\('click'/);
+  // Signing activity paging uses the applied filters, and stale responses are dropped.
+  assert.match(source, /activityPageRequest\(applied, page, pages, -1\)/);
+  assert.match(source, /activityPageRequest\(applied, page, pages, \+1\)/);
+  assert.match(source, /if \(seq !== reqSeq\) return;/);
+  // Run all stops at an expired session.
+  assert.match(source, /if \(monIsExpired\(\)\) return null;/);
+  // Own-property badge lookup.
+  assert.match(source, /Object\.prototype\.hasOwnProperty\.call\(BADGE_FOR, status\)/);
+  assert.doesNotMatch(source, /data\.selected/);
+});
+
+test('monitoring view restart-progress: the run id is escaped like every other init payload', async () => {
+  const html = await render('monitoring-restart-progress.ejs', { service: 'nginx', runId: '</script><b>' });
+  assert.doesNotMatch(html, /<\/script><b>/);
+  assert.match(html, /runId: "\\u003c\/script>/);
 });
 
 test('monitoring view restart-progress: names the service and starts the run progress script', async () => {

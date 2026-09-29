@@ -20,12 +20,47 @@ function pillHtml(pill) {
 
 var BADGE_FOR = { ok: 'badge-ok', warn: 'badge-warn', fail: 'badge-fail' };
 
+// Own keys only: a status is data from a script, and "constructor" must not
+// resolve to Object's function.
+function badgeClass(status) {
+  return Object.prototype.hasOwnProperty.call(BADGE_FOR, status) ? BADGE_FOR[status] : 'badge-pending';
+}
+
+// Rewrites an element's text only when it differs, so that a status element
+// polled every few seconds does not re-announce the same sentence.
+function setTextIfChanged(el, text) {
+  if (el.textContent !== text) el.textContent = text;
+}
+
 // One <li> of a .checklist: OK/WARN/FAIL badge plus a message. Line breaks in
 // the message are kept (script output can be multi-line).
 function checkRowHtml(status, message, extraHtml, label) {
   var badge = label || String(status || 'warn').toUpperCase();
-  return '<li><span class="badge ' + (BADGE_FOR[status] || 'badge-pending') + '">' + escapeHtml(badge) + '</span>' +
+  return '<li><span class="badge ' + badgeClass(status) + '">' + escapeHtml(badge) + '</span>' +
     '<span>' + escapeHtml(message).replace(/\n/g, '<br>') + (extraHtml || '') + '</span></li>';
+}
+
+// Download links. A plain link would save the JSON error body as a file when
+// the session has expired, so the click is taken over:
+//   'blob'   - small files (CSV, support bundles): fetched, then saved from memory;
+//   'follow' - the log (can be large): a cheap authenticated request first, then
+//              the browser follows the link.
+// Errors go to showError(message); an expired session shows the banner.
+function runDownload(e, link, mode, showError) {
+  e.preventDefault();
+  var href = link.getAttribute('href');
+  if (!href || href === '#') return;
+  var job = mode === 'blob'
+    ? monDownload(href, link.getAttribute('download') || 'download')
+    : monPreflightThenFollow(href);
+  job.catch(function (err) {
+    if (err && err.expired) return;
+    showError(err && err.message ? err.message : 'The download failed.');
+  });
+}
+
+function guardDownload(link, mode, showError) {
+  link.addEventListener('click', function (e) { runDownload(e, link, mode, showError); });
 }
 
 // ===========================================================================
@@ -97,15 +132,15 @@ function initMonitoringOverview(data) {
   // written once; updateRow() only toggles the button's disabled state.
   function serviceRowSkeletonHtml(service) {
     var svc = escapeHtml(service);
-    return '<th scope="row"></th>' +
-      '<td data-label="State"></td>' +
-      '<td data-label="Health"></td>' +
-      '<td class="num" data-label="Uptime"></td>' +
-      '<td class="num" data-label="Restarts"></td>' +
-      '<td class="cell-mono col-version" data-label="Version"></td>' +
-      '<td class="num" data-label="CPU"></td>' +
-      '<td class="num" data-label="Memory"></td>' +
-      '<td class="cell-actions">' +
+    return '<th scope="row" role="rowheader"></th>' +
+      '<td role="cell" data-label="State"></td>' +
+      '<td role="cell" data-label="Health"></td>' +
+      '<td class="num" role="cell" data-label="Uptime"></td>' +
+      '<td class="num" role="cell" data-label="Restarts"></td>' +
+      '<td class="cell-mono col-version" role="cell" data-label="Version"></td>' +
+      '<td class="num" role="cell" data-label="CPU"></td>' +
+      '<td class="num" role="cell" data-label="Memory"></td>' +
+      '<td class="cell-actions" role="cell">' +
         '<a class="btn btn-secondary btn-sm" href="/monitoring/logs?service=' + encodeURIComponent(service) +
           '" aria-label="Show logs of ' + svc + '">Logs</a>' +
         '<button type="button" class="btn btn-secondary btn-sm" data-restart="' + svc + '"' +
@@ -128,13 +163,16 @@ function initMonitoringOverview(data) {
   function createRow(row) {
     var tr = document.createElement('tr');
     tr.setAttribute('data-service', row.service);
+    // Explicit roles: the phone layout turns the table into blocks, and some
+    // browsers/screen readers then stop treating it as a table.
+    tr.setAttribute('role', 'row');
     tr.innerHTML = serviceRowSkeletonHtml(row.service);
     updateRow(tr, row);
     return tr;
   }
 
   function emptyRowHtml(text) {
-    return '<tr class="mon-empty-row"><td colspan="9" class="cell-empty">' + escapeHtml(text) + '</td></tr>';
+    return '<tr class="mon-empty-row" role="row"><td colspan="9" class="cell-empty" role="cell">' + escapeHtml(text) + '</td></tr>';
   }
 
   function serviceRows() {
@@ -172,11 +210,11 @@ function initMonitoringOverview(data) {
     else syncServices(payload.services);
 
     if (payload.dockerAvailable) {
-      timeEl.textContent = 'Updated ' + fmtTime(payload.generatedAt) + ' UTC.';
-      updated.textContent = '';
+      setTextIfChanged(timeEl, 'Updated ' + fmtTime(payload.generatedAt) + ' UTC.');
+      setTextIfChanged(updated, '');
     } else {
-      timeEl.textContent = '';
-      updated.textContent = 'Docker is not reachable. Trying again in 10 seconds.';
+      setTextIfChanged(timeEl, '');
+      setTextIfChanged(updated, 'Docker is not reachable. Trying again in 10 seconds.');
     }
   }
 
@@ -190,7 +228,7 @@ function initMonitoringOverview(data) {
       else { pendingPayload = null; renderServices(payload); }
     }).catch(function (err) {
       if (err && err.expired) return;
-      updated.textContent = 'Could not refresh the service list: ' + err.message + ' Trying again in 10 seconds.';
+      setTextIfChanged(updated, 'Could not refresh the service list: ' + err.message + ' Trying again in 10 seconds.');
     }).then(function () {
       loading = false;
       refreshBtn.disabled = false;
@@ -354,7 +392,10 @@ function initMonitoringOverview(data) {
     }
     var report = result.report;
     setCards(alertsHtml(report), certHtml(report), diskHtml(report), bufferHtml(report));
-    statusNote.textContent = 'Checked ' + fmtTime(report.generated) + ' UTC.';
+    // The one sentence a screen reader hears when the four cards fill in.
+    var alertCount = (report.alerts || []).length;
+    statusNote.textContent = 'Checked ' + fmtTime(report.generated) + ' UTC. ' +
+      (alertCount ? alertCount + (alertCount === 1 ? ' alert.' : ' alerts.') : 'No alerts.');
   }
 
   function loadStatus() {
@@ -378,7 +419,7 @@ function initMonitoringOverview(data) {
 // Logs
 // ===========================================================================
 
-function initMonitoringLogs(data) {
+function initMonitoringLogs() {
   var view = byId('logView');
   var statusEl = byId('logStatus');
   var countsEl = byId('logCounts'); // per-batch counts, hidden from screen readers
@@ -389,6 +430,7 @@ function initMonitoringLogs(data) {
   var filterInput = byId('logFilter');
   var errorsOnly = byId('logErrorsOnly');
   var downloadLink = byId('logDownload');
+  var reconnectBtn = byId('logReconnect');
 
   var es = null;
   var follow = true;
@@ -397,8 +439,8 @@ function initMonitoringLogs(data) {
   var missed = 0;          // lines that arrived while the user had scrolled up
   var reconnecting = false; // the connection dropped and EventSource is retrying
   var filterTimer = null;
-
-  if (data && data.selected && !serviceSel.value) serviceSel.value = data.selected;
+  var reconnectTimer = null;       // the one automatic reconnect after the service restarted
+  var autoReconnectUsed = false;   // reset by anything the operator does, not by an automatic reconnect
 
   function current() {
     return { service: serviceSel.value, tail: Number(tailSel.value), since: sinceSel.value, follow: follow };
@@ -476,7 +518,10 @@ function initMonitoringLogs(data) {
     var stick = nearBottom(view.scrollHeight, view.scrollTop, view.clientHeight);
     var frag = document.createDocumentFragment();
     var visibleNew = 0;
-    lines.forEach(function (line) {
+    lines.forEach(function (rawLine) {
+      // _raw is the truncated text: filtering, copying and highlighting all
+      // work on what is shown, never on a 10 MB single line.
+      var line = truncateLogLine(rawLine);
       var span = document.createElement('span');
       span._raw = line;
       span._cls = classifyLogLine(line);
@@ -510,8 +555,17 @@ function initMonitoringLogs(data) {
     missed = 0;
   }
 
-  function connect() {
+  function hideReconnect() {
+    clearTimeout(reconnectTimer);
+    reconnectBtn.hidden = true;
+  }
+
+  // auto: the one reconnect the page makes by itself after the service
+  // restarted. Anything else is the operator asking, which re-arms it.
+  function connect(auto) {
     closeStream();
+    hideReconnect();
+    if (auto !== true) autoReconnectUsed = false;
     clearView();
     reconnecting = false;
     updateDownload();
@@ -544,8 +598,21 @@ function initMonitoringLogs(data) {
       try { code = JSON.parse(ev.data).code; } catch (err) { code = null; }
       closeStream();
       var count = view.childElementCount;
-      if (follow) setStatus('Stream ended' + (code !== null && code !== undefined ? ' (exit ' + code + ')' : '') + '.');
-      else setStatus('Showing the last ' + count + (count === 1 ? ' line.' : ' lines.'));
+      if (!follow) {
+        setStatus('Showing the last ' + count + (count === 1 ? ' line.' : ' lines.'));
+        return;
+      }
+      // A followed stream only ends when the container stops (a restart, a
+      // redeploy). Offer the way back, and try once by itself.
+      var exit = code !== null && code !== undefined ? ' (exit ' + code + ')' : '';
+      reconnectBtn.hidden = false;
+      if (autoReconnectUsed) {
+        setStatus('Stream ended' + exit + '.');
+      } else {
+        autoReconnectUsed = true;
+        setStatus('Stream ended' + exit + '. Reconnecting in 3 seconds…');
+        reconnectTimer = setTimeout(function () { connect(true); }, 3000);
+      }
     });
 
     // "error" is both the browser's connection-error event (no data) and a
@@ -574,7 +641,7 @@ function initMonitoringLogs(data) {
       if (es !== source) return;
       if (source.readyState === EventSource.CLOSED) {
         closeStream();
-        setStatus('Could not open the log stream (too many open Logs tabs?).');
+        setStatus('Could not open the log stream - reload the page (the service may have been removed, or too many Logs tabs are open).');
       } else if (source.readyState === EventSource.CONNECTING) {
         setStatus('Disconnected — retrying…'); // already OPEN again: leave the status alone
       }
@@ -587,6 +654,7 @@ function initMonitoringLogs(data) {
 
   monOnExpire(function () {
     closeStream();
+    hideReconnect();
     setStatus('Session expired - sign in again.');
   });
 
@@ -603,11 +671,20 @@ function initMonitoringLogs(data) {
   tailSel.addEventListener('change', connect);
   sinceSel.addEventListener('change', connect);
 
+  // Turning Follow off only stops the live stream: the lines already on
+  // screen stay. Turning it on again reloads (the server replays the tail).
   followBtn.addEventListener('click', function () {
     follow = !follow;
     updateFollowButton();
-    connect();
+    if (follow) { connect(); return; }
+    closeStream();
+    hideReconnect();
+    reconnecting = false;
+    var count = view.childElementCount;
+    setStatus('Stopped following. ' + count + (count === 1 ? ' line shown.' : ' lines shown.'));
   });
+
+  reconnectBtn.addEventListener('click', function () { connect(); });
 
   filterInput.addEventListener('input', function () {
     clearTimeout(filterTimer);
@@ -630,7 +707,17 @@ function initMonitoringLogs(data) {
     });
   });
 
-  window.addEventListener('pagehide', closeStream);
+  window.addEventListener('pagehide', function () {
+    closeStream();
+    clearTimeout(reconnectTimer);
+  });
+  // Back/forward can restore this page from the bfcache with its stream
+  // closed (pagehide) and a stale view; open a fresh one.
+  window.addEventListener('pageshow', function (ev) {
+    if (ev.persisted && follow) connect();
+  });
+
+  guardDownload(downloadLink, 'follow', function (message) { flash(message); });
 
   updateFollowButton();
   connect();
@@ -650,11 +737,17 @@ function initMonitoringActivity() {
   var nextBtn = byId('actNext');
   var csvLink = byId('actCsv');
   var companySel = byId('actCompany');
+  var applyBtn = byId('actApply');
 
   var page = 1;
   var pages = 1;
-  var applied = null; // the filters behind the table (and the CSV link)
+  // The filters behind the table, the CSV link and the address bar. Only
+  // Apply (and the first load) sets them; whatever is typed into the form in
+  // between is a draft and never reaches Previous/Next.
+  var applied = null;
   var docs = [];
+  var busy = false;
+  var reqSeq = 0; // a response that is not the latest request's is dropped
 
   function readFilters() {
     return {
@@ -727,7 +820,8 @@ function initMonitoringActivity() {
     byId('actPager').hidden = !show.table;
 
     if (show.tiles) setTiles(result.summary);
-    setCompanies(result.companies || [], applied.company);
+    // Keep the operator's current choice (a draft may differ from the applied one).
+    setCompanies(result.companies || [], companySel.value);
 
     if (!docs.length) {
       tbody.innerHTML = '<tr><td colspan="8" class="cell-empty">' +
@@ -739,8 +833,7 @@ function initMonitoringActivity() {
     page = result.page;
     pages = totalPages(result.total, result.pageSize);
     byId('actPage').textContent = 'Page ' + page + ' of ' + pages;
-    prevBtn.disabled = page <= 1;
-    nextBtn.disabled = page >= pages;
+    updatePager();
 
     var range = result.range ? ' from ' + result.range.from + ' to ' + result.range.to : '';
     summaryEl.textContent = ok
@@ -749,11 +842,26 @@ function initMonitoringActivity() {
       : '';
   }
 
-  function load(targetPage) {
-    var filters = readFilters();
+  function updatePager() {
+    prevBtn.disabled = busy || page <= 1;
+    nextBtn.disabled = busy || page >= pages;
+  }
+
+  function setBusy(value) {
+    busy = value;
+    applyBtn.disabled = value;
+    updatePager();
+  }
+
+  // request = { filters, page } from activityApplyRequest/activityPageRequest.
+  function load(request) {
+    var seq = (reqSeq += 1);
+    var filters = request.filters;
+    setBusy(true);
     errBox.textContent = '';
     summaryEl.textContent = 'Loading…';
-    return monFetch('/api/monitoring/activity?' + activityQuery(filters, targetPage)).then(function (result) {
+    return monFetch('/api/monitoring/activity?' + activityQuery(filters, request.page)).then(function (result) {
+      if (seq !== reqSeq) return;
       applied = filters;
       csvLink.setAttribute('href', csvHref(filters));
       render(result);
@@ -763,9 +871,12 @@ function initMonitoringActivity() {
         history.replaceState(null, '', activityPageUrl(filters, result.page));
       } catch (err) { /* the address bar is a convenience */ }
     }).catch(function (err) {
+      if (seq !== reqSeq) return;
       if (err && err.expired) return;
       errBox.textContent = err.message;
       summaryEl.textContent = '';
+    }).then(function () {
+      if (seq === reqSeq) setBusy(false);
     });
   }
 
@@ -780,12 +891,20 @@ function initMonitoringActivity() {
   applied = readFilters();
   csvLink.setAttribute('href', csvHref(applied));
 
+  guardDownload(csvLink, 'blob', function (message) { errBox.textContent = message; });
+
   form.addEventListener('submit', function (e) {
     e.preventDefault();
-    load(1);
+    load(activityApplyRequest(readFilters()));
   });
-  prevBtn.addEventListener('click', function () { if (page > 1) load(page - 1); });
-  nextBtn.addEventListener('click', function () { if (page < pages) load(page + 1); });
+  prevBtn.addEventListener('click', function () {
+    var request = activityPageRequest(applied, page, pages, -1);
+    if (request) load(request);
+  });
+  nextBtn.addEventListener('click', function () {
+    var request = activityPageRequest(applied, page, pages, +1);
+    if (request) load(request);
+  });
 
   tbody.addEventListener('click', function (e) {
     var btn = e.target.closest ? e.target.closest('[data-toggle]') : null;
@@ -796,7 +915,7 @@ function initMonitoringActivity() {
     row.hidden = open;
   });
 
-  load(initial.page);
+  load({ filters: applied, page: initial.page });
 }
 
 // ===========================================================================
@@ -836,11 +955,25 @@ function initMonitoringDiagnostics(data) {
     });
   }
 
+  function labelOf(id) {
+    for (var i = 0; i < checks.length; i += 1) if (checks[i].id === id) return checks[i].label;
+    return id;
+  }
+
+  // The result lists and their timing are not live regions (four rows per
+  // check would be read out in full); this one status sentence is what a
+  // screen reader hears.
   Array.prototype.forEach.call(runButtons(), function (btn) {
     btn.addEventListener('click', function () {
       if (running) return;
+      var id = btn.getAttribute('data-check-run');
       setBusy(true);
-      runOne(btn.getAttribute('data-check-run')).then(function () { setBusy(false); });
+      runAllStatus.textContent = 'Running ' + labelOf(id) + '…';
+      runOne(id).then(function (result) {
+        runAllStatus.textContent = monIsExpired() ? 'Your session has expired - sign in again.'
+          : labelOf(id) + ': ' + (result ? (result.passed ? 'passed.' : 'failed.') : 'could not be run.');
+        setBusy(false);
+      });
     });
   });
 
@@ -852,14 +985,19 @@ function initMonitoringDiagnostics(data) {
     var chain = Promise.resolve();
     checks.forEach(function (c, i) {
       chain = chain.then(function () {
+        // Once the session is gone every further check would fail the same way.
+        if (monIsExpired()) return null;
         runAllStatus.textContent = 'Running ' + c.label + ' (' + (i + 1) + ' of ' + checks.length + ')…';
         return runOne(c.id).then(function (result) {
+          if (monIsExpired()) return;
           if (result && result.passed) passed += 1; else failed += 1;
         });
       });
     });
     chain.then(function () {
-      runAllStatus.textContent = 'Finished: ' + passed + ' passed, ' + failed + ' failed or could not run.';
+      runAllStatus.textContent = monIsExpired()
+        ? 'Your session has expired - sign in again.'
+        : 'Finished: ' + passed + ' passed, ' + failed + ' failed or could not run.';
       setBusy(false);
     });
   });
@@ -873,6 +1011,14 @@ function initMonitoringDiagnostics(data) {
   var pollTimer = null;
 
   monOnExpire(function () { clearTimeout(pollTimer); });
+
+  // Bundles are downloaded through fetch so that an expired session shows the
+  // banner instead of saving an error message as a "bundle". One listener
+  // covers the links the page renders and the ones added after Generate.
+  bundleList.addEventListener('click', function (e) {
+    var link = e.target.closest ? e.target.closest('a[download]') : null;
+    if (link) runDownload(e, link, 'blob', function (message) { bundleStatus.textContent = message; });
+  });
 
   function bundleItemHtml(b) {
     var when = b.createdAt ? ' · ' + fmtTime(b.createdAt) + ' UTC' : '';
