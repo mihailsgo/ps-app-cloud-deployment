@@ -199,15 +199,22 @@ test('resolveAuditSource: not-configured when config.js has no AUDIT_LOG block',
   });
   assert.equal(result.status, 'not-configured');
   assert.equal(result.dir, null);
-  assert.match(result.message, /AUDIT_LOG/);
+  assert.equal(
+    result.message,
+    'config/config.js has no AUDIT_LOG block; run an upgrade (Dashboard > Upgrade) to add it, then restart ps-server.'
+  );
 });
 
-test('resolveAuditSource: not-configured when config.js itself is unreadable', async () => {
+test('resolveAuditSource: not-configured (with a distinct message) when config.js itself is unreadable', async () => {
   const result = await resolveAuditSource({
-    projectDir: path.join(os.tmpdir(), 'nonexistent-project-dir-xyz'),
+    projectDir: path.join(TMP_BASE, 'nonexistent-project-dir-xyz'),
     exec: async () => { throw new Error('docker must not be called'); }
   });
   assert.equal(result.status, 'not-configured');
+  assert.equal(
+    result.message,
+    'config/config.js could not be read, so the signing activity log settings are unknown.'
+  );
 });
 
 test('resolveAuditSource: disabled when AUDIT_LOG.enabled is false', async () => {
@@ -217,6 +224,41 @@ test('resolveAuditSource: disabled when AUDIT_LOG.enabled is false', async () =>
   });
   assert.equal(result.status, 'disabled');
   assert.equal(result.dir, null);
+  assert.equal(
+    result.message,
+    'The signing activity log is switched off; set AUDIT_LOG.enabled to true in config/config.js and run docker compose restart ps-server.'
+  );
+});
+
+test('resolveAuditSource (M1): default capabilities are read from the injected projectDir', async () => {
+  const dir = makeTempProjectDir();
+  fs.mkdirSync(path.join(dir, 'release'), { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, 'release', 'capabilities.json'),
+    JSON.stringify({ capabilities: { 'signing-audit': { min: { 'ps-server': '9.99' } } } })
+  );
+
+  // `capabilities` deliberately omitted: it must come from <projectDir>/release,
+  // not from the process-wide HOST_PROJECT_DIR.
+  const result = await resolveAuditSource({
+    projectDir: dir,
+    serverTag: '1.0',
+    exec: async () => { throw new Error('docker must not be called before the version gate'); }
+  });
+  assert.equal(result.status, 'unsupported-version');
+});
+
+test('resolveAuditSource (M4): inspects the ps-server container explicitly', async () => {
+  const dir = makeTempProjectDir();
+  let seen = null;
+  await resolveAuditSource({
+    projectDir: dir,
+    capabilities: null,
+    serverTag: null,
+    exec: async (cmd, args) => { seen = { cmd, args }; return { stdout: '[]' }; }
+  });
+  assert.equal(seen.cmd, 'docker');
+  assert.deepEqual(seen.args, ['inspect', '--type', 'container', '--format', '{{json .Mounts}}', 'ps-server']);
 });
 
 test('resolveAuditSource: unsupported-version when serverTag is below the capability minimum', async () => {
@@ -291,10 +333,9 @@ test('resolveAuditSource: ok via a real docker mounts match', async () => {
   assert.equal(result.dir, path.join(hostSignedOutput, '.padsign-audit'));
 });
 
-test('resolveAuditSource: outside-project when the mounted host dir is not under projectDir', async () => {
+test('resolveAuditSource: outside-project when the mounted host dir is not under projectDir, naming where it is', async () => {
   const dir = makeTempProjectDir();
-  const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'signing-activity-outside-'));
-  tempDirs.push(outsideDir);
+  const outsideDir = makeTempDir('signing-activity-outside-');
   const mounts = [{ Source: outsideDir, Destination: '/signed-output' }];
 
   const result = await resolveAuditSource({
@@ -306,6 +347,87 @@ test('resolveAuditSource: outside-project when the mounted host dir is not under
 
   assert.equal(result.status, 'outside-project');
   assert.equal(result.dir, null);
+  assert.match(result.message, /^The signing activity log is written to /);
+  assert.ok(result.message.includes(path.normalize(path.join(outsideDir, '.padsign-audit'))), result.message);
+  assert.match(result.message, /outside the deployment directory the wizard can read; keep AUDIT_LOG\.dir under \/signed-output\.$/);
+});
+
+test('resolveAuditSource (M5): docker inspect works but no mount covers AUDIT_LOG.dir -> outside-project, no default-mount guess', async () => {
+  const dir = makeTempProjectDir();
+  // The default ./signed-output exists on disk; the old fallback would have
+  // wrongly reported it as 'ok' even though ps-server writes elsewhere.
+  fs.mkdirSync(path.join(dir, 'signed-output', '.padsign-audit'), { recursive: true });
+  const mounts = [{ Source: '/srv/unrelated', Destination: '/var/unrelated' }];
+
+  const result = await resolveAuditSource({
+    projectDir: dir,
+    capabilities: null,
+    serverTag: null,
+    exec: async () => ({ stdout: JSON.stringify(mounts) })
+  });
+
+  assert.equal(result.status, 'outside-project');
+  assert.equal(result.dir, null);
+  assert.equal(
+    result.message,
+    'ps-server writes the signing activity log inside its container (AUDIT_LOG.dir is not on a mounted volume); keep AUDIT_LOG.dir under /signed-output.'
+  );
+});
+
+test('resolveAuditSource: docker inspect returning non-JSON is treated as a failed inspect (falls back to the default mount)', async () => {
+  const dir = makeTempProjectDir();
+  fs.mkdirSync(path.join(dir, 'signed-output', '.padsign-audit'), { recursive: true });
+
+  const result = await resolveAuditSource({
+    projectDir: dir,
+    capabilities: null,
+    serverTag: null,
+    exec: async () => ({ stdout: 'Error: No such container: ps-server' })
+  });
+
+  assert.equal(result.status, 'ok');
+  assert.equal(result.dir, path.join(dir, 'signed-output', '.padsign-audit'));
+});
+
+test('resolveAuditSource (M2): a symlink inside the project pointing outside it is outside-project', async (t) => {
+  const dir = makeTempProjectDir();
+  const outsideDir = makeTempDir('signing-activity-symlink-target-');
+  fs.mkdirSync(path.join(outsideDir, '.padsign-audit'));
+  try {
+    // 'junction' needs no privilege on Windows and is ignored on POSIX.
+    fs.symlinkSync(outsideDir, path.join(dir, 'signed-output'), 'junction');
+  } catch (err) {
+    t.skip(`cannot create a symlink here: ${err.code}`);
+    return;
+  }
+
+  const result = await resolveAuditSource({
+    projectDir: dir,
+    capabilities: null,
+    serverTag: null,
+    exec: async () => { throw new Error('docker not available'); }
+  });
+
+  assert.equal(result.status, 'outside-project');
+});
+
+test('resolveAuditSource (M3): a sibling directory whose name merely starts with ".." is not treated as outside', async () => {
+  const dir = makeTempProjectDir();
+  // <projectDir>/..data/audit is inside the project even though its relative
+  // path begins with two dots.
+  fs.mkdirSync(path.join(dir, '..data', 'audit'), { recursive: true });
+  const mounts = [{ Source: path.join(dir, '..data'), Destination: '/signed-output' }];
+  const customConfig = 'module.exports = { AUDIT_LOG: { enabled: true, dir: "/signed-output/audit" } };';
+
+  const result = await resolveAuditSource({
+    projectDir: dir,
+    readFile: () => customConfig,
+    capabilities: null,
+    serverTag: null,
+    exec: async () => ({ stdout: JSON.stringify(mounts) })
+  });
+
+  assert.equal(result.status, 'ok');
 });
 
 test('resolveAuditSource: outside-project when AUDIT_LOG.dir is not under /signed-output and docker cannot resolve it', async () => {
@@ -321,6 +443,8 @@ test('resolveAuditSource: outside-project when AUDIT_LOG.dir is not under /signe
   });
 
   assert.equal(result.status, 'outside-project');
+  assert.match(result.message, /\/var\/lib\/other-audit/);
+  assert.match(result.message, /keep AUDIT_LOG\.dir under \/signed-output\.$/);
 });
 
 // ---------------------------------------------------------------------------
@@ -686,8 +810,7 @@ test('toCsv: embedded double quotes are doubled and the cell quoted', () => {
 // ---------------------------------------------------------------------------
 
 test('getActivity: paginates at 50 per page', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'signing-activity-page-'));
-  tempDirs.push(dir);
+  const dir = makeTempDir('signing-activity-page-');
 
   const lines = [];
   const total = 63;
@@ -755,6 +878,53 @@ test('getActivity: an invalid range rejects with code BAD_RANGE', async () => {
       return true;
     }
   );
+});
+
+const FIXTURE_DEPS = { resolveAuditSource: async () => ({ status: 'ok', dir: FIXTURE_AUDIT_DIR, message: '' }) };
+const FIXTURE_NOW = new Date('2026-09-29T12:00:00.000Z');
+const FIXTURE_RANGE = { from: '2026-08-01', to: '2026-09-30' };
+
+test('getActivity (I3): array and object query values are treated as absent, not thrown on', async () => {
+  const baseline = await getActivity({ query: { ...FIXTURE_RANGE }, now: FIXTURE_NOW, deps: FIXTURE_DEPS });
+  const result = await getActivity({
+    query: {
+      from: [FIXTURE_RANGE.from, '2020-01-01'], to: { x: 1 },
+      company: ['ACME', 'Globex'], user: { $ne: '' }, outcome: ['completed'], page: ['2']
+    },
+    now: FIXTURE_NOW,
+    deps: FIXTURE_DEPS
+  });
+
+  // from/to fell back to the default window; nothing else filtered or paged.
+  assert.equal(result.page, 1);
+  assert.equal(result.total, result.documents.length);
+  assert.ok(result.total > 0);
+  assert.ok(result.total <= baseline.total);
+});
+
+test('getActivityCsv (I3): array and object query values do not throw', async () => {
+  const result = await getActivityCsv({
+    query: { from: ['x'], to: {}, company: ['ACME'], user: {}, outcome: ['failed'] },
+    now: FIXTURE_NOW,
+    deps: FIXTURE_DEPS
+  });
+  assert.ok(result.csv.startsWith('last_event_utc,'));
+});
+
+test('getActivity (I3): an unrecognised outcome value means no outcome filter', async () => {
+  const bogus = await getActivity({ query: { ...FIXTURE_RANGE, outcome: 'not-a-real-outcome' }, now: FIXTURE_NOW, deps: FIXTURE_DEPS });
+  const none = await getActivity({ query: { ...FIXTURE_RANGE }, now: FIXTURE_NOW, deps: FIXTURE_DEPS });
+  assert.equal(bogus.total, none.total);
+  assert.ok(none.total > 0);
+});
+
+test('getActivity: filtering the table leaves the tiles and the company list unchanged', async () => {
+  const all = await getActivity({ query: { ...FIXTURE_RANGE }, now: FIXTURE_NOW, deps: FIXTURE_DEPS });
+  const filtered = await getActivity({ query: { ...FIXTURE_RANGE, company: 'ACME', outcome: 'failed' }, now: FIXTURE_NOW, deps: FIXTURE_DEPS });
+
+  assert.ok(filtered.total < all.total);
+  assert.deepEqual(filtered.summary, all.summary);
+  assert.deepEqual(filtered.companies, all.companies);
 });
 
 test('getActivityCsv: BAD_RANGE propagates the same way as getActivity', async () => {

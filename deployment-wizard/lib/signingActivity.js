@@ -7,7 +7,7 @@ const { execFile } = require('child_process');
 const { promisify } = require('util');
 const execFileP = promisify(execFile);
 
-const { HOST_PROJECT_DIR, projectPath } = require('./paths');
+const { HOST_PROJECT_DIR } = require('./paths');
 const { readImageTags } = require('./dockerFacts');
 
 // Turns ps-server's per-line signing audit log (config/config.js AUDIT_LOG,
@@ -16,6 +16,7 @@ const { readImageTags } = require('./dockerFacts');
 // this module never writes to the log or to any deployment file.
 
 const PAGE_SIZE = 50;
+const OUTCOME_VALUES = new Set(['completed', 'failed', 'pending']);
 
 // ---------------------------------------------------------------------------
 // AUDIT_LOG block in config/config.js
@@ -130,60 +131,73 @@ function mapContainerPath(containerDir, mounts) {
 // resolveAuditSource
 // ---------------------------------------------------------------------------
 
-function defaultCapabilities() {
+function defaultCapabilities(projectDir) {
   try {
-    return JSON.parse(fs.readFileSync(projectPath('release', 'capabilities.json'), 'utf8'));
+    return JSON.parse(fs.readFileSync(path.join(projectDir, 'release', 'capabilities.json'), 'utf8'));
   } catch (err) {
     return null;
   }
 }
 
-const NOT_CONFIGURED_MESSAGE =
-  'config/config.js has no AUDIT_LOG block. Run an upgrade (Dashboard > Upgrade) to add it, then restart ps-server.';
+const CONFIG_UNREADABLE_MESSAGE =
+  'config/config.js could not be read, so the signing activity log settings are unknown.';
+const NO_AUDIT_BLOCK_MESSAGE =
+  'config/config.js has no AUDIT_LOG block; run an upgrade (Dashboard > Upgrade) to add it, then restart ps-server.';
 const DISABLED_MESSAGE =
-  'The signing activity log is switched off (AUDIT_LOG.enabled is false in config/config.js).';
-const OUTSIDE_PROJECT_MESSAGE =
-  'The signing activity log is stored outside the deployment directory, where the wizard cannot read it.';
+  'The signing activity log is switched off; set AUDIT_LOG.enabled to true in config/config.js and run docker compose restart ps-server.';
+const NO_MOUNT_MESSAGE =
+  'ps-server writes the signing activity log inside its container (AUDIT_LOG.dir is not on a mounted volume); keep AUDIT_LOG.dir under /signed-output.';
 const MISSING_MESSAGE = 'No signing activity has been recorded yet.';
 
+function outsideProjectMessage(hostDir) {
+  return `The signing activity log is written to ${hostDir}, outside the deployment directory the wizard can read; keep AUDIT_LOG.dir under /signed-output.`;
+}
+
+// Only reachable when docker inspect could not be used AND AUDIT_LOG.dir is not
+// under the default /signed-output mount, so there is no host path to name.
+function unmappableDirMessage(containerDir) {
+  return `AUDIT_LOG.dir (${containerDir}) is not under /signed-output and ps-server could not be inspected to map it to a host path; keep AUDIT_LOG.dir under /signed-output.`;
+}
+
 // Figures out whether the wizard can read the signing audit log at all, and
-// if so, the HOST filesystem directory it lives in. `dir`/`config.js`'s
-// AUDIT_LOG.dir is a path INSIDE the ps-server container; this resolves it
-// to wherever it actually landed on disk via `docker inspect`'s reported
-// bind mounts, since an overlay/customised deployment may mount
-// signed-output from somewhere other than the release default.
+// if so, the HOST filesystem directory it lives in. config.js's AUDIT_LOG.dir
+// is a path INSIDE the ps-server container; this resolves it to wherever it
+// actually landed on disk via the bind mounts `docker inspect` reports, since
+// an overlay/customised deployment may mount signed-output from somewhere
+// other than the release default.
 //
-// All I/O is injectable (`exec`, `readFile`) so this is testable without a
-// running Docker daemon — see documentation-note in the task: this machine
-// has none. Directory *existence* (the 'missing' status) is checked with the
-// real fs, deliberately not injected: tests that need it create a real
-// temp directory (os.tmpdir()), matching the module's own runtime behaviour.
+// `exec` and `readFile` are injectable so this can be tested without a
+// running Docker daemon. Directory existence (the 'missing' status) is checked
+// against the real filesystem, deliberately not injected: tests create a real
+// temp directory, which is also what the module does at runtime.
 async function resolveAuditSource(opts = {}) {
   const {
     exec = execFileP,
     readFile = (p) => fs.readFileSync(p, 'utf8'),
-    projectDir = HOST_PROJECT_DIR,
-    capabilities = defaultCapabilities(),
-    serverTag = readImageTags().serverTag
+    projectDir = HOST_PROJECT_DIR
   } = opts;
 
-  let configText = null;
+  let configText;
   try {
     configText = readFile(path.join(projectDir, 'config', 'config.js'));
   } catch (err) {
-    configText = null;
+    return { status: 'not-configured', dir: null, message: CONFIG_UNREADABLE_MESSAGE };
   }
 
-  const auditConfig = configText !== null
-    ? readAuditConfig(configText)
-    : { present: false, enabled: false, dir: null };
-
+  const auditConfig = readAuditConfig(configText);
   if (!auditConfig.present) {
-    return { status: 'not-configured', dir: null, message: NOT_CONFIGURED_MESSAGE };
+    return { status: 'not-configured', dir: null, message: NO_AUDIT_BLOCK_MESSAGE };
   }
   if (!auditConfig.enabled) {
     return { status: 'disabled', dir: null, message: DISABLED_MESSAGE };
   }
+
+  // Resolved only now: reading release/capabilities.json and docker-compose.yml
+  // is wasted work for the far more common not-configured / disabled outcomes.
+  // An explicit null from the caller means "known to be unavailable", not
+  // "use the default".
+  const capabilities = opts.capabilities !== undefined ? opts.capabilities : defaultCapabilities(projectDir);
+  const serverTag = opts.serverTag !== undefined ? opts.serverTag : readImageTags().serverTag;
 
   const minServerTag = capabilities
     && capabilities.capabilities
@@ -204,7 +218,7 @@ async function resolveAuditSource(opts = {}) {
 
   let mounts = null;
   try {
-    const { stdout } = await exec('docker', ['inspect', '--format', '{{json .Mounts}}', 'ps-server'], {
+    const { stdout } = await exec('docker', ['inspect', '--type', 'container', '--format', '{{json .Mounts}}', 'ps-server'], {
       cwd: projectDir,
       timeout: 10000
     });
@@ -214,44 +228,56 @@ async function resolveAuditSource(opts = {}) {
     mounts = null;
   }
 
-  let hostDir = mounts ? mapContainerPath(auditConfig.dir, mounts) : null;
-
-  if (hostDir == null) {
-    // Docker unreachable, container not up yet, or its Mounts simply didn't
-    // include anything matching AUDIT_LOG.dir — fall back to the release
-    // default bind mount (./signed-output:/signed-output). If the
-    // configured dir isn't even under /signed-output there is no sane host
-    // path to guess, so it's outside-project rather than a guess.
+  let hostDir;
+  if (mounts === null) {
+    // docker inspect itself gave us nothing usable (daemon unreachable,
+    // container not created yet, or output that is not a JSON array). Only in
+    // that case guess the release default bind mount
+    // (./signed-output:/signed-output); if AUDIT_LOG.dir is not even under
+    // /signed-output there is no sane host path to guess.
     const remainder = posixRemainder('/signed-output', auditConfig.dir);
     if (remainder === null) {
-      return { status: 'outside-project', dir: null, message: OUTSIDE_PROJECT_MESSAGE };
+      return { status: 'outside-project', dir: null, message: unmappableDirMessage(auditConfig.dir) };
     }
     hostDir = remainder
       ? path.join(projectDir, 'signed-output', ...remainder.split('/'))
       : path.join(projectDir, 'signed-output');
   } else {
-    // mapContainerPath() deliberately joins with a literal '/' (it's really
-    // resolving a POSIX container path against a Docker Source string, and
-    // on a real — Linux-only — deployment that Source is POSIX too, so this
-    // is a no-op). path.normalize() here converts that into the current
-    // OS's native separators, so `hostDir` is a well-formed path for fs
-    // access and comparison regardless of what separator style the Source
-    // string happened to use (only ever a mismatch in cross-platform tests,
-    // where a fake Source can be Windows-style).
-    hostDir = path.normalize(hostDir);
+    // docker inspect worked, so its Mounts are authoritative. If none covers
+    // AUDIT_LOG.dir the log lives only inside the container; falling back to
+    // the default mount here would silently report on the wrong directory.
+    const mapped = mapContainerPath(auditConfig.dir, mounts);
+    if (mapped === null) {
+      return { status: 'outside-project', dir: null, message: NO_MOUNT_MESSAGE };
+    }
+    // mapContainerPath() joins with a literal '/'. On the Linux-only delivery
+    // target Source is POSIX too, so this is a no-op there; it only matters
+    // when a test supplies a Windows-style Source, giving mixed separators.
+    hostDir = path.normalize(mapped);
+  }
+
+  // Resolve symlinks (when the path exists) before the containment check, so a
+  // link inside the project cannot make an outside directory look contained.
+  // A path that does not exist yet cannot be resolved; it is reported as
+  // 'missing' below.
+  let realHostDir = hostDir;
+  try {
+    realHostDir = fs.realpathSync(hostDir);
+  } catch (err) {
+    // not there (yet): compare the path as computed
   }
 
   // A real deployment's Mounts can legitimately point somewhere the wizard
   // container never sees (an overlay host mounting signed-output from a
   // different path than the project directory it itself is mounted at).
-  const rel = path.relative(projectDir, hostDir);
-  if (rel.startsWith('..') || path.isAbsolute(rel)) {
-    return { status: 'outside-project', dir: null, message: OUTSIDE_PROJECT_MESSAGE };
+  const rel = path.relative(projectDir, realHostDir);
+  if (rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) {
+    return { status: 'outside-project', dir: null, message: outsideProjectMessage(hostDir) };
   }
 
   let exists = false;
   try {
-    exists = fs.statSync(hostDir).isDirectory();
+    exists = fs.statSync(realHostDir).isDirectory();
   } catch (err) {
     exists = false;
   }
@@ -260,7 +286,7 @@ async function resolveAuditSource(opts = {}) {
     return { status: 'missing', dir: hostDir, message: MISSING_MESSAGE };
   }
 
-  return { status: 'ok', dir: hostDir, message: '' };
+  return { status: 'ok', dir: realHostDir, message: '' };
 }
 
 // ---------------------------------------------------------------------------
@@ -694,14 +720,38 @@ function resolvePage(rawPage, totalPages) {
 
 const EMPTY_SUMMARY = { completedToday: 0, completed7d: 0, completed30d: 0, failed: 0 };
 
-// `deps` overrides { resolveAuditSource, fsImpl } — the seam tests use to
-// avoid re-mocking docker/config.js on every pipeline test: a stub
-// resolveAuditSource can just return a fixed { status, dir, message }.
-async function getActivity({ query = {}, now = new Date(), deps = {} } = {}) {
-  const resolveSource = deps.resolveAuditSource || resolveAuditSource;
-  const fsImpl = deps.fsImpl || fs;
+const queryString = (v) => (typeof v === 'string' ? v : '');
 
-  const range = parseRange({ from: query.from, to: query.to }, now);
+// Express's extended query parser turns a repeated or bracketed key
+// (?company=A&company=B, ?user[$ne]=x) into an array or object. Every field
+// is therefore read as "absent" unless it is a plain string, and an outcome
+// that is not one of the three real outcomes is treated as no filter rather
+// than a filter that can never match.
+function normalizeQuery(query) {
+  const q = query || {};
+  const outcome = queryString(q.outcome);
+  return {
+    from: queryString(q.from),
+    to: queryString(q.to),
+    company: queryString(q.company),
+    user: queryString(q.user),
+    outcome: OUTCOME_VALUES.has(outcome) ? outcome : '',
+    page: queryString(q.page)
+  };
+}
+
+// Shared by getActivity and getActivityCsv: parse the range, resolve the log
+// location, and — if it is readable — read and group every event in range.
+// Each caller applies its own filtering (and paging) on top of `allDocs`.
+//
+// `deps` overrides { resolveAuditSource, fsImpl }, so tests can supply a fixed
+// { status, dir, message } instead of mocking docker and config.js each time.
+async function loadDocuments(query, now, deps) {
+  const resolveSource = (deps && deps.resolveAuditSource) || resolveAuditSource;
+  const fsImpl = (deps && deps.fsImpl) || fs;
+  const q = normalizeQuery(query);
+
+  const range = parseRange({ from: q.from, to: q.to }, now);
   if (!range.ok) {
     const err = new Error(range.error);
     err.code = 'BAD_RANGE';
@@ -710,69 +760,45 @@ async function getActivity({ query = {}, now = new Date(), deps = {} } = {}) {
   const rangeOut = { from: formatDateOnly(range.from), to: formatDateOnly(range.to) };
 
   const source = await resolveSource();
-
   if (source.status !== 'ok') {
-    return {
-      source,
-      range: rangeOut,
-      summary: { ...EMPTY_SUMMARY },
-      companies: [],
-      total: 0,
-      page: 1,
-      pageSize: PAGE_SIZE,
-      documents: [],
-      skipped: 0
-    };
+    return { source, range: rangeOut, q, allDocs: [], companies: [], summary: { ...EMPTY_SUMMARY }, skipped: 0 };
   }
 
   const { events, skipped } = await readEvents({ dir: source.dir, from: range.from, to: range.to, fsImpl });
   const allDocs = groupByDocument(events);
-  const companies = listCompanies(allDocs);
-  const summary = summarize(allDocs, now);
+  // Companies and tiles describe the whole selected range, not the filtered
+  // table, so changing a filter never moves them.
+  return { source, range: rangeOut, q, allDocs, companies: listCompanies(allDocs), summary: summarize(allDocs, now), skipped };
+}
 
-  const filtered = filterDocuments(allDocs, {
-    company: query.company,
-    user: query.user,
-    outcome: query.outcome
-  });
+async function getActivity({ query = {}, now = new Date(), deps = {} } = {}) {
+  const { source, range, q, allDocs, companies, summary, skipped } = await loadDocuments(query, now, deps);
 
+  if (source.status !== 'ok') {
+    return { source, range, summary, companies, total: 0, page: 1, pageSize: PAGE_SIZE, documents: [], skipped };
+  }
+
+  const filtered = filterDocuments(allDocs, { company: q.company, user: q.user, outcome: q.outcome });
   const total = filtered.length;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const page = resolvePage(query.page, totalPages);
+  const page = resolvePage(q.page, totalPages);
   const startIdx = (page - 1) * PAGE_SIZE;
   const documents = filtered.slice(startIdx, startIdx + PAGE_SIZE);
 
-  return { source, range: rangeOut, summary, companies, total, page, pageSize: PAGE_SIZE, documents, skipped };
+  return { source, range, summary, companies, total, page, pageSize: PAGE_SIZE, documents, skipped };
 }
 
 // Same pipeline as getActivity, minus paging/tiles — CSV export is meant to
 // carry every filtered document, not just the current page.
 async function getActivityCsv({ query = {}, now = new Date(), deps = {} } = {}) {
-  const resolveSource = deps.resolveAuditSource || resolveAuditSource;
-  const fsImpl = deps.fsImpl || fs;
+  const { source, range, q, allDocs } = await loadDocuments(query, now, deps);
 
-  const range = parseRange({ from: query.from, to: query.to }, now);
-  if (!range.ok) {
-    const err = new Error(range.error);
-    err.code = 'BAD_RANGE';
-    throw err;
-  }
-  const rangeOut = { from: formatDateOnly(range.from), to: formatDateOnly(range.to) };
-
-  const source = await resolveSource();
   if (source.status !== 'ok') {
-    return { csv: toCsv([]), range: rangeOut };
+    return { csv: toCsv([]), range };
   }
 
-  const { events } = await readEvents({ dir: source.dir, from: range.from, to: range.to, fsImpl });
-  const allDocs = groupByDocument(events);
-  const filtered = filterDocuments(allDocs, {
-    company: query.company,
-    user: query.user,
-    outcome: query.outcome
-  });
-
-  return { csv: toCsv(filtered), range: rangeOut };
+  const filtered = filterDocuments(allDocs, { company: q.company, user: q.user, outcome: q.outcome });
+  return { csv: toCsv(filtered), range };
 }
 
 module.exports = {
