@@ -42,16 +42,16 @@ function parseBundleOutput(stdout) {
 }
 
 // Picks the clearest single line to surface when exec() itself rejects
-// (bad args, timeout, missing script): an explicit ERROR: line from stderr
-// if the script printed one, else the last non-empty stderr line, else the
-// raw Error's own message.
+// (bad args, timeout, missing script): the LAST explicit ERROR: line stderr
+// contains, else the last non-empty stderr line, else the raw Error's own
+// message.
 function describeExecFailure(err) {
   const stderrLines = String((err && err.stderr) || '')
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter(Boolean);
-  const explicit = stderrLines.find((l) => l.startsWith('ERROR:'));
-  if (explicit) return explicit;
+  const lastError = [...stderrLines].reverse().find((l) => l.startsWith('ERROR:'));
+  if (lastError) return lastError;
   if (stderrLines.length) return stderrLines[stderrLines.length - 1];
   return (err && err.message) || 'support-bundle.sh failed';
 }
