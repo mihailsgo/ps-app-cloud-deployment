@@ -243,6 +243,20 @@ if [[ "$test_webhook" == true ]]; then
   exit 3
 fi
 
+# A log line (or a path) can hold bytes that are not UTF-8; a webhook payload
+# and the --format json document must be UTF-8. Drops invalid sequences and
+# keeps valid multi-byte characters. iconv -c exits non-zero when it dropped
+# something, which is expected here.
+utf8_clean() {
+  if command -v iconv >/dev/null 2>&1; then
+    iconv -c -f UTF-8 -t UTF-8 || true
+  elif command -v perl >/dev/null 2>&1; then
+    perl -MEncode -pe '$_ = Encode::encode("UTF-8", Encode::decode("UTF-8", $_, sub { "" }))' || true
+  else
+    cat
+  fi
+}
+
 # ── Alert bookkeeping ──
 alert_keys=()
 alert_messages=()
@@ -382,20 +396,23 @@ ps_server_cid="$(docker compose ps -q ps-server 2>/dev/null | head -1 || true)"
 fail_keys=(); fail_labels=(); fail_counts=()   # for --format json
 if [[ -n "$ps_server_cid" ]]; then
   recent_logs="$(docker compose logs --no-color "${log_window_args[@]}" ps-server 2>/dev/null || true)"
-  matches() { printf '%s\n' "$recent_logs" | grep -E "$1" || true; }
-  count_of() { [[ -z "$1" ]] && echo 0 || printf '%s\n' "$1" | grep -c . ; }
+  # LC_ALL=C: the patterns are ASCII, and under a UTF-8 locale GNU grep takes
+  # a line that is not valid UTF-8 for binary data and leaves it out.
+  matches() { printf '%s\n' "$recent_logs" | LC_ALL=C grep -E "$1" || true; }
+  count_of() { [[ -z "$1" ]] && echo 0 || printf '%s\n' "$1" | LC_ALL=C grep -c . ; }
   # Last three matching lines, trimmed, so an alert says which document or
   # dependency failed instead of just a number. The cut is at byte 400, and a
   # multi-byte character (a Latvian letter) it splits is dropped: half a
-  # character makes the payload invalid UTF-8.
+  # character makes the payload invalid UTF-8. So are any other bytes that
+  # are not UTF-8 (utf8_clean).
   utf8_cut_tail=$'s/([\xC0-\xDF]|[\xE0-\xEF][\x80-\xBF]?|[\xF0-\xF7][\x80-\xBF]{0,2})$//'
-  samples_of() { [[ -z "$1" ]] && return 0; printf '%s\n' "$1" | tail -3 | LC_ALL=C cut -b1-400 | LC_ALL=C sed -E "$utf8_cut_tail"; }
+  samples_of() { [[ -z "$1" ]] && return 0; printf '%s\n' "$1" | tail -3 | LC_ALL=C cut -b1-400 | LC_ALL=C sed -E "$utf8_cut_tail" | utf8_clean; }
 
   check_failures() {  # key label regex [exclude-regex]
     local key="$1" label="$2" re="$3" exclude="${4:-}" lines n
     lines="$(matches "$re")"
     if [[ -n "$exclude" && -n "$lines" ]]; then
-      lines="$(printf '%s\n' "$lines" | grep -Ev "$exclude" || true)"
+      lines="$(printf '%s\n' "$lines" | LC_ALL=C grep -Ev "$exclude" || true)"
     fi
     n="$(count_of "$lines")"
     printf '  %-34s %s\n' "$label" "$n"
@@ -462,7 +479,8 @@ disk_paths=("$compose_dir" ${store_dirs[@]+"${store_dirs[@]}"})
 declare -A seen_fs=()
 fs_mounts=(); fs_paths=(); fs_pcts=()   # for --format json
 for p in "${disk_paths[@]}"; do
-  read -r fs_name pct mount < <(df -P "$p" 2>/dev/null | awk 'NR==2{gsub("%","",$5); print $1, $5, $6}' || true)
+  # || true: no df output (read hits EOF) skips the path instead of ending the run.
+  read -r fs_name pct mount < <(df -P "$p" 2>/dev/null | awk 'NR==2{gsub("%","",$5); print $1, $5, $6}' || true) || true
   [[ -z "${pct:-}" || -n "${seen_fs[$fs_name]:-}" ]] && continue
   seen_fs[$fs_name]=1
   echo "  filesystem ${mount} (${p}): ${pct}% used"
@@ -635,7 +653,7 @@ if [[ "$format" == json ]]; then
 
   printf '{"schema":1,"generated":%s,"host":%s,"thresholds":%s,"services":[%s],"certificate":%s,"failures":%s,"disk":{"stores":[%s],"filesystems":[%s]},"buffer":%s,"alerts":[%s]}\n' \
     "$(json_str "$run_started")" "$(json_str_or_null "$host")" "$j_thresholds" "$j_services" "$j_certificate" \
-    "$j_failures" "$j_stores" "$j_filesystems" "$j_buffer" "$j_alerts" >&3
+    "$j_failures" "$j_stores" "$j_filesystems" "$j_buffer" "$j_alerts" | utf8_clean >&3
   exit 0
 fi
 

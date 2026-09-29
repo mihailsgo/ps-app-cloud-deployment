@@ -202,6 +202,37 @@ Other receivers can route on `alerts[].key`. `samples` holds up to three of
 the matching log lines, so a routing alert names the document that failed.
 With `teams`, the same content is sent as an Adaptive Card.
 
+## Machine-readable output
+
+```bash
+./installation-scripts/monitor-status.sh --format json
+```
+
+prints the report as one JSON document on stdout, for a program such as
+the Deployment Wizard. It is read-only, like the report: it never reads or
+writes the state file, never posts to a webhook, and exits `0` (`2` for a
+usage error, including `--format json` together with `--alert` or
+`--test-webhook`). It evaluates the same thresholds, so `alerts` lists what
+`--alert` would fire now; because there is no previous run to compare with,
+`repeated_restarts` never fires here. `--format text` is the default report.
+
+The document (`"schema": 1`) has these keys:
+
+| Key | Content |
+|---|---|
+| `schema` | `1` |
+| `generated` | UTC timestamp of the run |
+| `host` | the host checked, or `null` when unknown |
+| `thresholds` | `restartDelta`, `certDays`, `diskPct`, `bufferMax`, `bufferMaxAgeHours`, `failureMin` |
+| `services` | `service`, `state` (`missing` when no container exists), `health`, `restarts` per service |
+| `certificate` | `host`, `path`, `found`, `notAfter`, `daysLeft`; `null` when the host is unknown |
+| `failures` | `window` and per-category `counts` (`key`, `label`, `count`); `null` when ps-server is not running |
+| `disk` | `stores` (`name`, `path`, `exists`, `size`, `inTree`, `volume`) and `filesystems` (`mount`, `path`, `usedPct`) |
+| `buffer` | `state` (`ok`, `not-in-use`, `not-running` or `error`), `count`, `oldestAgeHours`, `error` |
+| `alerts` | `key`, `message`, `samples`, as in the webhook message |
+
+A value that cannot be determined is `null`.
+
 ## What this does not do
 
 It is not a metrics store or a paging system: it posts to one webhook, and

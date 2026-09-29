@@ -99,7 +99,8 @@ if [[ "${1:-}" == compose ]]; then
       if [[ -z "${STUB_NO_PS_SERVER:-}" && "$svc" == ps-server ]]; then echo cid1; fi
       if [[ " $* " == *" -a "* && "$svc" == nginx ]]; then echo cid2; fi ;;
     logs)
-      printf '%s\n' "ps-server  | GET /api/latestUser 200" "ps-server  | Error proxying stamp: boom" ;;
+      if [[ -n "${STUB_LOGS_FILE:-}" ]]; then cat "$STUB_LOGS_FILE"
+      else printf '%s\n' "ps-server  | GET /api/latestUser 200" "ps-server  | Error proxying stamp: boom"; fi ;;
     exec)
       cat >/dev/null
       case "${STUB_EXEC:-ok}" in
@@ -282,6 +283,28 @@ jeq "... certificate found false, notAfter and daysLeft null, a certificate_risk
   '[d["certificate"]["host"], d["certificate"]["found"], d["certificate"]["notAfter"], d["certificate"]["daysLeft"], d["certificate"]["path"].endswith("/nginx/certs/other.example.com.crt"), "certificate_risk" in [a["key"] for a in d["alerts"]]]' \
   '["other.example.com",false,null,null,true,true]'
 jeq "... buffer not-in-use" "$jm" 'd["buffer"]' '{"count":null,"error":null,"oldestAgeHours":null,"state":"not-in-use"}'
+# Log lines with a quote, a backslash, a tab, a control byte and a Latvian
+# letter, and one that is not valid UTF-8 (0xFF in the middle, a lone 0xC3
+# lead byte at the end).
+hostile="${work}/hostile.log"
+printf 'ps-server  | Error proxying stamp: say "hi" C:\\in\\x\ty\001 Parakst\xc4\xabts\n' > "$hostile"
+printf 'ps-server  | Error proxying stamp: bad \xff mid and tail \xc3\n' >> "$hostile"
+jh="${work}/hostile.json"
+STUB_LOGS_FILE="$hostile" monitor "$jh" "$e" --format json
+# q.py opens the file as strict UTF-8: invalid bytes fail it.
+if [[ "$rc" == 0 ]] && valid_json "$jh" && [[ "$(q "$jh" 'd["schema"]')" == 1 ]]; then
+  ok_case "hostile log lines (quote, backslash, tab, control byte, Latvian letter, invalid UTF-8): exit 0, strict UTF-8 JSON"
+else
+  fail_case "hostile log lines (rc=${rc})" "$(q "$jh" 'd["schema"]')"$'\n'"stderr: $(cat "$e")"
+fi
+jeq "... the first sample round-trips: control byte dropped, quote, backslashes, tab and 'ī' kept" "$jh" \
+  '[a["samples"][0] for a in d["alerts"] if a["key"] == "stamping_failure"]' \
+  '["ps-server  | Error proxying stamp: say \"hi\" C:\\in\\x\ty Parakst\u012bts"]'
+jeq "... the second: the invalid bytes dropped, the rest kept" "$jh" \
+  '[a["samples"][1] for a in d["alerts"] if a["key"] == "stamping_failure"]' \
+  '["ps-server  | Error proxying stamp: bad  mid and tail "]'
+jeq "... stamping_failure count 2" "$jh" '[c["count"] for c in d["failures"]["counts"] if c["key"] == "stamping_failure"]' '[2]'
+
 check "no json run posted anything or created a state directory" \
   bash -c '[[ ! -e "$1" && ! -e "$2/.monitor-state" ]]' _ "$CURL_LOG" "$repo"
 
