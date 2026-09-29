@@ -1,0 +1,73 @@
+<%- include('partials/head', { title: 'Diagnostics — Monitoring — PadSign Deployment Wizard' }) %>
+<%- include('partials/topbar', { hostname, version, hasCompletedSetup, runActive }) %>
+<%- include('partials/collapsed-progress', { sessionNote: 'Service health, logs and signing activity' }) %>
+<%
+  const SINCE_LABELS = { '1h': 'Last hour', '6h': 'Last 6 hours', '24h': 'Last 24 hours', '72h': 'Last 3 days', '168h': 'Last 7 days' };
+  const fmtSize = (n) => (n >= 1048576 ? (n / 1048576).toFixed(1) + ' MiB' : Math.max(1, Math.round(n / 1024)) + ' KiB');
+  const fmtWhen = (iso) => new Date(iso).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
+%>
+<main id="main" class="wizard-shell wizard-shell--wide mon-page">
+  <h1 class="visually-hidden">Monitoring</h1>
+  <%- include('partials/monitoring-tabs', { tab }) %>
+
+  <div id="sessionExpired" class="alert alert-warning" role="alert" hidden>Your session has expired. <a href="/login">Sign in again</a> to keep monitoring.</div>
+
+  <div class="mon-toolbar">
+    <button type="button" class="btn btn-primary btn-sm" id="runAll"><%- include('partials/icon', { name: 'play', size: 16 }) %>Run all checks</button>
+    <span class="hint" id="runAllStatus" role="status">Each check is read-only. Nothing is changed.</span>
+  </div>
+
+  <div class="mon-checks-grid">
+    <% checks.forEach((c) => { %>
+      <section class="card" aria-labelledby="chk-title-<%= c.id %>">
+        <div class="mon-card-top">
+          <%- include('partials/card-head', { id: 'chk-title-' + c.id, title: c.label, icon: 'clipboard-check', sub: c.description }) %>
+          <button type="button" class="btn btn-secondary btn-sm" data-check-run="<%= c.id %>" aria-label="Run check: <%= c.label %>">Run</button>
+        </div>
+        <ul class="checklist mon-check-result" id="chk-result-<%= c.id %>" aria-live="polite"></ul>
+        <p class="hint" id="chk-meta-<%= c.id %>" role="status"></p>
+      </section>
+    <% }) %>
+
+    <section class="card" aria-labelledby="bundle-title">
+      <%- include('partials/card-head', {
+        id: 'bundle-title',
+        title: 'Support bundle',
+        icon: 'package',
+        sub: 'Logs and redacted configuration for TrustLynx support. Signed documents and the signing activity log are never included.'
+      }) %>
+      <div class="mon-toolbar mon-toolbar--section">
+        <div class="mon-field">
+          <label for="bundleSince">Include logs from</label>
+          <select id="bundleSince">
+            <% SINCE_CHOICES.forEach((s) => { %>
+              <option value="<%= s %>"<%= s === '24h' ? ' selected' : '' %>><%= SINCE_LABELS[s] || s %></option>
+            <% }) %>
+          </select>
+        </div>
+        <button type="button" class="btn btn-primary btn-sm" id="bundleGenerate"><%- include('partials/icon', { name: 'package', size: 16 }) %>Generate</button>
+      </div>
+      <p class="hint" id="bundleStatus" role="status"></p>
+      <ul class="checklist" id="bundleWarnings" aria-live="polite"></ul>
+      <ul class="bundle-list" id="bundleList" aria-label="Existing support bundles">
+        <% if (!bundles.length) { %>
+          <li id="bundleEmpty">No support bundles have been generated yet.</li>
+        <% } %>
+        <% bundles.forEach((b) => { %>
+          <li>
+            <a href="/api/monitoring/support-bundle/<%= encodeURIComponent(b.name) %>" download><%= b.name %></a>
+            <span class="hint"><%= fmtSize(b.sizeBytes) %> · <%= fmtWhen(b.createdAt) %></span>
+          </li>
+        <% }) %>
+      </ul>
+    </section>
+  </div>
+</main>
+<script src="/monitoring.js"></script>
+<script>
+  initMonitoringDiagnostics(<%- JSON.stringify({
+    checks: checks.map((c) => ({ id: c.id, label: c.label })),
+    bundleRunning: Boolean(bundleRunning)
+  }).replace(/</g, '\\u003c') %>);
+</script>
+<%- include('partials/foot') %>

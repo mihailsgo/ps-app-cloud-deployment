@@ -35,6 +35,7 @@
     <% } %>
     <% if (hasCompletedSetup) { %>
       <a href="/dashboard" class="btn btn-outline btn-sm <%= lockedClass %>" <%- lockedAttr %>>Dashboard</a>
+      <a href="/monitoring" class="btn btn-outline btn-sm <%= lockedClass %>" <%- lockedAttr %>>Monitoring</a>
       <a href="/settings" class="btn btn-outline btn-sm <%= lockedClass %>" <%- lockedAttr %>>Settings</a>
     <% } %>
     <button type="button" class="btn btn-secondary btn-sm" onclick="openModal('exit-modal')">Save &amp; Exit</button>
@@ -61,6 +62,8 @@
     <% if (hasCompletedSetup) { %>
       <a href="/dashboard" class="btn btn-outline <%= lockedClass %>"
          <%- nav === 'dashboard' ? 'aria-current="page"' : '' %> <%- lockedAttr %>>Dashboard</a>
+      <a href="/monitoring" class="btn btn-outline <%= lockedClass %>"
+         <%- nav === 'monitoring' ? 'aria-current="page"' : '' %> <%- lockedAttr %>>Monitoring</a>
       <a href="/settings" class="btn btn-outline <%= lockedClass %>"
          <%- nav === 'settings' ? 'aria-current="page"' : '' %> <%- lockedAttr %>>Settings</a>
     <% } %>

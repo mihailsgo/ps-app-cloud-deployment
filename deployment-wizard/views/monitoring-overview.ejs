@@ -1,0 +1,78 @@
+<%- include('partials/head', { title: 'Overview — Monitoring — PadSign Deployment Wizard' }) %>
+<%- include('partials/topbar', { hostname, version, hasCompletedSetup, runActive }) %>
+<%- include('partials/collapsed-progress', { sessionNote: 'Service health, logs and signing activity' }) %>
+<main id="main" class="wizard-shell wizard-shell--wide mon-page">
+  <h1 class="visually-hidden">Monitoring</h1>
+  <%- include('partials/monitoring-tabs', { tab }) %>
+
+  <div id="sessionExpired" class="alert alert-warning" role="alert" hidden>Your session has expired. <a href="/login">Sign in again</a> to keep monitoring.</div>
+
+  <section class="card" aria-labelledby="svc-title">
+    <div class="mon-card-top">
+      <%- include('partials/card-head', { id: 'svc-title', title: 'Services', icon: 'server', sub: 'Refreshes every 10 seconds' }) %>
+      <button type="button" class="btn btn-secondary btn-sm" id="svcRefresh"><%- include('partials/icon', { name: 'refresh-cw', size: 16 }) %>Refresh</button>
+    </div>
+    <p id="svcUpdated" class="hint" role="status">Loading…</p>
+    <div class="table-wrap" tabindex="0" role="region" aria-labelledby="svc-title">
+      <table class="data-table" id="svcTable">
+        <thead>
+          <tr>
+            <th scope="col">Service</th>
+            <th scope="col">State</th>
+            <th scope="col">Health</th>
+            <th scope="col" class="num">Uptime</th>
+            <th scope="col" class="num">Restarts</th>
+            <th scope="col">Version</th>
+            <th scope="col" class="num">CPU</th>
+            <th scope="col" class="num">Memory</th>
+            <th scope="col" class="cell-actions">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td colspan="9" class="cell-empty">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="mon-toolbar mon-toolbar--section">
+    <button type="button" class="btn btn-secondary btn-sm" id="statusRerun"><%- include('partials/icon', { name: 'rotate-ccw', size: 16 }) %>Re-run checks</button>
+    <span id="statusUpdated" class="hint" role="status">Checking alerts, certificate, disk and receive-back buffer…</span>
+  </div>
+
+  <div class="mon-grid mon-grid--flush">
+    <section class="card" aria-labelledby="alerts-title">
+      <%- include('partials/card-head', { id: 'alerts-title', title: 'Alerts', icon: 'bell', sub: 'Thresholds from monitor-status.sh' }) %>
+      <div id="alertsBody" role="status" aria-live="polite">Loading…</div>
+    </section>
+    <section class="card" aria-labelledby="cert-title">
+      <%- include('partials/card-head', { id: 'cert-title', title: 'Certificate', icon: 'shield-check', sub: 'TLS certificate deployed to nginx' }) %>
+      <div id="certBody" role="status" aria-live="polite">Loading…</div>
+    </section>
+    <section class="card" aria-labelledby="disk-title">
+      <%- include('partials/card-head', { id: 'disk-title', title: 'Disk', icon: 'hard-drive', sub: 'Filesystems holding the deployment data' }) %>
+      <div id="diskBody" role="status" aria-live="polite">Loading…</div>
+    </section>
+    <section class="card" aria-labelledby="buffer-title">
+      <%- include('partials/card-head', { id: 'buffer-title', title: 'Receive-back buffer', icon: 'inbox', sub: 'Documents waiting to be delivered' }) %>
+      <div id="bufferBody" role="status" aria-live="polite">Loading…</div>
+    </section>
+  </div>
+
+  <div class="modal-overlay" id="restart-modal">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="restart-modal-title">
+      <h2 id="restart-modal-title">Restart service?</h2>
+      <p id="restartBody"></p>
+      <div class="error-text" id="restartError" role="alert"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" id="restartCancel">Cancel</button>
+        <button type="button" class="btn btn-danger" id="restartConfirm">Restart</button>
+      </div>
+    </div>
+  </div>
+</main>
+<script src="/monitoring.js"></script>
+<script>
+  initMonitoringOverview(<%- JSON.stringify({ runActive: Boolean(runActive), host: locals.host || null }).replace(/</g, '\\u003c') %>);
+</script>
+<%- include('partials/foot') %>

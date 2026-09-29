@@ -505,3 +505,48 @@ test('GET activity.csv: a bad range is a 400 JSON error, not a file', async () =
     assert.deepEqual(await res.json(), { error: 'Bad range.' });
   });
 });
+
+// ---- Pages ----
+
+test('GET /monitoring*: each tab renders with the tab marked current', async () => {
+  await withServer(makeApp(baseDeps()), async (base) => {
+    const cases = [
+      ['/monitoring', 'svcTable'],
+      ['/monitoring/logs?service=nginx', 'logView'],
+      ['/monitoring/activity', 'activityTable'],
+      ['/monitoring/diagnostics', 'bundleGenerate']
+    ];
+    for (const [url, id] of cases) {
+      const res = await fetch(`${base}${url}`);
+      assert.equal(res.status, 200, url);
+      const html = await res.text();
+      assert.match(html, new RegExp(`id="${id}"`), url);
+      assert.match(html, /aria-current="page"/, url);
+    }
+  });
+});
+
+test('GET /monitoring/logs: the requested service is preselected, an unknown one falls back to ps-server', async () => {
+  await withServer(makeApp(baseDeps()), async (base) => {
+    const chosen = await (await fetch(`${base}/monitoring/logs?service=nginx`)).text();
+    assert.match(chosen, /<option value="nginx" selected>/);
+    const fallback = await (await fetch(`${base}/monitoring/logs?service=nope`)).text();
+    assert.match(fallback, /<option value="ps-server" selected>/);
+  });
+});
+
+test('GET /monitoring/restart-progress: an unknown run goes back to Monitoring, a known one renders the service', async () => {
+  const known = { scriptName: 'restart-service.sh', args: ['--service', 'nginx'] };
+  const other = { scriptName: 'upgrade.sh', args: [] };
+  const deps = baseDeps({ getRun: (id) => ({ r1: known, r2: other })[id] || null });
+  await withServer(makeApp(deps), async (base) => {
+    for (const url of ['/monitoring/restart-progress', '/monitoring/restart-progress?runId=zzz', '/monitoring/restart-progress?runId=r2']) {
+      const res = await fetch(`${base}${url}`, { redirect: 'manual' });
+      assert.equal(res.status, 302, url);
+      assert.equal(res.headers.get('location'), '/monitoring', url);
+    }
+    const res = await fetch(`${base}/monitoring/restart-progress?runId=r1`);
+    assert.equal(res.status, 200);
+    assert.match(await res.text(), /Restarting nginx/);
+  });
+});

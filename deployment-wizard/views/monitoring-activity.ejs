@@ -1,0 +1,99 @@
+<%- include('partials/head', { title: 'Signing activity — Monitoring — PadSign Deployment Wizard' }) %>
+<%- include('partials/topbar', { hostname, version, hasCompletedSetup, runActive }) %>
+<%- include('partials/collapsed-progress', { sessionNote: 'Service health, logs and signing activity' }) %>
+<main id="main" class="wizard-shell wizard-shell--wide mon-page">
+  <h1 class="visually-hidden">Monitoring</h1>
+  <%- include('partials/monitoring-tabs', { tab }) %>
+
+  <div id="sessionExpired" class="alert alert-warning" role="alert" hidden>Your session has expired. <a href="/login">Sign in again</a> to keep monitoring.</div>
+
+  <div class="stat-tiles" role="group" aria-label="Signing activity summary">
+    <div class="stat-tile">
+      <p class="stat-tile__label" id="tileTodayLabel">Completed today</p>
+      <p class="stat-tile__value" id="tileToday" aria-labelledby="tileTodayLabel">–</p>
+    </div>
+    <div class="stat-tile">
+      <p class="stat-tile__label" id="tile7dLabel">Completed, 7 days</p>
+      <p class="stat-tile__value" id="tile7d" aria-labelledby="tile7dLabel">–</p>
+    </div>
+    <div class="stat-tile">
+      <p class="stat-tile__label" id="tile30dLabel">Completed, 30 days</p>
+      <p class="stat-tile__value" id="tile30d" aria-labelledby="tile30dLabel">–</p>
+    </div>
+    <div class="stat-tile">
+      <p class="stat-tile__label" id="tileFailedLabel">Failed in range</p>
+      <p class="stat-tile__value" id="tileFailed" aria-labelledby="tileFailedLabel">–</p>
+    </div>
+  </div>
+
+  <div id="activitySource" class="alert alert-warning" role="status" hidden></div>
+
+  <section class="card" aria-labelledby="activity-title">
+    <%- include('partials/card-head', { id: 'activity-title', title: 'Signing activity', icon: 'pen-line', sub: 'One row per document, newest first. Times are UTC.' }) %>
+
+    <form id="activityFilters" class="mon-toolbar mon-toolbar--section" novalidate>
+      <div class="mon-field">
+        <label for="actFrom">From date</label>
+        <input type="date" id="actFrom" name="from">
+      </div>
+      <div class="mon-field">
+        <label for="actTo">To date</label>
+        <input type="date" id="actTo" name="to">
+      </div>
+      <div class="mon-field">
+        <label for="actCompany">Company</label>
+        <select id="actCompany" name="company">
+          <option value="">All companies</option>
+        </select>
+      </div>
+      <div class="mon-field">
+        <label for="actUser">User</label>
+        <input type="search" id="actUser" name="user" placeholder="Part of an e-mail address" autocomplete="off">
+      </div>
+      <div class="mon-field">
+        <label for="actOutcome">Outcome</label>
+        <select id="actOutcome" name="outcome">
+          <option value="">All</option>
+          <option value="completed">Completed</option>
+          <option value="failed">Failed</option>
+          <option value="pending">Pending</option>
+        </select>
+      </div>
+      <button type="submit" class="btn btn-primary btn-sm" id="actApply">Apply</button>
+      <a class="btn btn-secondary btn-sm" id="actCsv" href="/api/monitoring/activity.csv" download><%- include('partials/icon', { name: 'download', size: 16 }) %>Export CSV</a>
+    </form>
+    <div class="error-text" id="actError" role="alert"></div>
+    <p id="actSummary" class="hint" role="status">Loading…</p>
+
+    <div class="table-wrap" tabindex="0" role="region" aria-labelledby="activity-title">
+      <table class="data-table" id="activityTable">
+        <thead>
+          <tr>
+            <th scope="col" class="col-toggle"><span class="visually-hidden">Show events</span></th>
+            <th scope="col">Last event (UTC)</th>
+            <th scope="col">User</th>
+            <th scope="col">Company</th>
+            <th scope="col">Document</th>
+            <th scope="col">Signature</th>
+            <th scope="col">E-seal</th>
+            <th scope="col">Outcome</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td colspan="8" class="cell-empty">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <nav class="mon-pager" aria-label="Pagination">
+      <button type="button" class="btn btn-secondary btn-sm" id="actPrev" disabled>Previous</button>
+      <span class="hint" id="actPage" role="status">Page 1 of 1</span>
+      <button type="button" class="btn btn-secondary btn-sm" id="actNext" disabled>Next</button>
+    </nav>
+  </section>
+</main>
+<script src="/monitoring.js"></script>
+<script>
+  initMonitoringActivity(<%- JSON.stringify({}).replace(/</g, '\\u003c') %>);
+</script>
+<%- include('partials/foot') %>

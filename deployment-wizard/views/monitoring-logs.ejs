@@ -1,0 +1,76 @@
+<%- include('partials/head', { title: 'Logs — Monitoring — PadSign Deployment Wizard' }) %>
+<%- include('partials/topbar', { hostname, version, hasCompletedSetup, runActive }) %>
+<%- include('partials/collapsed-progress', { sessionNote: 'Service health, logs and signing activity' }) %>
+<%
+  const SINCE_OPTIONS = [
+    ['', 'All time'], ['15m', 'Last 15 minutes'], ['1h', 'Last hour'], ['6h', 'Last 6 hours'], ['24h', 'Last 24 hours']
+  ];
+  const chosen = locals.selected || null;
+  const downloadHref = chosen
+    ? '/api/monitoring/logs/download?service=' + encodeURIComponent(chosen) + '&tail=' + TAIL_CHOICES[0]
+    : '#';
+%>
+<main id="main" class="wizard-shell wizard-shell--wide mon-page">
+  <h1 class="visually-hidden">Monitoring</h1>
+  <%- include('partials/monitoring-tabs', { tab }) %>
+
+  <div id="sessionExpired" class="alert alert-warning" role="alert" hidden>Your session has expired. <a href="/login">Sign in again</a> to keep monitoring.</div>
+
+  <section class="card" aria-labelledby="logs-title">
+    <%- include('partials/card-head', { id: 'logs-title', title: 'Service logs', icon: 'scroll-text', sub: 'Live output of one service, newest at the bottom' }) %>
+
+    <% if (!services.length) { %>
+      <div class="alert alert-warning" id="logNoServices">No services were found. Docker may not be reachable from the wizard, or the project directory is not mounted.</div>
+    <% } %>
+
+    <div class="mon-toolbar mon-toolbar--section">
+      <div class="mon-field">
+        <label for="logService">Service</label>
+        <select id="logService"<% if (!services.length) { %> disabled<% } %>>
+          <% services.forEach((s) => { %>
+            <option value="<%= s %>"<%= s === chosen ? ' selected' : '' %>><%= s %></option>
+          <% }) %>
+        </select>
+      </div>
+      <div class="mon-field">
+        <label for="logTail">Lines</label>
+        <select id="logTail">
+          <% TAIL_CHOICES.forEach((n) => { %>
+            <option value="<%= n %>"<%= n === TAIL_CHOICES[0] ? ' selected' : '' %>><%= n %></option>
+          <% }) %>
+        </select>
+      </div>
+      <div class="mon-field">
+        <label for="logSince">Since</label>
+        <select id="logSince">
+          <% SINCE_OPTIONS.forEach((o) => { %>
+            <option value="<%= o[0] %>"><%= o[1] %></option>
+          <% }) %>
+        </select>
+      </div>
+      <button type="button" class="btn btn-secondary btn-sm" id="logFollow" aria-pressed="true">
+        <span data-follow="on"><%- include('partials/icon', { name: 'pause', size: 16 }) %></span>
+        <span data-follow="off" hidden><%- include('partials/icon', { name: 'play', size: 16 }) %></span>
+        <span id="logFollowText">Following</span>
+      </button>
+    </div>
+
+    <div class="mon-toolbar">
+      <div class="mon-search">
+        <%- include('partials/icon', { name: 'search', size: 16 }) %>
+        <input type="search" id="logFilter" placeholder="Filter lines" aria-label="Filter lines" autocomplete="off">
+      </div>
+      <label class="check-label"><input type="checkbox" id="logErrorsOnly"> Errors and warnings only</label>
+      <button type="button" class="btn btn-secondary btn-sm" id="logCopy">Copy</button>
+      <a class="btn btn-secondary btn-sm" id="logDownload" href="<%= downloadHref %>" download><%- include('partials/icon', { name: 'download', size: 16 }) %>Download</a>
+    </div>
+
+    <p id="logStatus" class="hint" role="status">Connecting…</p>
+    <pre id="logView" class="log log-viewer" tabindex="0" aria-label="Log output"></pre>
+  </section>
+</main>
+<script src="/monitoring.js"></script>
+<script>
+  initMonitoringLogs(<%- JSON.stringify({ selected: chosen, tailChoices: TAIL_CHOICES }).replace(/</g, '\\u003c') %>);
+</script>
+<%- include('partials/foot') %>
