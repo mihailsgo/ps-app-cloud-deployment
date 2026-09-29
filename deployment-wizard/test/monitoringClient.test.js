@@ -253,6 +253,70 @@ test('activityLayout(): only a readable log shows tiles, filters and table; a mi
   }
 });
 
+test('clampPage(): a page number stays within 1..pages', () => {
+  assert.equal(c.clampPage(0, 5), 1);
+  assert.equal(c.clampPage(-3, 5), 1);
+  assert.equal(c.clampPage(3, 5), 3);
+  assert.equal(c.clampPage(9, 5), 5);
+  assert.equal(c.clampPage(2, 0), 1, 'no pages still means page 1');
+  assert.equal(c.clampPage(NaN, 5), 1);
+});
+
+test('activityApplyRequest()/activityPageRequest(): paging reuses the APPLIED filters, never what is typed in the form', () => {
+  const applied = { from: '2026-09-01', to: '2026-09-29', company: '', user: 'alice', outcome: '' };
+  const draft = { ...applied, user: 'bob typed but did not apply', outcome: 'failed' };
+
+  // Apply takes the draft, from page 1.
+  const applyReq = c.activityApplyRequest(draft);
+  assert.deepEqual(applyReq, { filters: draft, page: 1 });
+  applyReq.filters.user = 'mutated';
+  assert.equal(draft.user, 'bob typed but did not apply', 'the request holds a copy');
+
+  // Next/Previous take the applied state and move one page; the draft plays no part.
+  const next = c.activityPageRequest(applied, 2, 5, +1);
+  assert.deepEqual(next, { filters: applied, page: 3 });
+  assert.notEqual(next.filters, applied, 'a copy, so later edits cannot leak in');
+  assert.deepEqual(c.activityPageRequest(applied, 2, 5, -1), { filters: applied, page: 1 });
+  assert.equal(applied.user, 'alice');
+});
+
+test('activityPageRequest(): no request when the move would leave the page range', () => {
+  const applied = { from: 'a', to: 'b', company: '', user: '', outcome: '' };
+  assert.equal(c.activityPageRequest(applied, 1, 5, -1), null);
+  assert.equal(c.activityPageRequest(applied, 5, 5, +1), null);
+  assert.equal(c.activityPageRequest(applied, 1, 1, +1), null);
+  assert.deepEqual(c.activityPageRequest(applied, 4, 5, +1).page, 5);
+  // A stale page beyond the range is measured from the last real page.
+  assert.equal(c.activityPageRequest(applied, 9, 5, -1).page, 4);
+});
+
+// ---------------------------------------------------------------------------
+// Log lines and downloads
+// ---------------------------------------------------------------------------
+
+test('truncateLogLine(): lines over 16 KiB are cut and say how much was dropped; short lines are untouched', () => {
+  assert.equal(c.LOG_LINE_MAX_CHARS, 16384);
+  assert.equal(c.truncateLogLine('short'), 'short');
+  const exact = 'x'.repeat(16384);
+  assert.equal(c.truncateLogLine(exact), exact);
+  const long = 'y'.repeat(16384 + 1234);
+  const cut = c.truncateLogLine(long);
+  assert.equal(cut, 'y'.repeat(16384) + ' … [1234 more characters]');
+  assert.ok(cut.length < long.length);
+  assert.equal(c.truncateLogLine('z'.repeat(16385)), 'z'.repeat(16384) + ' … [1 more characters]');
+  assert.equal(c.truncateLogLine(undefined), '');
+});
+
+test('filenameFromDisposition(): the name a download response asks for, else the fallback', () => {
+  assert.equal(c.filenameFromDisposition('attachment; filename="padsign-signing-activity-2026-09-01-2026-09-29.csv"', 'x.csv'), 'padsign-signing-activity-2026-09-01-2026-09-29.csv');
+  assert.equal(c.filenameFromDisposition('attachment; filename=bundle.tar.gz', 'x'), 'bundle.tar.gz');
+  assert.equal(c.filenameFromDisposition("attachment; filename*=UTF-8''a%20b.csv", 'x'), 'a b.csv');
+  assert.equal(c.filenameFromDisposition(null, 'fallback.csv'), 'fallback.csv');
+  assert.equal(c.filenameFromDisposition('inline', 'fallback.csv'), 'fallback.csv');
+  // Never a path: the browser would otherwise be handed "../".
+  assert.equal(c.filenameFromDisposition('attachment; filename="../../etc/passwd"', 'f'), 'passwd');
+});
+
 // ---------------------------------------------------------------------------
 // In-place refresh of the services table
 // ---------------------------------------------------------------------------
@@ -315,10 +379,13 @@ test('monFetch(): a 401 shows the banner, runs every stop handler once and rejec
   mod.monOnExpire(() => { stops += 1; });
   mod.monOnExpire(() => { throw new Error('one handler failing must not block the others'); });
   mod.monOnExpire(() => { stops += 1; });
+  assert.equal(mod.monIsExpired(), false);
   await withBrowserStubs(async () => reply(401, { error: 'unauthorized' }), async (banner) => {
+    assert.equal(mod.monIsExpired(), false);
     await assert.rejects(mod.monFetch('/x'), (err) => err.expired === true);
     assert.equal(banner.hidden, false);
     assert.equal(stops, 2);
+    assert.equal(mod.monIsExpired(), true, 'pages can ask whether the session is gone (Run all stops its chain on it)');
     await assert.rejects(mod.monFetch('/y'), (err) => err.expired === true);
     assert.equal(stops, 2, 'handlers run once per page, not once per 401');
   });

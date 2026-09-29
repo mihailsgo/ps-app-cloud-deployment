@@ -143,7 +143,16 @@ function changedIndexes(prevCells, nextCells) {
 var LOG_ERROR_RE = /\b(ERROR|FATAL|SEVERE|\w*Exception)\b|\[error\]|level=error/i;
 var LOG_WARN_RE = /\bWARN(ING)?\b|\[warn\]/i;
 var LOG_LINE_CAP = 10000;
+// A single line this long (a stack trace dumped on one line, a base64 blob)
+// would make the page crawl for no benefit; the download has the full text.
+var LOG_LINE_MAX_CHARS = 16384;
 var LOG_STICKY_PX = 40;
+
+function truncateLogLine(line) {
+  var text = line === null || line === undefined ? '' : String(line);
+  if (text.length <= LOG_LINE_MAX_CHARS) return text;
+  return text.slice(0, LOG_LINE_MAX_CHARS) + ' … [' + (text.length - LOG_LINE_MAX_CHARS) + ' more characters]';
+}
 
 // '' (a plain line), 'error' or 'warn'. An error wins when a line has both.
 function classifyLogLine(line) {
@@ -286,6 +295,28 @@ function activityLayout(status) {
   return { banner: true, tiles: false, filters: false, table: false };
 }
 
+function clampPage(page, pages) {
+  var last = Math.max(1, pages || 1);
+  var n = Number(page);
+  if (!isFinite(n)) return 1;
+  return Math.min(Math.max(1, Math.floor(n)), last);
+}
+
+// The request behind the Apply button: what is typed in the form, page 1.
+// Copies, so that later edits of the form object cannot change a request.
+function activityApplyRequest(draft) {
+  return { filters: Object.assign({}, draft), page: 1 };
+}
+
+// The request behind Previous (dir -1) and Next (+1): the filters last
+// APPLIED (not whatever has since been typed into the form) on the adjacent
+// page, or null when there is no such page.
+function activityPageRequest(applied, page, pages, dir) {
+  var target = clampPage(clampPage(page, pages) + dir, pages);
+  if (target === page) return null;
+  return { filters: Object.assign({}, applied), page: target };
+}
+
 function documentLabel(doc) {
   return doc.documentNumber || doc.filename || doc.docid || MON_DASH;
 }
@@ -316,6 +347,24 @@ function totalPages(total, pageSize) {
   return Math.max(1, Math.ceil((total || 0) / (pageSize || 50)));
 }
 
+// The file name a download response asks for (Content-Disposition), reduced
+// to its last path segment; the fallback when there is none.
+function filenameFromDisposition(header, fallback) {
+  if (!header) return fallback;
+  var name = null;
+  var star = /filename\*\s*=\s*[^']*'[^']*'([^;]+)/i.exec(header);
+  if (star) {
+    try { name = decodeURIComponent(star[1].trim()); } catch (err) { name = null; }
+  }
+  if (name === null) {
+    var plain = /filename\s*=\s*("([^"]*)"|[^;]+)/i.exec(header);
+    if (plain) name = (plain[2] !== undefined ? plain[2] : plain[1]).trim();
+  }
+  if (!name) return fallback;
+  name = name.split(/[\\/]/).pop();
+  return name || fallback;
+}
+
 // ---------------------------------------------------------------------------
 // Session expiry and fetching
 // ---------------------------------------------------------------------------
@@ -327,6 +376,10 @@ var monExpired = false;
 // open log streams.
 function monOnExpire(fn) {
   monStopHandlers.push(fn);
+}
+
+function monIsExpired() {
+  return monExpired;
 }
 
 function monExpire() {
@@ -342,14 +395,14 @@ function monExpire() {
 // fetch() that (a) always sends the session cookie, (b) turns a 401 into the
 // "session expired" banner and stops the page's timers/streams, and (c)
 // rejects a non-2xx answer with the server's { error } sentence.
-function monFetch(url, opts) {
+function monFetchRaw(url, opts) {
   var options = Object.assign({ credentials: 'same-origin' }, opts || {});
   return fetch(url, options).then(function (resp) {
     if (resp.status === 401) {
       monExpire();
       return Promise.reject({ expired: true, message: 'Your session has expired.' });
     }
-    if (resp.ok) return resp.json();
+    if (resp.ok) return resp;
     return resp.json().catch(function () { return {}; }).then(function (body) {
       var err = new Error((body && body.error) || 'The request failed (HTTP ' + resp.status + ').');
       err.status = resp.status;
@@ -357,6 +410,39 @@ function monFetch(url, opts) {
     });
   }, function () {
     throw new Error('Could not reach the wizard - check your connection.');
+  });
+}
+
+function monFetch(url, opts) {
+  return monFetchRaw(url, opts).then(function (resp) { return resp.json(); });
+}
+
+// Downloads through fetch() so that an expired session shows the banner
+// instead of saving the JSON error body as a "file". For files that are small
+// enough to hold in memory (CSV, support bundles). Rejects with the server's
+// sentence; { expired } rejections have already shown the banner.
+function monDownload(url, fallbackName) {
+  return monFetchRaw(url).then(function (resp) {
+    var name = filenameFromDisposition(resp.headers.get('Content-Disposition'), fallbackName);
+    return resp.blob().then(function (blob) {
+      var objectUrl = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(function () { URL.revokeObjectURL(objectUrl); }, 10000);
+    });
+  });
+}
+
+// For a file too big to buffer (the log): ask a cheap authenticated endpoint
+// first, so an expired session shows the banner, and only then let the
+// browser follow the link.
+function monPreflightThenFollow(href) {
+  return monFetch('/api/monitoring/support-bundle').then(function () {
+    window.location.assign(href);
   });
 }
 
@@ -387,12 +473,18 @@ if (typeof module !== 'undefined' && module.exports) {
     logLineVisible: logLineVisible,
     nearBottom: nearBottom,
     LOG_LINE_CAP: LOG_LINE_CAP,
+    LOG_LINE_MAX_CHARS: LOG_LINE_MAX_CHARS,
+    truncateLogLine: truncateLogLine,
     activityDefaults: activityDefaults,
     activityQuery: activityQuery,
     csvHref: csvHref,
     parseActivityParams: parseActivityParams,
     activityPageUrl: activityPageUrl,
     activityLayout: activityLayout,
+    clampPage: clampPage,
+    activityApplyRequest: activityApplyRequest,
+    activityPageRequest: activityPageRequest,
+    filenameFromDisposition: filenameFromDisposition,
     diffRows: diffRows,
     changedIndexes: changedIndexes,
     documentLabel: documentLabel,
@@ -400,6 +492,7 @@ if (typeof module !== 'undefined' && module.exports) {
     eventLabel: eventLabel,
     totalPages: totalPages,
     monOnExpire: monOnExpire,
+    monIsExpired: monIsExpired,
     monFetch: monFetch,
     monJson: monJson
   };
