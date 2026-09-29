@@ -194,6 +194,7 @@ function readConfiguredCompanyRole() {
 
 module.exports = {
   listComposeServices,
+  parseComposePsOutput,
   dockerAvailable,
   readImageTags,
   readLatestKnownTags,
