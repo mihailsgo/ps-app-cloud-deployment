@@ -533,7 +533,7 @@ BLOCK
 
 SIGNING_AUDIT_BLOCK=$(cat <<'BLOCK'
 
-    // Signing audit log (ps-server 3.33+): one JSON line per signing event in
+    // Signing audit log (ps-server 3.34+): one JSON line per signing event in
     // <dir>/audit-YYYY-MM.jsonl, read by the wizard's Signing activity page.
     // See documentation/09-13-signing-activity-log.md.
     AUDIT_LOG: {
