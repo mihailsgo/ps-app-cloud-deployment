@@ -31,6 +31,7 @@ when it is missing:
 |---|---|
 | `document-routing` | `config/config.js` has no `DOCUMENT_ROUTING` key at all |
 | `signed-output` | the effective compose model does not mount `/signed-output` for ps-server, or a `signed-output/` or `docs/` store it mounts from inside the checkout is missing. A store mounted from outside the checkout never counts |
+| `signing-audit` | `config/config.js` has no `AUDIT_LOG` key at all |
 | `compose-hostname` | Keycloak's `KC_HOSTNAME` or nginx's network alias in `docker-compose.yml` names a different host than `server_name` in `nginx/nginx.conf` |
 | `local-eseal` | only with `--enable-local-eseal`: whichever of its six parts are not in place yet |
 | `keycloak-backend-audience` | the `padsign-client` access token does not carry `padsign-backend` in its audience |
