@@ -13,6 +13,7 @@ const deployRoutes = require('./routes/deploy');
 const dashboardRoutes = require('./routes/dashboard');
 const upgradeRoutes = require('./routes/upgradeRoutes');
 const settingsRoutes = require('./routes/settingsRoutes');
+const monitoringRoutes = require('./routes/monitoringRoutes');
 
 function createApp() {
   const app = express();
@@ -56,8 +57,9 @@ function createApp() {
     res.locals.activeNav =
       p === '/dashboard' || p.startsWith('/upgrade') ? 'dashboard'
         : p.startsWith('/settings') ? 'settings'
-          : p === '/' || p.startsWith('/wizard') ? 'setup'
-            : '';
+          : p.startsWith('/monitoring') ? 'monitoring'
+            : p === '/' || p.startsWith('/wizard') ? 'setup'
+              : '';
     next();
   });
 
@@ -67,6 +69,7 @@ function createApp() {
   app.use(dashboardRoutes);
   app.use(upgradeRoutes);
   app.use(settingsRoutes);
+  app.use(monitoringRoutes);
   app.use(wizardStepsRoutes);
 
   app.use((err, req, res, next) => {
