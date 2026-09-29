@@ -1,6 +1,9 @@
 'use strict';
 
 const { spawn: nodeSpawn } = require('child_process');
+const { StringDecoder } = require('string_decoder');
+
+const { HOST_PROJECT_DIR } = require('./paths');
 
 // Live per-service log viewer for the Monitoring section (SSE) plus a
 // one-shot download. Spawns `docker compose logs` directly rather than going
@@ -16,30 +19,51 @@ const TAIL_CHOICES = [200, 1000, 5000];
 // --since` accepts for a relative duration.
 const SINCE_RE = /^(?:[1-9][0-9]{0,3}[smhd])$/;
 
-// `query` is an Express req.query object: every value is a string (or
-// undefined). `services` is the live stack service list from
+// Raw query input is echoed back in error messages, so cap it: a multi-KB
+// value in a URL should not become a multi-KB error body.
+function describeForError(value) {
+  if (value === undefined) return 'undefined';
+  let s;
+  if (typeof value === 'string') {
+    s = value;
+  } else {
+    try {
+      s = JSON.stringify(value);
+    } catch (err) {
+      s = undefined;
+    }
+    if (typeof s !== 'string') s = String(value);
+  }
+  return s.length > 80 ? `${s.slice(0, 80)}…` : s;
+}
+
+// `query` is an Express req.query object: values are normally strings, but
+// Express parses `?since[]=15m` into an ARRAY — and both Number(['1000']) and
+// SINCE_RE.test(['15m']) coerce a one-element array back to a matching string,
+// so every field is type-checked before any coercion happens.
+// `services` is the live stack service list from
 // containerFacts.listStackServices() — validating against it means a typo'd
 // or stale service name is rejected before anything gets spawned.
 function validateLogParams(query, services) {
   const q = query || {};
   const service = q.service;
   if (typeof service !== 'string' || !services.includes(service)) {
-    return { ok: false, error: `Unknown service '${service}'.` };
+    return { ok: false, error: `Unknown service '${describeForError(service)}'.` };
   }
 
   let tail = 200;
   if (q.tail !== undefined && q.tail !== '') {
-    const n = Number(q.tail);
+    const n = typeof q.tail === 'string' ? Number(q.tail) : NaN;
     if (!TAIL_CHOICES.includes(n)) {
-      return { ok: false, error: `Invalid tail length '${q.tail}'. Choose one of ${TAIL_CHOICES.join(', ')}.` };
+      return { ok: false, error: `Invalid tail length '${describeForError(q.tail)}'. Choose one of ${TAIL_CHOICES.join(', ')}.` };
     }
     tail = n;
   }
 
   let since = null;
   if (q.since !== undefined && q.since !== '') {
-    if (!SINCE_RE.test(q.since)) {
-      return { ok: false, error: `Invalid since value '${q.since}'. Use a number followed by s/m/h/d, e.g. "15m".` };
+    if (typeof q.since !== 'string' || !SINCE_RE.test(q.since)) {
+      return { ok: false, error: `Invalid since value '${describeForError(q.since)}'. Use a number followed by s/m/h/d, e.g. "15m".` };
     }
     since = q.since;
   }
@@ -63,17 +87,22 @@ function buildLogArgs({ service, tail, since, follow }) {
 // end on a newline yet) and hands complete lines to `onLines` in batches —
 // one call per push(), not one call per line, so a caller can turn each
 // push into a single SSE event. `\r` is stripped so a CRLF source doesn't
-// leave a stray `\r` at the end of a line.
+// leave a stray `\r` at the end of a line. Buffer chunks go through a
+// StringDecoder, which holds back an incomplete trailing multi-byte sequence
+// until its remaining bytes arrive — a plain chunk.toString() would turn a
+// character split across two reads (e.g. Latvian "ī") into U+FFFD garbage.
 function createLineSplitter(onLines) {
+  const decoder = new StringDecoder('utf8');
   let buffer = '';
   return {
     push(chunk) {
-      buffer += chunk.toString('utf8');
+      buffer += Buffer.isBuffer(chunk) ? decoder.write(chunk) : String(chunk);
       const parts = buffer.split(/\r?\n/);
       buffer = parts.pop();
       if (parts.length > 0) onLines(parts);
     },
     end() {
+      buffer += decoder.end();
       if (buffer !== '') {
         onLines([buffer]);
         buffer = '';
@@ -123,7 +152,15 @@ function acquireStream(sessionId) {
 // Streams `docker compose logs` to the client as Server-Sent Events. Caller
 // is responsible for acquireStream()/release() around this (session/stream
 // accounting is a separate concern from the mechanics of one stream).
-function streamLogsSse(req, res, params, { spawn = nodeSpawn, cwd, heartbeatMs = 15000 } = {}) {
+//
+// cwd defaults to the project root: the wizard process itself runs from its
+// own image directory, where `docker compose logs` would find no project.
+function streamLogsSse(req, res, params, { spawn = nodeSpawn, cwd = HOST_PROJECT_DIR, heartbeatMs = 15000 } = {}) {
+  // The client can disappear while the route awaits (service list lookup,
+  // slot acquisition); spawning a follow process for a dead socket would leak
+  // it, because 'close' has already fired and will not fire again.
+  if (req.destroyed || res.destroyed || res.writableEnded) return null;
+
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -134,9 +171,25 @@ function streamLogsSse(req, res, params, { spawn = nodeSpawn, cwd, heartbeatMs =
 
   let responseEnded = false;
   let childExited = false;
+  let drainPending = false;
 
+  // When the client cannot keep up, res.write() returns false. Stop reading
+  // the child's pipes (so the OS pipe fills and docker blocks) instead of
+  // buffering unbounded log output in this process; resume on 'drain'. The
+  // flag keeps repeated backpressure from stacking listeners.
   const safeWrite = (data) => {
-    if (!responseEnded) res.write(data);
+    if (responseEnded) return;
+    const ok = res.write(data);
+    if (ok === false && !drainPending) {
+      drainPending = true;
+      child.stdout.pause();
+      child.stderr.pause();
+      res.once('drain', () => {
+        drainPending = false;
+        child.stdout.resume();
+        child.stderr.resume();
+      });
+    }
   };
 
   // A batch bigger than 500 lines (e.g. the initial --tail 5000 backlog
@@ -160,6 +213,7 @@ function streamLogsSse(req, res, params, { spawn = nodeSpawn, cwd, heartbeatMs =
     clearInterval(heartbeat);
     stdoutSplitter.end();
     stderrSplitter.end();
+    if (responseEnded) return; // client already gone; nothing left to tell it
     safeWrite(`event: end\ndata: ${JSON.stringify({ code })}\n\n`);
     responseEnded = true;
     res.end();
@@ -168,18 +222,24 @@ function streamLogsSse(req, res, params, { spawn = nodeSpawn, cwd, heartbeatMs =
   child.on('error', (err) => {
     childExited = true;
     clearInterval(heartbeat);
+    if (responseEnded) return;
     safeWrite(`event: error\ndata: ${JSON.stringify({ message: err.message })}\n\n`);
     responseEnded = true;
     res.end();
   });
 
-  req.on('close', () => {
+  // Either side closing means the client is gone (req 'close' can be
+  // reported before or after res 'close' depending on Node version and
+  // proxy behaviour), so both trigger the same cleanup.
+  const onClientClose = () => {
+    responseEnded = true;
     clearInterval(heartbeat);
-    // The child may already have exited on its own (its 'close'/'error'
-    // handler already ended res) — killing a dead pid again is harmless but
-    // pointless, so only do it when we know it's still running.
+    // The child may already have exited on its own — killing a dead pid
+    // again is harmless but pointless, so only do it while it still runs.
     if (!childExited) child.kill('SIGTERM');
-  });
+  };
+  req.on('close', onClientClose);
+  res.on('close', onClientClose);
 
   return child;
 }
@@ -191,7 +251,7 @@ function pad2(n) {
 // One-shot "download the current log tail as a file" — same underlying
 // `docker compose logs` call as the SSE view, just with --follow forced off
 // and the output piped as a plain-text attachment instead of SSE frames.
-function streamLogsDownload(res, params, { spawn = nodeSpawn, cwd, now = Date.now } = {}) {
+function streamLogsDownload(res, params, { spawn = nodeSpawn, cwd = HOST_PROJECT_DIR, now = Date.now } = {}) {
   const d = new Date(now());
   const stamp = `${d.getUTCFullYear()}${pad2(d.getUTCMonth() + 1)}${pad2(d.getUTCDate())}` +
     `-${pad2(d.getUTCHours())}${pad2(d.getUTCMinutes())}${pad2(d.getUTCSeconds())}`;
@@ -199,13 +259,35 @@ function streamLogsDownload(res, params, { spawn = nodeSpawn, cwd, now = Date.no
 
   res.setHeader('Content-Type', 'text/plain; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.setHeader('Cache-Control', 'no-store'); // logs can contain secrets; keep them out of shared caches
 
   const child = spawn('docker', buildLogArgs({ ...params, follow: false }), { cwd });
+  let ended = false;
   // end:false so a stdout 'end' doesn't close res before stderr has also
   // finished writing; res.end() waits for the child's own 'close' instead.
   child.stdout.pipe(res, { end: false });
   child.stderr.on('data', (chunk) => res.write(chunk));
-  child.on('close', () => res.end());
+  child.on('close', () => {
+    if (ended) return;
+    ended = true;
+    res.end();
+  });
+
+  // A ChildProcess with no 'error' listener rethrows, which would take the
+  // whole wizard down (e.g. `docker` missing from PATH). Node may also emit
+  // 'close' after 'error', hence the `ended` guard.
+  child.on('error', (err) => {
+    if (ended) return;
+    ended = true;
+    res.write(`Could not read logs: ${err.message}\n`);
+    res.end();
+  });
+
+  // Client aborted the download: stop the process instead of letting it run
+  // to completion. exitCode/signalCode are both null only while it is alive.
+  res.on('close', () => {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
+  });
 
   return child;
 }

@@ -153,25 +153,36 @@ test('acquireStream: release() frees a slot; a double release does not free two'
 // ---- streamLogsSse ----
 
 function makeFakeRes() {
-  return {
-    headers: {},
-    written: [],
-    ended: false,
-    flushed: false,
-    setHeader(name, value) { this.headers[name] = value; },
-    flushHeaders() { this.flushed = true; },
-    write(chunk) { this.written.push(chunk.toString()); },
-    end() { this.ended = true; }
-  };
+  const res = new EventEmitter();
+  res.headers = {};
+  res.written = [];
+  res.ended = false;
+  res.flushed = false;
+  res.destroyed = false;
+  res.writableEnded = false;
+  res.setHeader = (name, value) => { res.headers[name] = value; };
+  res.flushHeaders = () => { res.flushed = true; };
+  res.write = (chunk) => { res.written.push(chunk.toString()); return true; };
+  res.end = () => { res.ended = true; res.writableEnded = true; };
+  return res;
 }
 
 function makeFakeChild() {
   const child = new EventEmitter();
   child.stdout = new PassThrough();
   child.stderr = new PassThrough();
+  child.exitCode = null;
+  child.signalCode = null;
   child.killCalls = [];
   child.kill = (sig) => child.killCalls.push(sig);
   return child;
+}
+
+function makeDownloadRes() {
+  const res = new PassThrough();
+  res.headers = {};
+  res.setHeader = (name, value) => { res.headers[name] = value; };
+  return res;
 }
 
 const tick = (ms = 15) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -314,6 +325,7 @@ test('streamLogsDownload: forces follow=false, sets download headers with a UTC 
   assert.deepEqual(spawnArgs, ['compose', 'logs', '--no-color', '--timestamps', '--tail', '1000', '--since', '15m', 'ps-server']);
   assert.equal(res.headers['Content-Type'], 'text/plain; charset=utf-8');
   assert.equal(res.headers['Content-Disposition'], 'attachment; filename="ps-server-20260929-080709.log"');
+  assert.equal(res.headers['Cache-Control'], 'no-store');
 
   const chunks = [];
   res.on('data', (c) => chunks.push(c));
@@ -329,4 +341,191 @@ test('streamLogsDownload: forces follow=false, sets download headers with a UTC 
   assert.match(body, /log line 1/);
   assert.match(body, /a warning on stderr/);
   assert.match(body, /log line 2/);
+});
+
+// ---- review fixes ----
+
+test('validateLogParams: rejects non-string service/tail/since (e.g. ?since[]=15m arrays)', () => {
+  assert.equal(validateLogParams({ service: ['nginx'] }, SERVICES).ok, false);
+  assert.equal(validateLogParams({ service: 'nginx', tail: ['1000'] }, SERVICES).ok, false);
+  assert.equal(validateLogParams({ service: 'nginx', since: ['15m'] }, SERVICES).ok, false);
+  assert.equal(validateLogParams({ service: 'nginx', since: { a: '15m' } }, SERVICES).ok, false);
+});
+
+test('validateLogParams: error messages truncate long raw input', () => {
+  const long = 'x'.repeat(500);
+  for (const q of [{ service: long }, { service: 'nginx', tail: long }, { service: 'nginx', since: long }]) {
+    const r = validateLogParams(q, SERVICES);
+    assert.equal(r.ok, false);
+    assert.ok(!r.error.includes('x'.repeat(81)), 'raw input must be truncated');
+  }
+});
+
+test('createLineSplitter: reassembles a multi-byte UTF-8 character split across Buffer chunks', () => {
+  const seen = [];
+  const splitter = createLineSplitter((lines) => seen.push(...lines));
+  const full = Buffer.from('Parakstīts\n', 'utf8');
+  const splitAt = full.indexOf(Buffer.from('ī', 'utf8')) + 1; // between the two bytes
+  splitter.push(full.subarray(0, splitAt));
+  splitter.push(full.subarray(splitAt));
+  splitter.end();
+  assert.deepEqual(seen, ['Parakstīts']);
+});
+
+test('streamLogsSse: refuses to start (null, no spawn) when req/res is already gone', () => {
+  const mutators = [
+    (req) => { req.destroyed = true; },
+    (req, res) => { res.destroyed = true; },
+    (req, res) => { res.writableEnded = true; }
+  ];
+  for (const mutate of mutators) {
+    const req = new EventEmitter();
+    req.destroyed = false;
+    const res = makeFakeRes();
+    mutate(req, res);
+    let spawns = 0;
+    const result = streamLogsSse(req, res, { service: 'nginx', tail: 200, since: null, follow: false },
+      { spawn: () => { spawns += 1; return makeFakeChild(); }, cwd: '/repo', heartbeatMs: 1e9 });
+    assert.equal(result, null);
+    assert.equal(spawns, 0);
+    assert.equal(res.flushed, false);
+  }
+});
+
+test('streamLogsSse: res "close" also kills the child and stops further writes', async () => {
+  const req = new EventEmitter();
+  const res = makeFakeRes();
+  const child = makeFakeChild();
+  streamLogsSse(req, res, { service: 'nginx', tail: 200, since: null, follow: true },
+    { spawn: () => child, cwd: '/repo', heartbeatMs: 1e9 });
+
+  res.emit('close');
+  assert.deepEqual(child.killCalls, ['SIGTERM']);
+
+  child.stdout.write('late line\n');
+  await tick();
+  assert.equal(res.written.length, 0, 'nothing is written after the client is gone');
+});
+
+test('streamLogsSse: stderr lines are sent as "lines" events too', async () => {
+  const req = new EventEmitter();
+  const res = makeFakeRes();
+  const child = makeFakeChild();
+  streamLogsSse(req, res, { service: 'nginx', tail: 200, since: null, follow: true },
+    { spawn: () => child, cwd: '/repo', heartbeatMs: 1e9 });
+
+  child.stderr.write('a warning\n');
+  await tick();
+  const events = res.written.filter((w) => w.startsWith('event: lines'));
+  assert.equal(events.length, 1);
+  assert.match(events[0], /"lines":\["a warning"\]/);
+  req.emit('close');
+});
+
+test('streamLogsSse: a batch of 501 lines is split into 500 + 1 events', async () => {
+  const req = new EventEmitter();
+  const res = makeFakeRes();
+  const child = makeFakeChild();
+  streamLogsSse(req, res, { service: 'nginx', tail: 5000, since: null, follow: true },
+    { spawn: () => child, cwd: '/repo', heartbeatMs: 1e9 });
+
+  child.stdout.write(Array.from({ length: 501 }, (_, i) => `line ${i}`).join('\n') + '\n');
+  await tick();
+  const events = res.written.filter((w) => w.startsWith('event: lines'));
+  assert.equal(events.length, 2);
+  assert.equal(JSON.parse(events[0].split('data: ')[1]).lines.length, 500);
+  assert.equal(JSON.parse(events[1].split('data: ')[1]).lines.length, 1);
+  req.emit('close');
+});
+
+test('streamLogsSse: pauses stdout/stderr when res.write() returns false and resumes on "drain"', async () => {
+  const req = new EventEmitter();
+  const res = makeFakeRes();
+  let first = true;
+  res.write = (chunk) => { res.written.push(chunk.toString()); const ok = !first; first = false; return ok; };
+  const child = makeFakeChild();
+  streamLogsSse(req, res, { service: 'nginx', tail: 200, since: null, follow: true },
+    { spawn: () => child, cwd: '/repo', heartbeatMs: 1e9 });
+
+  child.stdout.write('one\n');
+  await tick();
+  assert.equal(child.stdout.isPaused(), true);
+  assert.equal(child.stderr.isPaused(), true);
+
+  res.emit('drain');
+  assert.equal(child.stdout.isPaused(), false);
+  assert.equal(child.stderr.isPaused(), false);
+  req.emit('close');
+});
+
+test('streamLogsSse: repeated backpressure keeps a single pending "drain" listener', async () => {
+  const req = new EventEmitter();
+  const res = makeFakeRes();
+  res.write = (chunk) => { res.written.push(chunk.toString()); return false; };
+  const child = makeFakeChild();
+  streamLogsSse(req, res, { service: 'nginx', tail: 5000, since: null, follow: true },
+    { spawn: () => child, cwd: '/repo', heartbeatMs: 1e9 });
+
+  // 501 lines -> two events in one synchronous flush, both backpressured
+  child.stdout.write(Array.from({ length: 501 }, (_, i) => `l${i}`).join('\n') + '\n');
+  await tick();
+  assert.equal(res.listenerCount('drain'), 1);
+  req.emit('close');
+});
+
+test('streamLogsSse: defaults cwd to HOST_PROJECT_DIR', () => {
+  const { HOST_PROJECT_DIR } = require('../lib/paths');
+  const req = new EventEmitter();
+  const res = makeFakeRes();
+  const child = makeFakeChild();
+  let opts = null;
+  streamLogsSse(req, res, { service: 'nginx', tail: 200, since: null, follow: false },
+    { spawn: (f, a, o) => { opts = o; return child; }, heartbeatMs: 1e9 });
+  assert.equal(opts.cwd, HOST_PROJECT_DIR);
+  req.emit('close');
+});
+
+test('streamLogsDownload: defaults cwd to HOST_PROJECT_DIR', () => {
+  const { HOST_PROJECT_DIR } = require('../lib/paths');
+  const res = makeDownloadRes();
+  let opts = null;
+  streamLogsDownload(res, { service: 'nginx', tail: 200, since: null, follow: false },
+    { spawn: (f, a, o) => { opts = o; return makeFakeChild(); }, now: () => 0 });
+  assert.equal(opts.cwd, HOST_PROJECT_DIR);
+});
+
+test('streamLogsDownload: res "close" (client aborted) kills a still-running child', () => {
+  const res = makeDownloadRes();
+  const child = makeFakeChild();
+  streamLogsDownload(res, { service: 'nginx', tail: 200, since: null, follow: false },
+    { spawn: () => child, cwd: '/repo', now: () => 0 });
+  res.emit('close');
+  assert.deepEqual(child.killCalls, ['SIGTERM']);
+});
+
+test('streamLogsDownload: res "close" after the child exited does not kill it', () => {
+  const res = makeDownloadRes();
+  const child = makeFakeChild();
+  streamLogsDownload(res, { service: 'nginx', tail: 200, since: null, follow: false },
+    { spawn: () => child, cwd: '/repo', now: () => 0 });
+  child.exitCode = 0;
+  child.emit('close', 0);
+  res.emit('close');
+  assert.deepEqual(child.killCalls, []);
+});
+
+test('streamLogsDownload: a spawn error writes a short message and ends the response', async () => {
+  const res = makeDownloadRes();
+  const child = makeFakeChild();
+  const chunks = [];
+  res.on('data', (c) => chunks.push(c));
+  streamLogsDownload(res, { service: 'nginx', tail: 200, since: null, follow: false },
+    { spawn: () => child, cwd: '/repo', now: () => 0 });
+
+  child.emit('error', new Error('spawn docker ENOENT'));
+  child.emit('close', -2); // node may emit both; must not double-end
+  await tick();
+
+  assert.match(Buffer.concat(chunks).toString('utf8'), /Could not read logs: spawn docker ENOENT/);
+  assert.equal(res.writableEnded, true);
 });
