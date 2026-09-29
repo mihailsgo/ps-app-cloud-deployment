@@ -3,8 +3,16 @@
 <%- include('partials/collapsed-progress', { sessionNote: 'Service health, logs and signing activity' }) %>
 <%
   const SINCE_LABELS = { '1h': 'Last hour', '6h': 'Last 6 hours', '24h': 'Last 24 hours', '72h': 'Last 3 days', '168h': 'Last 7 days' };
-  const fmtSize = (n) => (n >= 1048576 ? (n / 1048576).toFixed(1) + ' MiB' : Math.max(1, Math.round(n / 1024)) + ' KiB');
-  const fmtWhen = (iso) => new Date(iso).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
+  // Sizes and times come from the file system; an odd value must not take the page down.
+  const fmtSize = (n) => {
+    if (typeof n !== 'number' || !isFinite(n) || n < 0) return '';
+    if (n < 1024) return Math.round(n) + ' B';
+    return n >= 1048576 ? (n / 1048576).toFixed(1) + ' MiB' : Math.round(n / 1024) + ' KiB';
+  };
+  const fmtWhen = (iso) => {
+    const d = new Date(iso);
+    return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
+  };
 %>
 <main id="main" class="wizard-shell wizard-shell--wide mon-page">
   <h1 class="visually-hidden">Monitoring</h1>
@@ -24,8 +32,8 @@
           <%- include('partials/card-head', { id: 'chk-title-' + c.id, title: c.label, icon: 'clipboard-check', sub: c.description }) %>
           <button type="button" class="btn btn-secondary btn-sm" data-check-run="<%= c.id %>" aria-label="Run check: <%= c.label %>">Run</button>
         </div>
-        <ul class="checklist mon-check-result" id="chk-result-<%= c.id %>" aria-live="polite"></ul>
-        <p class="hint" id="chk-meta-<%= c.id %>" role="status"></p>
+        <ul class="checklist mon-check-result" id="chk-result-<%= c.id %>"></ul>
+        <p class="hint" id="chk-meta-<%= c.id %>"></p>
       </section>
     <% }) %>
 

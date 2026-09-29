@@ -79,6 +79,9 @@ log rotation instead ([9.10](09-10-monitoring-and-alerting.md#how-often-an-alert
 The log records signers' e-mail addresses, which are personal data. Set `retentionMonths` to your
 retention policy, and treat the files as you treat signed documents.
 
+The Signing activity page keeps its filters in the page address, so the browser's history stores
+whatever is typed into the User filter, including a part of an e-mail address.
+
 To switch the file off, set `enabled: false` in `AUDIT_LOG` and run
 `docker compose restart ps-server`. Events still go to standard output.
 

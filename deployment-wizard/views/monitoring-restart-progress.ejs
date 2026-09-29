@@ -25,7 +25,7 @@
 <script src="/run-progress.js"></script>
 <script>
   initRunProgress({
-    runId: <%- JSON.stringify(runId) %>,
+    runId: <%- JSON.stringify(runId).replace(/</g, '\\u003c') %>,
     successText: 'Service restarted and healthy.',
     failText: 'The service did not come back healthy.',
     backHref: '/monitoring',
