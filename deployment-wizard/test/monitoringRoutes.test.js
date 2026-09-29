@@ -162,6 +162,35 @@ test('GET /api/monitoring/status: passes the configured host to the runner', asy
   });
 });
 
+test('GET /api/monitoring/status: concurrent requests share one run of the runner; a later one starts a new run', async () => {
+  let calls = 0;
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const deps = baseDeps({ runMonitorStatus: async () => { calls += 1; await gate; return { ok: true, report: { run: calls } }; } });
+  await withServer(makeApp(deps), async (base) => {
+    const both = Promise.all([fetch(`${base}/api/monitoring/status`), fetch(`${base}/api/monitoring/status`)]);
+    while (calls < 1) await new Promise((r) => setTimeout(r, 5));
+    await new Promise((r) => setTimeout(r, 50)); // let the second request arrive while the first is running
+    release();
+    const bodies = await Promise.all((await both).map((r) => r.json()));
+    assert.equal(calls, 1, 'the runner ran once');
+    assert.deepEqual(bodies.map((b) => b.report.run), [1, 1]);
+    const again = await (await fetch(`${base}/api/monitoring/status`)).json();
+    assert.equal(again.report.run, 2, 'the in-flight slot is cleared once the run is done');
+  });
+});
+
+test('GET /api/monitoring/status: a failed run is a 500 for everyone waiting and does not wedge later requests', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  let fail = true;
+  const deps = baseDeps({ runMonitorStatus: () => { if (fail) throw new Error('sync boom'); return Promise.resolve({ ok: true, report: {} }); } });
+  await withServer(makeApp(deps), async (base) => {
+    assert.equal((await fetch(`${base}/api/monitoring/status`)).status, 500);
+    fail = false;
+    assert.equal((await fetch(`${base}/api/monitoring/status`)).status, 200);
+  });
+});
+
 // ---- Log stream ----
 
 test('GET logs/stream: an unknown service is a 400 with an operator-facing error', async () => {
@@ -360,6 +389,33 @@ test('POST restart: an unexpected startRun failure is a 500 sentence', async (t)
     const res = await post(`${base}/api/monitoring/restart`, { service: 'nginx' });
     assert.equal(res.status, 500);
     assert.match((await res.json()).error, /check `docker logs padsign-wizard`\.$/);
+  });
+});
+
+test('POST restart and support-bundle: anything but JSON is a 415 and nothing runs (an HTML form cannot send JSON)', async () => {
+  let started = 0;
+  let bundled = 0;
+  const deps = baseDeps({
+    startRun: () => { started += 1; return 'r1'; },
+    createBundle: async () => { bundled += 1; return { name: 'x' }; }
+  });
+  await withServer(makeApp(deps), async (base) => {
+    for (const url of ['/api/monitoring/restart', '/api/monitoring/support-bundle']) {
+      const attempts = [
+        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'service=ps-server' },
+        { headers: { 'Content-Type': 'text/plain' }, body: '{"service":"ps-server"}' },
+        { headers: {}, body: undefined }
+      ];
+      for (const attempt of attempts) {
+        const res = await fetch(base + url, { method: 'POST', ...attempt });
+        assert.equal(res.status, 415, `${url} ${attempt.headers['Content-Type'] || 'no body'}`);
+        assert.deepEqual(await res.json(), { error: 'Send JSON.' });
+      }
+    }
+    assert.equal(started, 0);
+    assert.equal(bundled, 0);
+    // JSON still works.
+    assert.equal((await post(`${base}/api/monitoring/restart`, { service: 'nginx' })).status, 200);
   });
 });
 

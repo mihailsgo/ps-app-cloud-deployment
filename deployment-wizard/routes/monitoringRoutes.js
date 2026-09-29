@@ -91,6 +91,11 @@ function createMonitoringRouter(overrides = {}) {
     next();
   });
 
+  // State-changing calls take JSON only (the client sends it through
+  // monJson). A cross-site HTML form can only send urlencoded, multipart or
+  // text/plain, so this is a second wall behind lib/sameOrigin.js.
+  const requireJson = (req, res, next) => (req.is('application/json') ? next() : res.status(415).json({ error: 'Send JSON.' }));
+
   const unexpected = (res, what, err) => {
     console.error(`Monitoring: ${what} failed:`, err);
     if (res.headersSent) return res.end();
@@ -101,7 +106,7 @@ function createMonitoringRouter(overrides = {}) {
     try {
       const wizard = d.ensureWizardSession(req);
       const topbar = await d.getTopbarContext(wizard);
-      res.render(view, { tab, host: d.readConfiguredHost(), ...extra, ...topbar });
+      res.render(view, { tab, ...extra, ...topbar });
     } catch (err) {
       next(err);
     }
@@ -160,9 +165,22 @@ function createMonitoringRouter(overrides = {}) {
     }
   });
 
+  // monitor-status.sh takes seconds to minutes; a second tab, a Re-run click or
+  // an impatient reload must join the run in progress, not start another.
+  let statusInFlight = null;
+  function runStatusOnce() {
+    // Started from a microtask so that even a runner that throws
+    // synchronously leaves a settled promise to clear, never a stuck one.
+    const run = Promise.resolve().then(() => d.runMonitorStatus({ host: d.readConfiguredHost() || undefined }));
+    const clear = () => { statusInFlight = null; };
+    run.then(clear, clear);
+    return run;
+  }
+
   router.get('/api/monitoring/status', async (req, res) => {
     try {
-      res.json(await d.runMonitorStatus({ host: d.readConfiguredHost() || undefined }));
+      if (!statusInFlight) statusInFlight = runStatusOnce();
+      res.json(await statusInFlight);
     } catch (err) {
       unexpected(res, 'Reading the status report', err);
     }
@@ -210,7 +228,7 @@ function createMonitoringRouter(overrides = {}) {
 
   // ---- Restart ----
 
-  router.post('/api/monitoring/restart', async (req, res) => {
+  router.post('/api/monitoring/restart', requireJson, async (req, res) => {
     try {
       const service = req.body && req.body.service;
       const services = await d.listStackServices();
@@ -247,7 +265,7 @@ function createMonitoringRouter(overrides = {}) {
 
   // ---- Support bundle ----
 
-  router.post('/api/monitoring/support-bundle', async (req, res) => {
+  router.post('/api/monitoring/support-bundle', requireJson, async (req, res) => {
     const body = req.body || {};
     try {
       const result = await d.createBundle({
