@@ -27,6 +27,11 @@ const OUTCOME_VALUES = new Set(['completed', 'failed', 'pending']);
 // requiring config.js as a module — config.js is a CommonJS file meant to be
 // loaded by ps-server, not by the wizard, and requiring an operator-edited
 // file we don't control would run arbitrary code in this process.
+//
+// As with every regex-scraped field in this codebase, this cannot tell a real
+// AUDIT_LOG block from one left inside a comment, so a block an operator has
+// commented out still reads as present. That is accepted: this only drives a
+// read-only view, and a wrong read never rewrites anything.
 function readAuditConfig(configJsText) {
   if (typeof configJsText !== 'string') {
     return { present: false, enabled: false, dir: null };
@@ -77,11 +82,11 @@ function compareTags(a, b) {
 // Container path -> host path mapping (docker inspect .Mounts)
 // ---------------------------------------------------------------------------
 
-// Path-segment-aware "is `target` equal to or under `base`" for POSIX
-// (container-side) paths. Returns the remainder (no leading slash) with '""'
-// for an exact match, or null when `target` isn't under `base` at all —
-// '/signed' must never match '/signed-output' just because it's a string
-// prefix.
+// Path-segment-aware check for whether `target` equals or lies under `base`,
+// for POSIX (container-side) paths. Returns the remainder without a leading
+// slash (an empty string for an exact match), or null when `target` is not
+// under `base`. '/signed' must never match '/signed-output' merely because it
+// is a string prefix.
 function posixRemainder(base, target) {
   const normBase = path.posix.normalize(base);
   const normTarget = path.posix.normalize(target);
@@ -629,10 +634,9 @@ function filterDocuments(docs, { company, user, outcome } = {}) {
   });
 }
 
-// Tiles are computed over the WHOLE selected date range, not the
-// company/user/outcome-filtered subset — so changing a filter never moves
-// the tiles. See the task note: this is deliberate (simple, predictable),
-// flagged in the report rather than silently "fixed".
+// Callers pass every document in the selected date range, not the
+// company/user/outcome-filtered subset, so changing a filter never moves the
+// tiles: they stay a stable whole-period reference for the table beneath.
 function summarize(docs, now = new Date()) {
   const todayStart = startOfUtcDay(now).getTime();
   const todayEnd = endOfUtcDay(now).getTime();
@@ -657,12 +661,17 @@ function summarize(docs, now = new Date()) {
   return { completedToday, completed7d, completed30d, failed };
 }
 
+// Spellings that differ only in case ("Acme", "ACME") are the same company as
+// far as the company filter is concerned (it matches case-insensitively), so
+// they are listed once, under the spelling seen first.
 function listCompanies(docs) {
-  const set = new Set();
+  const seen = new Map();
   for (const d of docs) {
-    if (d.company != null) set.add(d.company);
+    if (typeof d.company !== 'string') continue;
+    const key = d.company.toLowerCase();
+    if (!seen.has(key)) seen.set(key, d.company);
   }
-  return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  return Array.from(seen.values()).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
 }
 
 // ---------------------------------------------------------------------------
@@ -676,11 +685,12 @@ function formatUtcTimestamp(ts) {
 }
 
 // RFC 4180 quoting, plus a leading apostrophe against CSV formula injection
-// (a documentNumber/filename starting with = + - @ opened in Excel/Sheets
-// would otherwise be evaluated as a formula).
+// (a cell starting with = + - @ tab or CR is evaluated as a formula or command
+// by Excel/Sheets). toCsv() output is deliberately BOM-free; the HTTP route
+// that serves it as a download adds the byte-order mark Excel needs.
 function csvCell(value) {
   let s = value === null || value === undefined ? '' : String(value);
-  if (/^[=+\-@]/.test(s)) s = `'${s}`;
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
   if (/[",\r\n]/.test(s)) s = `"${s.replace(/"/g, '""')}"`;
   return s;
 }

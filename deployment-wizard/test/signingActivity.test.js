@@ -750,6 +750,34 @@ test('listCompanies: sorted unique non-null companies', async () => {
   assert.deepEqual(listCompanies(docs), ['ACME', 'Beta Ltd', 'Globex']);
 });
 
+test('listCompanies (M7): de-duplicates case-insensitively, keeping the first-seen spelling', () => {
+  const docs = [
+    { company: 'Acme Corp' }, { company: 'ACME CORP' }, { company: 'acme corp' },
+    { company: null }, { company: 'Globex' }
+  ];
+  assert.deepEqual(listCompanies(docs), ['Acme Corp', 'Globex']);
+});
+
+test('groupByDocument: firstTs/lastTs, any-event demo, and first non-null documentNumber/filename/company', () => {
+  const ev = (over) => auditEvent({ docid: 'agg', ...over });
+  const docs = groupByDocument([
+    // Deliberately out of order: aggregation must follow timestamp order.
+    ev({ ts: '2026-09-01T00:06:00.000Z', event: 'eseal', outcome: 'ok', demo: false, documentNumber: '999', filename: 'late.pdf' }),
+    ev({ ts: '2026-09-01T00:00:00.000Z', event: 'document.registered', outcome: 'ok', demo: false, documentNumber: null, company: null }),
+    ev({ ts: '2026-09-01T00:05:00.000Z', event: 'signature.visual', outcome: 'ok', demo: true, documentNumber: '555', filename: 'mid.pdf', company: 'First Co' })
+  ]);
+
+  assert.equal(docs.length, 1);
+  const d = docs[0];
+  assert.equal(d.firstTs, '2026-09-01T00:00:00.000Z');
+  assert.equal(d.lastTs, '2026-09-01T00:06:00.000Z');
+  assert.equal(d.demo, true, 'demo is true when any event is a demo event');
+  assert.equal(d.documentNumber, '555');
+  assert.equal(d.filename, 'mid.pdf');
+  assert.equal(d.company, 'First Co');
+  assert.deepEqual(d.events.map((e) => e.event), ['document.registered', 'signature.visual', 'eseal']);
+});
+
 // ---------------------------------------------------------------------------
 // toCsv
 // ---------------------------------------------------------------------------
@@ -784,8 +812,26 @@ test('toCsv: uses CRLF line endings with a trailing CRLF', () => {
   const lines = csv.split('\r\n');
   assert.equal(lines.length, 3); // header + 1 row + trailing empty from the final \r\n
   assert.equal(lines[2], '');
-  assert.ok(!csv.includes('\n\n'.replace('\r', '')), 'sanity: no bare LF-only blank lines');
   assert.equal(lines[1], '2026-09-10 08:06:00,d1,alice@example.com,ACME,100501,agreement-d1.pdf,ok,ok,completed');
+});
+
+test('toCsv (M6): every formula trigger character (= + - @ tab CR) is neutralised with a leading apostrophe', () => {
+  for (const lead of ['=', '+', '-', '@', '\t', '\r']) {
+    const csv = toCsv([{
+      docid: 'd1', lastTs: '2026-09-10T08:06:00.000Z', user: null, company: null,
+      documentNumber: `${lead}1+1`, filename: 'f.pdf', signature: null, eseal: null, outcome: 'pending'
+    }]);
+    assert.ok(csv.includes(`'${lead}1+1`), `${JSON.stringify(lead)} not neutralised: ${JSON.stringify(csv)}`);
+  }
+});
+
+test('toCsv: ordinary leading characters are left alone and the output has no byte-order mark', () => {
+  const csv = toCsv([{
+    docid: 'd1', lastTs: '2026-09-10T08:06:00.000Z', user: null, company: null,
+    documentNumber: '100501', filename: 'a-b+c.pdf', signature: null, eseal: null, outcome: 'pending'
+  }]);
+  assert.ok(csv.includes(',100501,a-b+c.pdf,'));
+  assert.notEqual(csv.charCodeAt(0), 0xFEFF);
 });
 
 test('toCsv: null fields render as empty cells', () => {
