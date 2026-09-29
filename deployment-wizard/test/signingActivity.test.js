@@ -35,13 +35,41 @@ test.after(() => {
   }
 });
 
+// os.tmpdir() can be an 8.3 short path on Windows (C:\Users\NAME~1\...), which
+// fs.realpathSync expands. Building every temp dir from the resolved base keeps
+// paths canonical, so a realpath'd result compares equal to a path.join() one.
+const TMP_BASE = fs.realpathSync(os.tmpdir());
+
+function makeTempDir(prefix) {
+  const dir = fs.mkdtempSync(path.join(TMP_BASE, prefix));
+  tempDirs.push(dir);
+  return dir;
+}
+
+// Writes one audit JSONL file into a fresh temp dir and returns the dir.
+function makeAuditDir(fileName, lines) {
+  const dir = makeTempDir('signing-activity-audit-');
+  fs.writeFileSync(path.join(dir, fileName), lines.map((l) => (typeof l === 'string' ? l : JSON.stringify(l))).join('\n') + '\n');
+  return dir;
+}
+
+const SEPT = { from: new Date('2026-09-01T00:00:00.000Z'), to: new Date('2026-09-30T23:59:59.999Z') };
+
+function auditEvent(overrides) {
+  return {
+    padsignAudit: 1, ts: '2026-09-05T00:00:00.000Z', event: 'document.registered', outcome: 'ok',
+    docid: 'x', user: null, userId: null, company: null, documentNumber: null, filename: null,
+    profile: null, mode: null, demo: false, correlationId: null, status: 200, error: null,
+    ...overrides
+  };
+}
+
 // A fresh real temp project dir (config/config.js = the "enabled" fixture)
 // for resolveAuditSource cases that need to create/omit a real signed-output
 // directory on disk. Never reuses the checked-in fixture dirs for this —
 // those must stay pristine in git.
 function makeTempProjectDir() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'signing-activity-'));
-  tempDirs.push(dir);
+  const dir = makeTempDir('signing-activity-');
   fs.mkdirSync(path.join(dir, 'config'), { recursive: true });
   fs.copyFileSync(path.join(ENABLED_CONFIG_DIR, 'config', 'config.js'), path.join(dir, 'config', 'config.js'));
   return dir;
@@ -52,6 +80,7 @@ function makeSpyFs() {
   const readdirSyncCalls = [];
   return {
     readdirSync: (...args) => { readdirSyncCalls.push(args[0]); return fs.readdirSync(...args); },
+    lstatSync: (...args) => fs.lstatSync(...args),
     createReadStream: (...args) => { createReadStreamCalls.push(args[0]); return fs.createReadStream(...args); },
     createReadStreamCalls,
     readdirSyncCalls
@@ -385,6 +414,118 @@ test('readEvents: a missing directory degrades to empty, not a throw', async () 
 test('readEvents: no dir -> empty', async () => {
   const result = await readEvents({ dir: null, from: new Date(0), to: new Date() });
   assert.deepEqual(result, { events: [], skipped: 0 });
+});
+
+test('readEvents (C1): a DIRECTORY named audit-YYYY-MM.jsonl neither crashes nor yields events', async () => {
+  const dir = makeTempDir('signing-activity-c1-');
+  fs.mkdirSync(path.join(dir, 'audit-2026-09.jsonl'));
+  fs.writeFileSync(path.join(dir, 'audit-2026-08.jsonl'), `${JSON.stringify(auditEvent({ docid: 'aug', ts: '2026-08-20T00:00:00.000Z' }))}\n`);
+
+  const from = new Date('2026-08-01T00:00:00.000Z');
+  const { events } = await readEvents({ dir, from, to: SEPT.to });
+
+  // The directory is ignored; the readable month is still read.
+  assert.deepEqual(events.map((e) => e.docid), ['aug']);
+});
+
+test('readEvents (C1): a stream error on an entry that passed the isFile check settles instead of crashing', async () => {
+  const { Readable } = require('stream');
+  const fsImpl = {
+    readdirSync: () => ['audit-2026-09.jsonl'],
+    lstatSync: () => ({ isFile: () => true }),
+    // Simulates a file removed between readdirSync and open: the error is
+    // emitted asynchronously, after the caller has had a chance to attach.
+    createReadStream: () => {
+      const s = new Readable({ read() {} });
+      setImmediate(() => s.destroy(new Error('ENOENT: removed after listing')));
+      return s;
+    }
+  };
+
+  const result = await readEvents({ dir: 'unused', from: SEPT.from, to: SEPT.to, fsImpl });
+  assert.deepEqual(result.events, []);
+  assert.equal(result.skipped, 1, 'an unreadable month file is counted as one skipped unit');
+});
+
+test('readEvents (C1): only regular files are opened', async () => {
+  const spy = makeSpyFs();
+  const dir = makeTempDir('signing-activity-c1b-');
+  fs.mkdirSync(path.join(dir, 'audit-2026-09.jsonl'));
+
+  await readEvents({ dir, ...SEPT, fsImpl: spy });
+  assert.deepEqual(spy.createReadStreamCalls, []);
+});
+
+test('readEvents (I1): well over 125k events in one file do not overflow the call stack', async () => {
+  const N = 150000;
+  const lines = new Array(N);
+  for (let i = 0; i < N; i += 1) lines[i] = JSON.stringify(auditEvent({ docid: `bulk-${i}` }));
+  const dir = makeAuditDir('audit-2026-09.jsonl', lines);
+
+  const { events, skipped } = await readEvents({ dir, ...SEPT });
+  assert.equal(events.length, N);
+  assert.equal(skipped, 0);
+});
+
+test('readEvents (I2): an object docid is skipped, not grouped', async () => {
+  const dir = makeAuditDir('audit-2026-09.jsonl', [auditEvent({ docid: { not: 'a string' } })]);
+  const { events, skipped } = await readEvents({ dir, ...SEPT });
+  assert.equal(events.length, 0);
+  assert.equal(skipped, 1);
+});
+
+test('readEvents (I2): a missing or non-string event/outcome is skipped', async () => {
+  const dir = makeAuditDir('audit-2026-09.jsonl', [
+    auditEvent({ docid: 'a', event: 42 }),
+    auditEvent({ docid: 'b', outcome: '' }),
+    auditEvent({ docid: 'c', event: undefined })
+  ]);
+  const { events, skipped } = await readEvents({ dir, ...SEPT });
+  assert.equal(events.length, 0);
+  assert.equal(skipped, 3);
+});
+
+test('readEvents (I2): optional fields are normalised to string-or-null / number-or-null / boolean', async () => {
+  const dir = makeAuditDir('audit-2026-09.jsonl', [auditEvent({
+    docid: 'n1', user: 12345, userId: {}, company: ['x'], documentNumber: 7, filename: false,
+    profile: 1, mode: 2, correlationId: 3, error: { message: 'boom' }, status: '200', demo: 'yes'
+  })]);
+  const { events } = await readEvents({ dir, ...SEPT });
+  assert.equal(events.length, 1);
+  const e = events[0];
+  for (const k of ['user', 'userId', 'company', 'documentNumber', 'filename', 'profile', 'mode', 'correlationId', 'error', 'status']) {
+    assert.equal(e[k], null, `${k} should be null`);
+  }
+  assert.equal(e.demo, false);
+});
+
+test('I2: a non-string user is safe for the user filter', async () => {
+  const dir = makeAuditDir('audit-2026-09.jsonl', [auditEvent({ docid: 'u1', user: 12345 })]);
+  const { events } = await readEvents({ dir, ...SEPT });
+  const docs = groupByDocument(events);
+  assert.equal(docs[0].user, null);
+  assert.deepEqual(filterDocuments(docs, { user: 'someone' }), []);
+});
+
+test('I2: a non-string company is excluded from listCompanies', async () => {
+  const dir = makeAuditDir('audit-2026-09.jsonl', [
+    auditEvent({ docid: 'c1', company: { not: 'a string' } }),
+    auditEvent({ docid: 'c2', company: 'Real Co' })
+  ]);
+  const { events } = await readEvents({ dir, ...SEPT });
+  assert.deepEqual(listCompanies(groupByDocument(events)), ['Real Co']);
+});
+
+test('readEvents: a December-to-January range opens both year-crossing month files', async () => {
+  const dir = makeTempDir('signing-activity-decjan-');
+  fs.writeFileSync(path.join(dir, 'audit-2026-12.jsonl'), `${JSON.stringify(auditEvent({ docid: 'dec', ts: '2026-12-20T00:00:00.000Z' }))}\n`);
+  fs.writeFileSync(path.join(dir, 'audit-2027-01.jsonl'), `${JSON.stringify(auditEvent({ docid: 'jan', ts: '2027-01-05T00:00:00.000Z' }))}\n`);
+  fs.writeFileSync(path.join(dir, 'audit-2027-02.jsonl'), `${JSON.stringify(auditEvent({ docid: 'feb', ts: '2027-02-05T00:00:00.000Z' }))}\n`);
+
+  const { events } = await readEvents({
+    dir, from: new Date('2026-12-15T00:00:00.000Z'), to: new Date('2027-01-10T23:59:59.999Z')
+  });
+  assert.deepEqual(events.map((e) => e.docid).sort(), ['dec', 'jan']);
 });
 
 // ---------------------------------------------------------------------------

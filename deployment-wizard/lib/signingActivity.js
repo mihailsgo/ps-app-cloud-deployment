@@ -348,19 +348,75 @@ function monthsInRange(from, to) {
   return months;
 }
 
+// Keeps only the schema's known fields, coerced to the types the rest of this
+// module assumes (string-or-null, number-or-null, boolean). The log is an
+// operator-readable file on disk, so a hand-edited or corrupt line must not be
+// able to put an object where a string is expected and throw later in
+// filtering or CSV export. Returns null when docid/event/outcome — the three
+// fields grouping cannot work without — are not non-empty strings.
+function normalizeEvent(obj) {
+  const required = (v) => typeof v === 'string' && v !== '';
+  if (!required(obj.docid) || !required(obj.event) || !required(obj.outcome)) return null;
+
+  const str = (v) => (typeof v === 'string' ? v : null);
+  return {
+    padsignAudit: 1,
+    ts: obj.ts,
+    event: obj.event,
+    outcome: obj.outcome,
+    docid: obj.docid,
+    user: str(obj.user),
+    userId: str(obj.userId),
+    company: str(obj.company),
+    documentNumber: str(obj.documentNumber),
+    filename: str(obj.filename),
+    profile: str(obj.profile),
+    mode: str(obj.mode),
+    demo: obj.demo === true,
+    correlationId: str(obj.correlationId),
+    status: typeof obj.status === 'number' ? obj.status : null,
+    error: str(obj.error)
+  };
+}
+
 function readEventsFromFile(filePath, from, to, fsImpl) {
   return new Promise((resolve) => {
+    const events = [];
+    let skipped = 0;
+    let settled = false;
+
+    // Resolve exactly once, however the stream ends.
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      resolve({ events, skipped });
+    };
+
     let stream;
     try {
       stream = fsImpl.createReadStream(filePath);
     } catch (err) {
-      resolve({ events: [], skipped: 0 });
+      skipped += 1;
+      settle();
       return;
     }
 
-    const events = [];
-    let skipped = 0;
     const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+
+    // A file removed between readdirSync() and open surfaces as an 'error' on
+    // the stream, and readline re-emits it on the Interface. An 'error' event
+    // with no listener throws, so both emitters need one or a single bad
+    // month file takes the whole process down. The file counts as one skipped
+    // unit (so the failure is visible in `skipped`, not silent) and whatever
+    // was read before the error is kept.
+    const onError = () => {
+      skipped += 1;
+      rl.close();
+      stream.destroy();
+      settle();
+    };
+    stream.on('error', onError);
+    rl.on('error', onError);
 
     rl.on('line', (line) => {
       const trimmed = line.trim();
@@ -379,7 +435,13 @@ function readEventsFromFile(filePath, from, to, fsImpl) {
         return;
       }
 
-      const ts = obj.ts ? new Date(obj.ts) : null;
+      const normalized = normalizeEvent(obj);
+      if (!normalized) {
+        skipped += 1;
+        return;
+      }
+
+      const ts = normalized.ts ? new Date(normalized.ts) : null;
       if (!ts || Number.isNaN(ts.getTime())) {
         // A padsignAudit:1 record with no usable timestamp can't be placed
         // in the range or ordered against its siblings — treat it as
@@ -394,11 +456,10 @@ function readEventsFromFile(filePath, from, to, fsImpl) {
         return;
       }
 
-      events.push(obj);
+      events.push(normalized);
     });
 
-    rl.on('close', () => resolve({ events, skipped }));
-    stream.on('error', () => resolve({ events, skipped }));
+    rl.on('close', settle);
   });
 }
 
@@ -424,13 +485,27 @@ async function readEvents({ dir, from, to, fsImpl = fs } = {}) {
       const m = /^audit-(\d{4}-\d{2})\.jsonl$/.exec(name);
       return Boolean(m) && wantedMonths.has(m[1]);
     })
+    .filter((name) => {
+      // Never try to stream something that is not a regular file (a directory
+      // that happens to match the name). This is an optimisation, not the
+      // safety net: a file can still vanish after this check, which is what
+      // the error handling in readEventsFromFile covers.
+      try {
+        return fsImpl.lstatSync(path.join(dir, name)).isFile();
+      } catch (err) {
+        return false;
+      }
+    })
     .sort();
 
   const events = [];
   let skipped = 0;
   for (const name of candidateFiles) {
     const result = await readEventsFromFile(path.join(dir, name), from, to, fsImpl);
-    events.push(...result.events);
+    // Not events.push(...result.events): spreading a very large array into a
+    // call exceeds the engine's argument limit (RangeError) well before a
+    // busy month's log runs out.
+    for (const event of result.events) events.push(event);
     skipped += result.skipped;
   }
 
