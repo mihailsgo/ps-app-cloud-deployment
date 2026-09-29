@@ -176,9 +176,15 @@ items may have printed a warning), `1` that it could not be written, and `2` a u
 Not included: signed documents, the signing activity log, the values in `.env`, TLS private keys and
 the wizard's own log.
 
-Redaction removes secrets, not personal data. Service logs can still contain signers' names and
-e-mail addresses. Read the bundle before you send it, share it only with TrustLynx support
-([14.5 Support](14-05-support.md)), and delete it afterwards.
+Redaction removes secrets, not all personal data. The signing audit lines in ps-server's log are
+reduced to their time, event and outcome ([9.13](09-13-signing-activity-log.md)), but other log lines
+can still contain signers' names or e-mail addresses. Read the bundle before you send it, share it only
+with TrustLynx support ([14.5 Support](14-05-support.md)), and delete it afterwards.
+
+Every command the script runs has a time limit, so a hung Docker daemon cannot stop it: an item that
+times out prints a warning and the rest of the bundle is still written. `SUPPORT_BUNDLE_CMD_TIMEOUT`,
+`SUPPORT_BUNDLE_LOGS_TIMEOUT`, `SUPPORT_BUNDLE_REPORT_TIMEOUT` and `SUPPORT_BUNDLE_DEADLINE` change the
+limits; the defaults keep a whole run under the wizard's 10-minute limit.
 
 ## Security notes
 

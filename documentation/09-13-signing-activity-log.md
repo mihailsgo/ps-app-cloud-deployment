@@ -83,8 +83,9 @@ To switch the file off, set `enabled: false` in `AUDIT_LOG` and run
 `docker compose restart ps-server`. Events still go to standard output.
 
 The audit files are not part of a [support bundle](09-12-monitoring-from-the-wizard.md#support-bundles).
-The copy on standard output is in ps-server's container log, which a bundle does include, so read a
-bundle before you send it.
+The copy on standard output is in ps-server's container log. When a bundle copies that log, it replaces
+each audit line with a stub that keeps only the time, the event and the outcome, so signers' e-mail
+addresses and file names stay out of the bundle.
 
 ## Reading it without the wizard
 
