@@ -8,48 +8,23 @@ const { HOST_PROJECT_DIR, projectPath } = require('./paths');
 const { validateConfig } = require('./configValidator');
 const { checkLiveCert, checkServedCert } = require('./certValidator');
 const { runMonitorStatus, alertSeverity } = require('./monitorStatus');
+const { parseHelperCheckOutput } = require('./outputParser');
 
 const VERIFY_KEYCLOAK_SCRIPT = projectPath('installation-scripts', 'verify-keycloak.sh');
 
-// Like outputParser.js's parseHelperCheckOutput, but for verify-keycloak.sh's
-// own convention: no leading indent at all (unlike validate-certs.sh /
-// validate-config.sh's 2-4 space indent), plus a closing "RESULT: ..." line
-// that summarizes the run and is not itself a check. Widening the indent
-// range to 0-4 spaces covers both conventions with one regex instead of
-// forking the parser, and the RESULT: line is dropped rather than folded
-// into the previous check's message.
+// verify-keycloak.sh's own convention: no leading indent at all (unlike
+// validate-certs.sh / validate-config.sh's 2-4 space indent), plus a closing
+// "RESULT: ..." line that summarizes the run and is not itself a check.
+// Widening the indent range to 0-4 spaces covers both conventions, and the
+// RESULT: line is skipped (ending the current check) rather than folded into
+// the previous check's message.
 const LOOSE_CHECK_RE = /^\s{0,4}(OK|FAIL|WARN)\b\s+(.*)$/;
 
 function parseLooseCheckOutput(stdout) {
-  const lines = String(stdout || '').split(/\r?\n/);
-  const checks = [];
-  let current = null;
-
-  const flush = () => {
-    if (current) {
-      checks.push(current);
-      current = null;
-    }
-  };
-
-  for (const rawLine of lines) {
-    const line = rawLine.replace(/\r$/, '');
-    if (line.trim().startsWith('RESULT:')) continue; // summary line, not a check
-
-    const m = LOOSE_CHECK_RE.exec(line);
-    if (m) {
-      flush();
-      current = { status: m[1].toLowerCase(), message: m[2].trim() };
-    } else if (current && line.trim() !== '') {
-      current.message += '\n' + line.trim();
-    } else {
-      flush();
-    }
-  }
-  flush();
-
-  const passed = checks.every((c) => c.status !== 'fail');
-  return { passed, checks, raw: String(stdout || '') };
+  return parseHelperCheckOutput(stdout, {
+    re: LOOSE_CHECK_RE,
+    skip: (line) => line.trim().startsWith('RESULT:')
+  });
 }
 
 // Turns monitor-status.sh's alerts[] into the same {status,message} check

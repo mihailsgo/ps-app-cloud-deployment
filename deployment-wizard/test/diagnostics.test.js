@@ -44,6 +44,12 @@ test('parseLooseCheckOutput(): folds continuation lines into the preceding check
   assert.match(result.checks[0].message, /Something broke\nmore detail on the next line/);
 });
 
+test('parseLooseCheckOutput(): text after the RESULT: line is not folded into the last check', () => {
+  const result = parseLooseCheckOutput('FAIL Client padsign-backend secret mismatch\nRESULT: 1 check failed\nhint: rerun later\n');
+  assert.equal(result.checks.length, 1);
+  assert.equal(result.checks[0].message, 'Client padsign-backend secret mismatch');
+});
+
 test('parseLooseCheckOutput(): empty input degrades to a passing, empty result', () => {
   const result = parseLooseCheckOutput('');
   assert.equal(result.passed, true);

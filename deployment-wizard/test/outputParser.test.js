@@ -42,6 +42,27 @@ test('handles empty input without throwing', () => {
   assert.deepEqual(result.checks, []);
 });
 
+test('re option: a custom line regex replaces the default (no-indent convention)', () => {
+  const re = /^\s{0,4}(OK|FAIL|WARN)\b\s+(.*)$/;
+  assert.deepEqual(parseHelperCheckOutput('OK   flush left\n').checks, [], 'default regex needs 2-4 spaces');
+  const result = parseHelperCheckOutput('OK   flush left\nFAIL also flush\n', { re });
+  assert.deepEqual(result.checks.map((c) => c.status), ['ok', 'fail']);
+  assert.equal(result.passed, false);
+});
+
+test('skip option: a skipped line is dropped and ends the current check', () => {
+  const re = /^\s{0,4}(OK|FAIL|WARN)\b\s+(.*)$/;
+  const skip = (line) => line.startsWith('RESULT:');
+  const result = parseHelperCheckOutput('FAIL broken\nRESULT: 1 check failed\ntrailing text\n', { re, skip });
+  assert.equal(result.checks.length, 1);
+  assert.equal(result.checks[0].message, 'broken', 'text after the skipped line must not be folded in');
+});
+
+test('default options are unchanged: no skip, indent required', () => {
+  const result = parseHelperCheckOutput('  FAIL broken\nRESULT: 1 check failed\n');
+  assert.equal(result.checks[0].message, 'broken\nRESULT: 1 check failed');
+});
+
 // --- verify-served-cert.sh ---------------------------------------------------
 // Structural/regex assertions only, deliberately not exact check counts: the
 // count assertion above is precisely why any wording change forces test edits.
