@@ -24,7 +24,12 @@ Start the wizard, sign in with its access token and choose **Monitoring** in the
 
 ## Overview
 
-A table of every service in the active compose profiles, refreshed every 10 seconds:
+A table of every service in the active compose profiles, refreshed every 10 seconds, with cards for
+alerts, the certificate, disk and the receive-back buffer below it:
+
+![Monitoring Overview: a table of seven healthy services and cards for alerts, certificate, disk and the receive-back buffer](images/monitoring/monitoring-overview.png)
+
+The screenshots on this page show a sample deployment with example data.
 
 | Column | Meaning |
 |---|---|
@@ -44,6 +49,8 @@ Cards above the table summarise alerts, certificate expiry, disk use and the rec
 ## Logs
 
 Read a service's log in the browser.
+
+![Monitoring Logs: a live ps-server log with error lines in red and warnings in amber](images/monitoring/monitoring-logs.png)
 
 | Control | What it does |
 |---|---|
@@ -76,6 +83,8 @@ docker compose logs --tail 200 --since 1h ps-server
 A history of documents through ps-server, built from its signing audit log
 ([9.13 Signing activity log](09-13-signing-activity-log.md)). Each row is one document:
 
+![Monitoring Signing activity: counts of completed and failed documents, filters, and a table of documents with one failed document expanded to show its event timeline](images/monitoring/monitoring-signing-activity.png)
+
 | Column | Meaning |
 |---|---|
 | Last event | Time of the document's latest event, in UTC |
@@ -100,6 +109,8 @@ directory, or nothing has been signed yet. [9.13](09-13-signing-activity-log.md)
 Five read-only checks, each with a **Run** button. A run shows its result as rows marked OK, WARN or
 FAIL, the same as the script's own output.
 
+![Monitoring Diagnostics: the deployed certificate check with its OK rows and one WARN, the alert thresholds check, and the support bundle card](images/monitoring/monitoring-diagnostics.png)
+
 | Check | Script the wizard runs | Same check by hand |
 |---|---|---|
 | Configuration | `validate-config.sh` | `./installation-scripts/validate-config.sh --host padsign.example.com` ([5.2](05-02-validating-configuration.md)) |
@@ -120,6 +131,8 @@ None of the checks changes anything. Below them is the [Support bundle](#support
 notice. Confirming runs `installation-scripts/restart-service.sh`, which does a
 `docker compose restart` of that one service, keeping the container and its log, and then waits until
 the service is healthy again. The wizard cannot restart itself.
+
+![The confirmation dialog for restarting ps-server, warning that any document being signed is interrupted](images/monitoring/monitoring-restart-confirm.png)
 
 | Service | What users see while it restarts |
 |---|---|
