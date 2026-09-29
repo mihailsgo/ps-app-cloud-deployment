@@ -72,6 +72,18 @@ test('runMonitorStatus(): a timeout-style rejection (no stderr) still resolves o
   assert.equal(typeof result.error, 'string');
 });
 
+test('runMonitorStatus(): the error never carries the script path or arguments', async () => {
+  const exec = async () => {
+    const err = new Error('Command failed: bash /opt/padsign/installation-scripts/monitor-status.sh --format json --host h');
+    err.code = 127;
+    throw err;
+  };
+  const result = await runMonitorStatus({ exec });
+  assert.equal(result.ok, false);
+  assert.ok(!result.error.includes('/opt/padsign'), result.error);
+  assert.match(result.error, /exited with code 127/);
+});
+
 test('runMonitorStatus(): passes --host only when a host is given', async () => {
   let seenArgs;
   const exec = async (cmd, args) => {

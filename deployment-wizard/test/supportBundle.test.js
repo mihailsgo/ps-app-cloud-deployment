@@ -187,6 +187,18 @@ test('createBundle(): rejects with the script\'s ERROR:/stderr line when exec() 
   assert.equal(isBundleRunning(), false);
 });
 
+test('createBundle(): a rejection with no stderr is reported without the command line', async () => {
+  const exec = async () => {
+    const err = new Error('Command failed: bash /opt/padsign/installation-scripts/support-bundle.sh --since 24h');
+    err.code = 1;
+    throw err;
+  };
+  await assert.rejects(() => createBundle({ exec, dir: tmpDir() }), (err) => {
+    assert.equal(err.message, 'exited with code 1');
+    return true;
+  });
+});
+
 test('createBundle(): a second concurrent call rejects with BUNDLE_IN_PROGRESS; flag clears once the first settles', async () => {
   const dir = tmpDir();
   const name = 'padsign-support-h-20260929T100000Z.tar.gz';

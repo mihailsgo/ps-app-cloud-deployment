@@ -5,6 +5,7 @@ const path = require('path');
 
 const { HOST_PROJECT_DIR, projectPath } = require('./paths');
 const { parseHelperCheckOutput } = require('./outputParser');
+const { describeExecFailure } = require('./execError');
 
 const BUNDLE_DIR = projectPath('support-bundles');
 const SUPPORT_BUNDLE_SCRIPT = projectPath('installation-scripts', 'support-bundle.sh');
@@ -39,21 +40,6 @@ function parseBundleOutput(stdout) {
     if (m) bundlePath = m[1].trim(); // keep the LAST match, in case of a retry line earlier
   }
   return { path: bundlePath, checks: parseHelperCheckOutput(text).checks };
-}
-
-// Picks the clearest single line to surface when exec() itself rejects
-// (bad args, timeout, missing script): the LAST explicit ERROR: line stderr
-// contains, else the last non-empty stderr line, else the raw Error's own
-// message.
-function describeExecFailure(err) {
-  const stderrLines = String((err && err.stderr) || '')
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter(Boolean);
-  const lastError = [...stderrLines].reverse().find((l) => l.startsWith('ERROR:'));
-  if (lastError) return lastError;
-  if (stderrLines.length) return stderrLines[stderrLines.length - 1];
-  return (err && err.message) || 'support-bundle.sh failed';
 }
 
 // The download route hands whatever this resolves to straight to a browser,
@@ -116,6 +102,9 @@ async function createBundle({ host, since = '24h', exec, dir = BUNDLE_DIR } = {}
       });
       stdout = result.stdout;
     } catch (err) {
+      // Any rejection is fatal by design: support-bundle.sh exits 0 when the
+      // bundle was written (individual items may only WARN), 1 when the
+      // archive could NOT be written, 2 on a usage error.
       throw new Error(describeExecFailure(err));
     }
 

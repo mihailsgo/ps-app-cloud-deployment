@@ -5,6 +5,7 @@ const { promisify } = require('util');
 const execFileP = promisify(execFile);
 
 const { HOST_PROJECT_DIR, projectPath } = require('./paths');
+const { describeExecFailure } = require('./execError');
 
 const MONITOR_STATUS_SCRIPT = projectPath('installation-scripts', 'monitor-status.sh');
 
@@ -16,19 +17,6 @@ const FAIL_ALERT_KEYS = new Set(['service_down', 'service_unhealthy']);
 
 function alertSeverity(key) {
   return FAIL_ALERT_KEYS.has(key) ? 'fail' : 'warn';
-}
-
-// Picks the clearest single line to show an operator out of a failed exec():
-// an explicit stderr line (monitor-status.sh's own usage errors go to
-// stderr), falling back to the Error's own message (a Node-level failure
-// such as ENOENT or a timeout never populates stderr at all).
-function describeExecFailure(err) {
-  const stderrLines = String((err && err.stderr) || '')
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter(Boolean);
-  if (stderrLines.length) return stderrLines[0];
-  return (err && err.message) || 'monitor-status.sh could not be run';
 }
 
 // Runs monitor-status.sh --format json and parses its single JSON document.

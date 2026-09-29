@@ -9,6 +9,7 @@ const { validateConfig } = require('./configValidator');
 const { checkLiveCert, checkServedCert } = require('./certValidator');
 const { runMonitorStatus, alertSeverity } = require('./monitorStatus');
 const { parseHelperCheckOutput } = require('./outputParser');
+const { describeExecFailure } = require('./execError');
 
 const VERIFY_KEYCLOAK_SCRIPT = projectPath('installation-scripts', 'verify-keycloak.sh');
 
@@ -167,7 +168,7 @@ async function runCheck(id, { host, companyRole, deps = {} } = {}) {
   } catch (err) {
     // Never reject for a known id — a broken runner degrades to a single
     // warn row so the Diagnostics tab can always render a card.
-    return finish([{ status: 'warn', message: `${def.label} could not be run: ${err.message}` }]);
+    return finish([{ status: 'warn', message: `${def.label} could not be run: ${describeExecFailure(err)}` }]);
   }
 }
 

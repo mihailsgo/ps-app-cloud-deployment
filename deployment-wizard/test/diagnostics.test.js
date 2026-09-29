@@ -177,6 +177,18 @@ test('runCheck(): a runner throwing degrades to a single warn row; passed stays 
   assert.match(result.checks[0].message, /Configuration could not be run: boom/);
 });
 
+test('runCheck(): a failed exec is reported without the command line', async () => {
+  const exec = async () => {
+    const err = new Error('Command failed: bash /opt/padsign/installation-scripts/verify-keycloak.sh --host h --company-role R');
+    err.code = 2;
+    throw err;
+  };
+  const result = await runCheck('keycloak', { host: 'padsign.example.com', companyRole: 'R', deps: { exec } });
+  assert.equal(result.checks.length, 1);
+  assert.ok(!result.checks[0].message.includes('/opt/padsign'), result.checks[0].message);
+  assert.match(result.checks[0].message, /Keycloak realm and clients could not be run: exited with code 2/);
+});
+
 test('runCheck("alerts"): {ok:false} from runMonitorStatus becomes a single warn row', async () => {
   const runMonitorStatus = async () => ({ ok: false, error: 'x' });
   const result = await runCheck('alerts', { deps: { runMonitorStatus } });
