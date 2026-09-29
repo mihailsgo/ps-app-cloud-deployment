@@ -181,7 +181,7 @@ services:
       retries: 10
       start_period: 300s   # JVM: see dmss-container-and-signature-services for the numbers
   ps-server:
-    image: 'mihailsgordijenko/ps-server:3.32@sha256:cff423bcfc97f3e62e3076259f7a52962c167fe784efb47d663ae2926b403887'
+    image: 'mihailsgordijenko/ps-server:3.34@sha256:140ba74ec1b4f5abd419f28c96022a52bb25e71d2183383a5e7ff76077f9f1e6'
     container_name: ps-server
     # No host port mapping: nginx reaches this by service name on the Docker
     # network (see nginx/nginx.conf `/api/`). Nothing else in this repo needs
@@ -218,7 +218,7 @@ services:
       retries: 10
       start_period: 30s
   nginx:
-    image: nginx:1.30.5@sha256:0aa2d81d65bc0cac0407e738b8f07d312c8685a84225fcb4db7bcbdd8c9bdf11
+    image: nginx:1.30.5@sha256:b972f831f200b19ef0767938224f9711e74cd783718738cd7405d5cabf75c442
     container_name: nginx
     ports:
       - "80:80"
@@ -250,7 +250,7 @@ services:
       start_period: 20s
 
   ps-client:
-    image: mihailsgordijenko/ps-client:8.40@sha256:3293190b9c4c478de62b453006982dcd821d683fc987a38c944cb47d02d79b1e
+    image: mihailsgordijenko/ps-client:8.41@sha256:c328c6e3de0280817d736b1d96204a9826c3609d546d3b09cd3e6eb7591a81ea
     container_name: ps-client
     restart: unless-stopped
     logging: *default-logging
@@ -293,7 +293,7 @@ services:
   # `docker logs` on every start — see documentation/03-03-how-the-wizard-works.md.
   # ─────────────────────────────────────────────────────────────────────────
   wizard:
-    image: mihailsgordijenko/padsign-wizard:0.1.1@sha256:a0301d7d721bf321652bc636db1738c3383732e37543fe1d84e89613f9dc91e8
+    image: mihailsgordijenko/padsign-wizard:0.2.0@sha256:83dc831dd53e7e667c8f9b77f319111f079207d85070eee920437d4b5a92dc3b
     container_name: padsign-wizard
     profiles: ["wizard"]
     restart: unless-stopped

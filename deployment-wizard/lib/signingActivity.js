@@ -11,7 +11,7 @@ const { HOST_PROJECT_DIR } = require('./paths');
 const { readImageTags } = require('./dockerFacts');
 
 // Turns ps-server's per-line signing audit log (config/config.js AUDIT_LOG,
-// ps-server 3.33+) into the "Signing activity" tab: tiles, filters, a paged
+// ps-server 3.34+) into the "Signing activity" tab: tiles, filters, a paged
 // per-document table with an event timeline, and CSV export. Read-only —
 // this module never writes to the log or to any deployment file.
 

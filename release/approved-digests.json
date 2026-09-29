@@ -29,24 +29,24 @@
     },
     "ps-server": {
       "repository": "mihailsgordijenko/ps-server",
-      "tag": "3.32",
-      "digest": "sha256:cff423bcfc97f3e62e3076259f7a52962c167fe784efb47d663ae2926b403887"
+      "tag": "3.34",
+      "digest": "sha256:140ba74ec1b4f5abd419f28c96022a52bb25e71d2183383a5e7ff76077f9f1e6"
     },
     "ps-client": {
       "repository": "mihailsgordijenko/ps-client",
-      "tag": "8.40",
-      "digest": "sha256:3293190b9c4c478de62b453006982dcd821d683fc987a38c944cb47d02d79b1e"
+      "tag": "8.41",
+      "digest": "sha256:c328c6e3de0280817d736b1d96204a9826c3609d546d3b09cd3e6eb7591a81ea"
     },
     "nginx": {
       "repository": "nginx",
       "tag": "1.30.5",
-      "digest": "sha256:0aa2d81d65bc0cac0407e738b8f07d312c8685a84225fcb4db7bcbdd8c9bdf11",
+      "digest": "sha256:b972f831f200b19ef0767938224f9711e74cd783718738cd7405d5cabf75c442",
       "why": "Pinned to nginx's 'stable' release line, not 'latest'/'mainline'. 'latest' resolved to 1.31.6 (mainline) at the time this was pinned - mainline gets new features and is not the line nginx recommends for production. Re-pin to a newer 1.30.x stable release, not to mainline, when updating."
     },
     "wizard": {
       "repository": "mihailsgordijenko/padsign-wizard",
-      "tag": "0.1.1",
-      "digest": "sha256:a0301d7d721bf321652bc636db1738c3383732e37543fe1d84e89613f9dc91e8"
+      "tag": "0.2.0",
+      "digest": "sha256:83dc831dd53e7e667c8f9b77f319111f079207d85070eee920437d4b5a92dc3b"
     }
   }
 }

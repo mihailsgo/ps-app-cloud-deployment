@@ -242,7 +242,7 @@ capability_min() {  # <repo> <capability> <component>: through lib/capabilities.
 check "release/capabilities.json has a signing-audit entry" \
   python3 -c 'import json, sys; json.load(open(sys.argv[1]))["capabilities"]["signing-audit"]' \
   "$(native "${pristine}/release/capabilities.json")"
-check "... which lib/capabilities.sh reads as ps-server 3.33" test "$(capability_min "$pristine" signing-audit ps-server)" = 3.33
+check "... which lib/capabilities.sh reads as ps-server 3.34" test "$(capability_min "$pristine" signing-audit ps-server)" = 3.34
 
 if [[ "$linux" != true ]]; then
   echo ""

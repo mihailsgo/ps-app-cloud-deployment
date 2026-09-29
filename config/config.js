@@ -113,7 +113,7 @@
 
     // ── Signing audit log ──
     // One JSON line per signing event (registered, signed, sealed, failed),
-    // appended to <dir>/audit-YYYY-MM.jsonl by ps-server 3.33 and newer.
+    // appended to <dir>/audit-YYYY-MM.jsonl by ps-server 3.34 and newer.
     // Read by the Deployment Wizard's Monitoring > Signing activity page.
     // Holds signer e-mail addresses: see
     // documentation/09-13-signing-activity-log.md for retention.

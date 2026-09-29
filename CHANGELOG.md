@@ -2,7 +2,7 @@
 
 Release notes for the PadSign deployment package, newest first; versions follow this repository's git tags (`vX.Y.Z`).
 
-## Unreleased
+## v1.0.50 - 2026-09-29
 
 ### Security
 
@@ -25,6 +25,10 @@ Release notes for the PadSign deployment package, newest first; versions follow 
 
 ### Changed
 
+- The release pins `ps-server` 3.34 (from 3.32), `ps-client` 8.41 (from 8.40) and `padsign-wizard` 0.2.0 (from 0.1.1); `release/approved-digests.json` has the digests. `ps-server` 3.34 is the first image that writes the signing audit log: 3.33 was tagged before that work merged, so the `signing-audit` minimum in `release/capabilities.json` is 3.34.
+- `ps-server` 3.33 and later verify access tokens locally against Keycloak's signing keys instead of asking Keycloak to introspect each one, so a Keycloak outage no longer ends API access. `keycloak-connect`, `express-session` and the session cookie are gone: `SESSION_SECRET` is no longer read or required. `GET /save`, `GET /registerUser` and `GET /registerUserPDF` are removed. `POST /demo/upload` answers 404 unless `DEMO_MODE_ENABLED` is true in `config/config.js`; this repository's `config.js` does not set it and `DEMO_MODE` is `DISABLE`, so nothing changes here. `SESSION_SECRET`, `DOCUMENT_OUTPUT_DIRECTORY`, `READONLY_PDF_DIRECTORY` and `ENABLE_PERSONAL_CODE_VALIDATION` may stay in your `config.js`: 3.33 and later ignore them, and a rollback to 3.32 still reads them. ps-server now stops at start-up, with one clear line, when no `config.js` is mounted or when the Keycloak backend secret or `REGISTER_PDF_API_KEY` is empty.
+- `ps-client` 8.41 runs the Syncfusion 34 PDF viewer and needs the new licence key this release ships in `config/constants.json` (see **Upgrade impact** below). It loads the PDF engine from `/portal/` instead of `cdn.syncfusion.com`, and its nginx sends an enforced Content-Security-Policy and the usual security headers (the wildcard CORS headers are gone).
+- `padsign-wizard` 0.2.0 carries the Monitoring pages described under **Added**.
 - The install instructions clone from `https://gitlab.com/trustlynx-public/padsign-2.0.git`.
 - Documentation reorganised into 14 sections in installation order; see [README.md](README.md) for the new map (old section numbers no longer apply).
 - Release tags are read from `release/approved-digests.json` instead of a documentation page.
@@ -44,6 +48,8 @@ Release notes for the PadSign deployment package, newest first; versions follow 
 - `configure-host.sh` and `renew-cert.sh` accept the deployed certificate files (`nginx/certs/<host>.crt` / `.key`) as `--cert-crt` / `--cert-key` instead of stopping with a copy error.
 
 **Upgrade impact:** when you `git stash pop` after pulling this release (documentation/09-05-upgrading.md), `config/config.js` conflicts on the `"secret"` line of `KEYCLOAK_CONFIG` (your deployment's secret against the release's new `CHANGE_ME`): keep your value, as 9.5 describes. existing deployments keep their visual-PDF CA until you run `./installation-scripts/configure-host.sh --host <host> --generate-ca` and `docker compose restart dmss-container-and-signature-services` (`validate-config.sh` warns until then). Signatures made afterwards chain to the new CA; documents signed before keep their chain. If you imported the old CA into a PDF reader's trust store, import the new one. A deployment that used the shared demo e-sealing credentials must put its own in `config/config.js` (the demo credentials were public and can be withdrawn at any time), then `docker compose restart ps-server`. Deployments on local e-sealing (`STAMP_MODE: "local"`) are unaffected by the e-sealing change. After the upgrade the Deployment Wizard is reachable only through the SSH tunnel (`ssh -L 8443:localhost:8443 <user>@<host>`) unless you set `WIZARD_BIND_ADDRESS` in `.env`; if you set `WIZARD_TLS_SANS` in `docker-compose.yml`, move it to `.env`.
+
+**Upgrade impact (ps-client 8.41):** this release replaces the Syncfusion licence key in `config/constants.json`, so `git stash pop` after the pull conflicts on `PDF_RENDER_SYNCFUSION_SECRET_KEY` (it sits next to `PDF_TEST_PATH`, which your host set): keep the upper key line and the lower `PDF_TEST_PATH` line, as [9.5](documentation/09-05-upgrading.md#new-syncfusion-key-for-ps-client-841) describes. Without the new key the 8.41 viewer shows a licence banner across every document. Rolling `ps-client` back to 8.40 or older needs the old key back: [9.8](documentation/09-08-rollback.md#rolling-ps-client-back-across-the-syncfusion-34-boundary).
 
 ## v1.0.49 - 2026-09-27
 
