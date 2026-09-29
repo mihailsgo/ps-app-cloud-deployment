@@ -1,6 +1,6 @@
 {
   "name": "padsign-deployment-wizard",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
   "description": "Browser-based deployment wizard for PadSign (ps-app-cloud-deployment) — wraps installation-scripts/*.sh, does not replace them.",
   "main": "server.js",
