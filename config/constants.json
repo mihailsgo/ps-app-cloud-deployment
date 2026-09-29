@@ -17,7 +17,7 @@
     "PS_API_FILL_PDF_DEMO": "/api/fillPDFDemo",
     "PS_API_DEMO_UPLOAD_VERSION": "/api/demo/upload/version",
     "PS_API_DEMO_FILL_BY_DOCID": "/api/demo/fill-by-docid",
-    "PDF_RENDER_SYNCFUSION_SECRET_KEY": "Ngo9BigBOggjHTQxAR8/V1NDaF5cWWtCf1FpRmJGdld5fUVHYVZUTXxaS00DNHVRdkdnWXZcc3RQR2FYUUJ3XkA=",
+    "PDF_RENDER_SYNCFUSION_SECRET_KEY": "Ngo9BigBOggjHTQxAR8/V1JAaF5cX2pCd1p/TH5YfUNzdUVEY1ZUTXxaS1ZhSXxVdkxhXn9Yc3JXQmZdVEV9W0A=",
     "PDF_TEST_PATH": "https://padsign.trustlynx.com/template",
     "LV_MONTHS_LIST": [
         "janvāris",
