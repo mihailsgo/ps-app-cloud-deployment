@@ -25,6 +25,34 @@ set -euo pipefail
 # and can compute restart deltas and buffer growth between runs. Report mode
 # never reads or writes it.
 #
+# --format json is report mode for a program (the Deployment Wizard's
+# Monitoring page): the same checks, and the alerts the thresholds would
+# fire, as ONE JSON document on stdout, exit 0. Like report mode it never
+# reads or writes the state file, and it never resolves or posts to a
+# webhook, so it cannot be combined with --alert or --test-webhook. Schema 1:
+#
+#   schema       1
+#   generated    RFC 3339 UTC timestamp;  host  string, or null when unknown
+#   thresholds   {restartDelta, certDays, diskPct, bufferMax,
+#                 bufferMaxAgeHours, failureMin}
+#   services     [{service, state, health, restarts}]; state "missing" (with
+#                health and restarts null) when no container exists; health
+#                "none" for a container without a healthcheck
+#   certificate  {host, path, found, notAfter, daysLeft}; null when the host
+#                is unknown; notAfter and daysLeft null when not found/read
+#   failures     {window, counts: [{key, label, count}]}; null when ps-server
+#                is not running
+#   disk         {stores: [{name, path, exists, size, inTree, volume}],
+#                 filesystems: [{mount, path, usedPct}]}; a named-volume store
+#                has path, exists and size null
+#   buffer       {state, count, oldestAgeHours, error}; state "ok",
+#                "not-in-use" (no filesystem strategy), "not-running"
+#                (ps-server down) or "error"; count and oldestAgeHours are
+#                null unless "ok"
+#   alerts       [{key, message, samples}], as --alert posts them
+#
+# A number that is not an integer where one is expected is null.
+#
 # See documentation/09-10-monitoring-and-alerting.md for thresholds, the
 # payload format and how to point it at Slack/Teams/any HTTP receiver.
 # ============================================================================
@@ -37,6 +65,7 @@ log_lines=500
 since=""
 alert_mode=false
 test_webhook=false
+format="text"
 compose_dir="$repo_root"
 state_dir=""
 
@@ -52,6 +81,9 @@ Usage:
   ./installation-scripts/monitor-status.sh [--host example.com] [--log-lines 500]
                                            [--since 15m|<RFC3339>]
                                            [--alert] [--state-dir DIR]
+                                           [--compose-dir DIR]
+  ./installation-scripts/monitor-status.sh --format json [--host example.com]
+                                           [--log-lines 500] [--since 15m|<RFC3339>]
                                            [--compose-dir DIR]
   ./installation-scripts/monitor-status.sh --test-webhook [--host example.com]
                                            [--compose-dir DIR]
@@ -71,6 +103,12 @@ Reports:
                header --alert uses, print the HTTP status and exit: 0 delivered
                (2xx), 3 not delivered, 2 not configured. Checks nothing else
                and needs no running stack.
+--format       text (default): the report above. json: the same report, and the
+               alerts the thresholds would fire, as one JSON document on stdout
+               (schema 1, described in this script's header), for programs such
+               as the Deployment Wizard. Read-only like the text report: never
+               reads or writes --state-dir, never posts to a webhook, exits 0.
+               Cannot be combined with --alert or --test-webhook.
 --since        Log window for failure counts. Default in --alert mode: since the
                previous run (first run: last --log-lines lines). Default in
                report mode: last --log-lines lines.
@@ -103,7 +141,7 @@ Delivery:
 Exit codes: 0 ok / no alerts, 1 alerts fired, 2 usage error (including an
             unsupported ALERT_WEBHOOK_FORMAT), 3 alerts fired AND webhook
             delivery failed. --test-webhook: 0 delivered, 2 not configured,
-            3 not delivered.
+            3 not delivered. --format json: 0, or 2 usage error.
 EOF
 }
 
@@ -114,12 +152,22 @@ while [[ $# -gt 0 ]]; do
     --since) since="${2:-}"; shift 2;;
     --alert) alert_mode=true; shift 1;;
     --test-webhook) test_webhook=true; shift 1;;
+    --format) format="${2:-}"; shift $(( $# >= 2 ? 2 : 1 ));;
     --state-dir) state_dir="${2:-}"; shift 2;;
     --compose-dir) compose_dir="${2:-}"; shift 2;;
     -h|--help) usage; exit 0;;
     *) echo "ERROR: Unknown arg: $1" >&2; usage; exit 2;;
   esac
 done
+
+case "$format" in
+  text|json) ;;
+  *) echo "ERROR: --format must be text or json (got '${format}')." >&2; exit 2;;
+esac
+if [[ "$format" == json && ( "$alert_mode" == true || "$test_webhook" == true ) ]]; then
+  echo "ERROR: --format json is read-only; it cannot be combined with --alert or --test-webhook." >&2
+  exit 2
+fi
 
 if [[ ! -d "$compose_dir" ]]; then
   echo "ERROR: --compose-dir '${compose_dir}' does not exist." >&2
@@ -129,6 +177,13 @@ compose_dir="$(cd "$compose_dir" && pwd)"
 # docker compose resolves the project from the working directory - run every
 # compose call from there, not from wherever cron happened to start us.
 cd "$compose_dir"
+
+# --format json: the report below still runs as it is, its text going
+# nowhere; the values it computes are collected on the way and printed as
+# one JSON document on the original stdout (fd 3) where the text report ends.
+if [[ "$format" == json ]]; then
+  exec 3>&1 1>/dev/null
+fi
 
 [[ -z "$state_dir" ]] && state_dir="${repo_root}/.monitor-state"
 state_file="${state_dir}/state"
@@ -240,15 +295,19 @@ fi
 echo "== Container health & restarts =="
 printf '  %-40s %-12s %-12s %-10s\n' "SERVICE" "STATE" "HEALTH" "RESTARTS"
 unhealthy_count=0
+# For --format json: one entry per service, in report order.
+svc_names=(); svc_states=(); svc_healths=(); svc_restarts=()
 for svc in "${services[@]}"; do
   cid="$(docker compose ps -a -q "$svc" 2>/dev/null | head -1 || true)"
   if [[ -z "$cid" ]]; then
     printf '  %-40s %-12s %-12s %-10s\n' "$svc" "missing" "-" "-"
+    svc_names+=("$svc"); svc_states+=("missing"); svc_healths+=(""); svc_restarts+=("")
     add_alert "service_down" "${svc}: no container exists (expected under the current compose profiles)"
     continue
   fi
   read -r state health restarts < <(docker inspect --format '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} {{.RestartCount}}' "$cid" 2>/dev/null || echo "unknown unknown 0")
   printf '  %-40s %-12s %-12s %-10s\n' "$svc" "$state" "$health" "$restarts"
+  svc_names+=("$svc"); svc_states+=("$state"); svc_healths+=("$health"); svc_restarts+=("$restarts")
 
   next["container.${svc}"]="$cid"
   next["restarts.${svc}"]="$restarts"
@@ -281,6 +340,7 @@ fi
 # ── Certificate ──
 echo "== Certificate expiry =="
 crt="${compose_dir}/nginx/certs/${host}.crt"
+enddate=""; days_left=""
 if [[ -n "$host" && -f "$crt" ]]; then
   enddate="$(openssl x509 -in "$crt" -noout -enddate 2>/dev/null | cut -d= -f2 || true)"
   end_epoch="$(date -d "$enddate" +%s 2>/dev/null || echo "")"
@@ -319,6 +379,7 @@ circuit_re='\[circuit:open\]'
 
 echo "== Stamping / archive / routing failure signals (${log_window_desc}) =="
 ps_server_cid="$(docker compose ps -q ps-server 2>/dev/null | head -1 || true)"
+fail_keys=(); fail_labels=(); fail_counts=()   # for --format json
 if [[ -n "$ps_server_cid" ]]; then
   recent_logs="$(docker compose logs --no-color "${log_window_args[@]}" ps-server 2>/dev/null || true)"
   matches() { printf '%s\n' "$recent_logs" | grep -E "$1" || true; }
@@ -338,6 +399,7 @@ if [[ -n "$ps_server_cid" ]]; then
     fi
     n="$(count_of "$lines")"
     printf '  %-34s %s\n' "$label" "$n"
+    fail_keys+=("$key"); fail_labels+=("$label"); fail_counts+=("$n")
     if [[ "$n" -ge "$failure_min" ]]; then
       add_alert "$key" "${label}: ${n} ${log_window_desc}" "$(samples_of "$lines")"
     fi
@@ -366,22 +428,31 @@ if command -v python3 >/dev/null 2>&1; then
   store_mounts="$(python3 "${scripts_dir}/lib/digest_gate.py" mounts "$compose_dir" 2>/dev/null | tr -d '\r' || true)"
 fi
 store_dirs=()
+# For --format json: one entry per store. exists is true/false, empty for a
+# named volume.
+store_names=(); store_paths=(); store_exists=(); store_sizes=(); store_in_tree=(); store_volume=()
 for store in "ps-server /signed-output signed-output" "dmss-archive-services-fallback /docs docs"; do
   read -r store_svc store_target store_name <<< "$store"
   # storage_mount resolves in-tree mounts against repo_root: here, the
   # directory the model was read from.
   repo_root="$compose_dir" storage_mount "$store_svc" "$store_target" "${compose_dir}/${store_name}" "$store_mounts"
+  store_names+=("$store_name")
   if [[ "$storage_how" == volume ]]; then
     echo "  ${store_name}: a named Docker volume (no host directory) - see 'docker system df -v'"
+    store_paths+=(""); store_exists+=(""); store_sizes+=(""); store_in_tree+=(false); store_volume+=(true)
     continue
   fi
   where=""
   [[ "$storage_in_tree" == true ]] || where=" (${store_name}, mounted from outside the checkout)"
+  store_paths+=("$storage_path"); store_in_tree+=("$storage_in_tree"); store_volume+=(false)
   if [[ -d "$storage_path" ]]; then
-    echo "  ${storage_path}: $(du -sh "$storage_path" 2>/dev/null | cut -f1 || echo "?")${where}"
+    store_size="$(du -sh "$storage_path" 2>/dev/null | cut -f1 || echo "?")"
+    echo "  ${storage_path}: ${store_size}${where}"
     store_dirs+=("$storage_path")
+    store_exists+=(true); store_sizes+=("${store_size%%$'\n'*}")
   else
     echo "  ${storage_path}: does not exist${where}"
+    store_exists+=(false); store_sizes+=("")
   fi
 done
 docker_root="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || true)"
@@ -389,11 +460,13 @@ docker_root="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || true)"
 disk_paths=("$compose_dir" ${store_dirs[@]+"${store_dirs[@]}"})
 [[ -n "$docker_root" && -d "$docker_root" ]] && disk_paths+=("$docker_root")
 declare -A seen_fs=()
+fs_mounts=(); fs_paths=(); fs_pcts=()   # for --format json
 for p in "${disk_paths[@]}"; do
   read -r fs_name pct mount < <(df -P "$p" 2>/dev/null | awk 'NR==2{gsub("%","",$5); print $1, $5, $6}' || true)
   [[ -z "${pct:-}" || -n "${seen_fs[$fs_name]:-}" ]] && continue
   seen_fs[$fs_name]=1
   echo "  filesystem ${mount} (${p}): ${pct}% used"
+  fs_mounts+=("$mount"); fs_paths+=("$p"); fs_pcts+=("$pct")
   if [[ "$pct" =~ ^[0-9]+$ && "$pct" -ge "$disk_pct_max" ]]; then
     add_alert "disk_pressure" "filesystem ${mount} holding ${p} is ${pct}% full (threshold ${disk_pct_max}%)"
   fi
@@ -443,6 +516,8 @@ console.log("roots="+roots.join(","));
 console.log("count="+count);
 console.log("oldest_age_hours="+(oldest===null?"":Math.floor((Date.now()-oldest)/3600000)));
 '
+# For --format json: ok | not-in-use | not-running | error.
+buffer_state="not-running"; buffer_error=""; buffer_count=""; buffer_age=""
 if [[ -n "$ps_server_cid" ]]; then
   # MSYS_NO_PATHCONV stops Git Bash (Windows dev hosts) from rewriting the
   # script's /usr/... literals; it is ignored everywhere else.
@@ -450,13 +525,16 @@ if [[ -n "$ps_server_cid" ]]; then
   buffer_error="$(printf '%s\n' "$buffer_out" | sed -n 's/^error=//p')"
   if [[ -n "$buffer_error" ]]; then
     echo "  Could not read buffer: ${buffer_error}"
+    buffer_state="error"
   else
     buffer_roots="$(printf '%s\n' "$buffer_out" | sed -n 's/^roots=//p')"
     buffer_count="$(printf '%s\n' "$buffer_out" | sed -n 's/^count=//p')"
     buffer_age="$(printf '%s\n' "$buffer_out" | sed -n 's/^oldest_age_hours=//p')"
     if [[ -z "$buffer_roots" ]]; then
       echo "  No enabled filesystem routing strategy - receive-back buffer not in use"
+      buffer_state="not-in-use"
     else
+      buffer_state="ok"
       echo "  Scan roots (inside ps-server): ${buffer_roots}"
       echo "  Unacknowledged entries: ${buffer_count}"
       echo "  Oldest unacknowledged:  $([[ -n "$buffer_age" ]] && echo "${buffer_age}h old" || echo "n/a")"
@@ -476,6 +554,90 @@ else
   echo "  ps-server not running - buffer not checked"
 fi
 echo ""
+
+# ── --format json ──
+# The values collected above, in the schema described in the header. Strings
+# go through json_str (lib/alert-webhook.sh); a value that should be an
+# integer and is not becomes null.
+json_int() {  # <value> [signed]
+  local v="$1" sign=""
+  if [[ "${2:-}" == signed && "$v" == -?* ]]; then sign="-"; v="${v:1}"; fi
+  if [[ ! "$v" =~ ^[0-9]+$ ]]; then printf 'null'; return 0; fi
+  v="${v#"${v%%[!0]*}"}"   # 007 is not a JSON number
+  if [[ -z "$v" ]]; then v=0; sign=""; fi
+  printf '%s%s' "$sign" "$v"
+}
+json_str_or_null() { if [[ -n "$1" ]]; then json_str "$1"; else printf 'null'; fi; }
+json_bool() { if [[ "$1" == true ]]; then printf 'true'; else printf 'false'; fi; }
+
+if [[ "$format" == json ]]; then
+  j_services=""
+  for ((i = 0; i < ${#svc_names[@]}; i++)); do
+    if [[ "${svc_states[$i]}" == missing ]]; then
+      j_health=null; j_restarts=null
+    else
+      j_health="$(json_str "${svc_healths[$i]}")"; j_restarts="$(json_int "${svc_restarts[$i]}")"
+    fi
+    j_services+="${j_services:+,}{\"service\":$(json_str "${svc_names[$i]}"),\"state\":$(json_str "${svc_states[$i]}"),\"health\":${j_health},\"restarts\":${j_restarts}}"
+  done
+
+  j_certificate=null
+  if [[ -n "$host" ]]; then
+    j_found=false; [[ -f "$crt" ]] && j_found=true
+    j_certificate="{\"host\":$(json_str "$host"),\"path\":$(json_str "$crt"),\"found\":${j_found},\"notAfter\":$(json_str_or_null "$enddate"),\"daysLeft\":$(json_int "$days_left" signed)}"
+  fi
+
+  j_failures=null
+  if [[ -n "$ps_server_cid" ]]; then
+    j_counts=""
+    for ((i = 0; i < ${#fail_keys[@]}; i++)); do
+      j_counts+="${j_counts:+,}{\"key\":$(json_str "${fail_keys[$i]}"),\"label\":$(json_str "${fail_labels[$i]}"),\"count\":$(json_int "${fail_counts[$i]}")}"
+    done
+    j_failures="{\"window\":$(json_str "$log_window_desc"),\"counts\":[${j_counts}]}"
+  fi
+
+  j_stores=""
+  for ((i = 0; i < ${#store_names[@]}; i++)); do
+    if [[ "${store_volume[$i]}" == true ]]; then
+      j_store_where="\"path\":null,\"exists\":null,\"size\":null"
+    else
+      j_store_where="\"path\":$(json_str "${store_paths[$i]}"),\"exists\":$(json_bool "${store_exists[$i]}"),\"size\":$(json_str_or_null "${store_sizes[$i]}")"
+    fi
+    j_stores+="${j_stores:+,}{\"name\":$(json_str "${store_names[$i]}"),${j_store_where},\"inTree\":$(json_bool "${store_in_tree[$i]}"),\"volume\":$(json_bool "${store_volume[$i]}")}"
+  done
+  j_filesystems=""
+  for ((i = 0; i < ${#fs_mounts[@]}; i++)); do
+    j_filesystems+="${j_filesystems:+,}{\"mount\":$(json_str "${fs_mounts[$i]}"),\"path\":$(json_str "${fs_paths[$i]}"),\"usedPct\":$(json_int "${fs_pcts[$i]}")}"
+  done
+
+  j_buffer_count=null; j_buffer_age=null
+  if [[ "$buffer_state" == ok ]]; then
+    j_buffer_count="$(json_int "$buffer_count")"; j_buffer_age="$(json_int "$buffer_age")"
+  fi
+  j_buffer_error=null
+  [[ "$buffer_state" == error ]] && j_buffer_error="$(json_str "$buffer_error")"
+  j_buffer="{\"state\":$(json_str "$buffer_state"),\"count\":${j_buffer_count},\"oldestAgeHours\":${j_buffer_age},\"error\":${j_buffer_error}}"
+
+  # As --alert posts them: samples one per line, empty lines dropped.
+  j_alerts=""
+  for ((i = 0; i < ${#alert_keys[@]}; i++)); do
+    j_samples=""
+    if [[ -n "${alert_samples[$i]}" ]]; then
+      while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        j_samples+="${j_samples:+,}$(json_str "$line")"
+      done <<< "${alert_samples[$i]}"
+    fi
+    j_alerts+="${j_alerts:+,}{\"key\":$(json_str "${alert_keys[$i]}"),\"message\":$(json_str "${alert_messages[$i]}"),\"samples\":[${j_samples}]}"
+  done
+
+  j_thresholds="{\"restartDelta\":$(json_int "$restart_delta_max"),\"certDays\":$(json_int "$cert_days_min"),\"diskPct\":$(json_int "$disk_pct_max"),\"bufferMax\":$(json_int "$buffer_max"),\"bufferMaxAgeHours\":$(json_int "$buffer_age_max"),\"failureMin\":$(json_int "$failure_min")}"
+
+  printf '{"schema":1,"generated":%s,"host":%s,"thresholds":%s,"services":[%s],"certificate":%s,"failures":%s,"disk":{"stores":[%s],"filesystems":[%s]},"buffer":%s,"alerts":[%s]}\n' \
+    "$(json_str "$run_started")" "$(json_str_or_null "$host")" "$j_thresholds" "$j_services" "$j_certificate" \
+    "$j_failures" "$j_stores" "$j_filesystems" "$j_buffer" "$j_alerts" >&3
+  exit 0
+fi
 
 if [[ "$alert_mode" != true ]]; then
   echo "================================"
