@@ -149,6 +149,17 @@ Resolve each conflicted file by hand:
   user, the backend client secret, `REGISTER_PDF_API_KEY(S)`,
   `SESSION_SECRET`, certificate paths, e-sealing credentials, and feature
   settings (`DEMO_MODE`, `DOCUMENT_ROUTING`, `STAMP_MODE`, `STAMP_LOCAL`);
+- **keep the host's DMSS addresses** in `config/config.js`
+  (`ARCHIVE_API_BASE_URL`, `CREATE_DOCUMENT_API_URL`,
+  `DOCUMENT_DOWNLOAD_API_URL`, `VISUAL_SIGNATURE_API_TEMPLATE`,
+  `FORM_FILL_API_URL`). The release ships them as in-network addresses, a host
+  installed earlier has the public form on the same lines, and keeping yours
+  is what leaves ps-server on the public addresses until you switch with
+  `upgrade.sh --use-internal-dmss-urls`
+  ([7.4](07-04-server-config-js.md#how-ps-server-reaches-the-dmss-services)).
+  Drop the release's new `ARCHIVE_PUBLIC_BASE_URL` key with its comment
+  lines: it names the demo host, and a host on the public addresses does not
+  need it;
 - **take the release's version** of everything else: new keys, comments,
   health checks, and the `image:` lines (they are the release's approved
   pins, the tags you pass to `upgrade.sh`);
@@ -290,6 +301,9 @@ image change (from the running tag to the new one) and every configuration
 migration that would run, with the exact text it would add. For a routine
 release it normally ends with *No configuration changes*. Add
 `--enable-local-eseal` to see what enabling local e-sealing would change.
+A plain upgrade never changes how ps-server reaches the DMSS services; a host
+that runs on the public addresses switches when you decide to
+([7.4](07-04-server-config-js.md#how-ps-server-reaches-the-dmss-services)).
 How to read the output: [9.7](09-07-previewing-upgrade-changes.md).
 
 A tag the new `release/approved-digests.json` does not approve is refused
@@ -367,6 +381,7 @@ has no rollback button: use `rollback.sh` on the host
 |---|---|
 | `--server-tag X` / `--client-tag Y` | The ps-server / ps-client tag to move to. Either alone is valid |
 | `--enable-local-eseal` | Also provision local e-sealing; valid on its own ([10.4 Existing deployment](10-04-existing-deployment.md)) |
+| `--use-internal-dmss-urls` / `--use-public-dmss-urls` | Switch the five DMSS addresses in `config.js` to the in-network form, or back to the public one. Valid on its own, never part of a plain upgrade, and not combined with each other ([7.4](07-04-server-config-js.md#how-ps-server-reaches-the-dmss-services)) |
 | `--plan-only [--plan-format text\|machine]` | Preview only ([9.7](09-07-previewing-upgrade-changes.md)) |
 | `--require-capability NAME` | Refuse unless the resulting tags are new enough for a capability in `release/capabilities.json`, e.g. `closable-download-route` before closing the download route ([6.1 Route protection](06-01-route-protection.md)). Repeatable |
 | `--health-timeout N` | Seconds to wait for the restarted services to be healthy (default 480) |

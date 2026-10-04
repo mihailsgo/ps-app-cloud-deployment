@@ -8,7 +8,9 @@ change it.
 ## Client (`config/constants.json`)
 
 - Keycloak: `KEYCLOAK_URL`, `KEYCLOAK_REALM`, `KEYCLOAK_CLIENT_ID`,
-  `KEYCLOAK_REDIRECT_URI`, `KEYCLOAK_POST_LOGOUT_REDIRECT_URI`
+  `KEYCLOAK_REDIRECT_URI`, `KEYCLOAK_POST_LOGOUT_REDIRECT_URI` (the three
+  URLs may be left out for a ps-client that defaults them to its own origin:
+  [7.3](07-03-client-constants-json.md#authentication-keycloak))
 - Document polling: `PS_API_ACTUAL_USER` (polls `/api/latestUser`),
   `USER_POLLING_FREQUENCY`
 - Viewer download: `PS_DOWNLOAD_API`
@@ -31,7 +33,10 @@ Full list: [7.3](07-03-client-constants-json.md).
 - Integration API key: `REGISTER_PDF_API_KEY` (optionally per-company
   `REGISTER_PDF_API_KEYS`)
 - DMSS services: `ARCHIVE_API_BASE_URL`, `CREATE_DOCUMENT_API_URL`,
-  `DEFAULT_DOCUMENT_JSON`, `VISUAL_SIGNATURE_API_TEMPLATE`
+  `DOCUMENT_DOWNLOAD_API_URL`, `VISUAL_SIGNATURE_API_TEMPLATE`,
+  `FORM_FILL_API_URL` (in-network addresses by default; the optional
+  `ARCHIVE_PUBLIC_BASE_URL` is what webhook payloads carry as `archiveUrl`),
+  `DEFAULT_DOCUMENT_JSON`
 - E-sealing: `STAMP_MODE` (`"external"` when absent, or `"local"`), with
   `STAMP_API_URL` / `STAMP_API_KEY` / `STAMP_COMPANY_ID` /
   `STAMP_COMPANY_SECRET` for external mode, or `STAMP_LOCAL` for local mode
@@ -97,9 +102,10 @@ e-sealing values come from your provider:
 ```js
 module.exports = {
   PORT: 3001,
-  ARCHIVE_API_BASE_URL: "https://padsign.example.com/archive/api/",
-  CREATE_DOCUMENT_API_URL: "https://padsign.example.com/archive/api/document/create",
-  VISUAL_SIGNATURE_API_TEMPLATE: "https://padsign.example.com/container/api/signing/visual/pdf/{docid}/sign",
+  ARCHIVE_API_BASE_URL: "http://dmss-archive-services:8090/api/",
+  CREATE_DOCUMENT_API_URL: "http://dmss-archive-services:8090/api/document/create",
+  VISUAL_SIGNATURE_API_TEMPLATE: "http://dmss-container-and-signature-services:8092/api/signing/visual/pdf/{docid}/sign",
+  ARCHIVE_PUBLIC_BASE_URL: "https://padsign.example.com/archive/api/",
   STAMP_MODE: "external",
   STAMP_API_URL: "<e-seal endpoint from your provider>",
   STAMP_API_KEY: "<e-seal-api-key>",

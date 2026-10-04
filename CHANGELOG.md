@@ -2,6 +2,22 @@
 
 Release notes for the PadSign deployment package, newest first; versions follow this repository's git tags (`vX.Y.Z`).
 
+## Unreleased
+
+### Added
+
+- `upgrade.sh --use-internal-dmss-urls` switches the five DMSS addresses in `config/config.js` (`ARCHIVE_API_BASE_URL`, `CREATE_DOCUMENT_API_URL`, `DOCUMENT_DOWNLOAD_API_URL`, `VISUAL_SIGNATURE_API_TEMPLATE`, `FORM_FILL_API_URL`) from `https://<host>/archive/api/...` and `/container/api/...` to the in-network addresses (`http://dmss-archive-services:8090/api/...`, `http://dmss-container-and-signature-services:8092/api/...`), adds `ARCHIVE_PUBLIC_BASE_URL` with the public archive address you had, and recreates ps-server. `--use-public-dmss-urls` reverses it. Both are idempotent, preview with `--plan-only`, leave an address of your own alone, and are never part of a plain upgrade. See [7.4](documentation/07-04-server-config-js.md#how-ps-server-reaches-the-dmss-services).
+- Two capabilities in `release/capabilities.json` that no released image has yet, marked `unreleased` with the newest tag known to lack them instead of a minimum: `dmss-internal-urls` (ps-server: `ARCHIVE_PUBLIC_BASE_URL`, the public archive address in webhook payloads) and `client-origin-defaults` (ps-client: `constants.json` without the Keycloak URL keys). `upgrade.sh --use-internal-dmss-urls` and `--require-capability dmss-internal-urls` refuse until a ps-server newer than the one named is in use, with a message saying so.
+- [6.1](documentation/06-01-route-protection.md#closing-the-routes-after-switching-ps-server-to-in-network-addresses): how to close `/archive/api/` and `/container/api/` at nginx once ps-server uses the in-network addresses, leaving only the browser's token-authenticated PDF download.
+
+### Changed
+
+- `config/config.js` ships the in-network DMSS addresses and `ARCHIVE_PUBLIC_BASE_URL`, so a fresh install has ps-server call the DMSS services directly instead of through nginx and the public hostname. An existing host keeps what it has; nothing changes until you run the switch above. The in-network addresses work with every ps-server image; only the webhook `archiveUrl` needs the `dmss-internal-urls` capability.
+- `validate-config.sh` accepts both address forms, fails a key that holds the other service's address or a public address on another host, and warns about a mix, about an `ARCHIVE_PUBLIC_BASE_URL` on another host, and about an enabled webhook that would send an in-network `archiveUrl`. It also accepts a `constants.json` that leaves out `KEYCLOAK_URL`, `KEYCLOAK_REDIRECT_URI` and `KEYCLOAK_POST_LOGOUT_REDIRECT_URI` when the ps-client defaults them to its own origin, and fails one that does so on a ps-client that does not.
+- `configure-host.sh` writes the three Keycloak URLs into `constants.json` only where the file has them, and keeps a relative `PS_DOWNLOAD_API` / `PDF_TEST_PATH`. `postdeploy-check.sh` counts a key left out of both the on-disk and the served `constants.json` as a match. `diff-baseline-overlay.sh` treats either DMSS address form and `ARCHIVE_PUBLIC_BASE_URL` as expected overlay values.
+
+**Upgrade impact:** when you `git stash pop` after pulling a release with this change, `config/config.js` conflicts on the five DMSS address lines: keep your own lines (that keeps ps-server on the public addresses until you switch) and drop the release's new `ARCHIVE_PUBLIC_BASE_URL` key, as [9.5](documentation/09-05-upgrading.md#when-git-stash-pop-reports-a-conflict) describes.
+
 ## v1.0.50 - 2026-09-29
 
 ### Security

@@ -19,7 +19,8 @@ on a live deployment. It exits `0` after printing the plan, or `2` when a
 tag is not approved or a capability gate fails.
 
 Add `--enable-local-eseal` to see what enabling local e-sealing would
-change. `--plan-format machine` prints a delimiter-framed form for tools
+change, or use `--use-internal-dmss-urls` / `--use-public-dmss-urls` alone to
+see which DMSS addresses in `config.js` would be rewritten. `--plan-format machine` prints a delimiter-framed form for tools
 (the wizard uses it); the default `text` form is for people.
 
 ## Migrations never overwrite your values
@@ -34,6 +35,7 @@ when it is missing:
 | `signing-audit` | `config/config.js` has no `AUDIT_LOG` key at all |
 | `compose-hostname` | Keycloak's `KC_HOSTNAME` or nginx's network alias in `docker-compose.yml` names a different host than `server_name` in `nginx/nginx.conf` |
 | `local-eseal` | only with `--enable-local-eseal`: whichever of its six parts are not in place yet |
+| `dmss-urls` | only with `--use-internal-dmss-urls` / `--use-public-dmss-urls`: the DMSS addresses in `config/config.js` that still hold the other form |
 | `keycloak-backend-audience` | the `padsign-client` access token does not carry `padsign-backend` in its audience |
 
 So a customised `DOCUMENT_ROUTING` block (your own `basePath`,

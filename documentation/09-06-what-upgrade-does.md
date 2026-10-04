@@ -5,9 +5,12 @@ The procedure around it is in [9.5 Upgrading](09-05-upgrading.md).
 
 ```bash
 ./installation-scripts/upgrade.sh [--server-tag X] [--client-tag Y] [--enable-local-eseal]
+./installation-scripts/upgrade.sh --use-internal-dmss-urls | --use-public-dmss-urls
 ```
 
-At least one of the three is required. `--plan-only` stops after the
+At least one of `--server-tag`, `--client-tag`, `--enable-local-eseal`,
+`--use-internal-dmss-urls` and `--use-public-dmss-urls` is required; the last
+two are opposites and are not combined. `--plan-only` stops after the
 checks marked *(also in --plan-only)* below and prints the plan instead
 ([9.7](09-07-previewing-upgrade-changes.md)).
 
@@ -17,9 +20,13 @@ A failure here changes nothing: no snapshot, no backup, no edit, no pull.
 
 1. **Capability gates** *(also in --plan-only)*. With `--enable-local-eseal`,
    the resulting ps-server tag must be at or above the `local-eseal` minimum
-   in `release/capabilities.json`; each `--require-capability NAME` is
+   in `release/capabilities.json`; with `--use-internal-dmss-urls`, the same
+   for `dmss-internal-urls`; each `--require-capability NAME` is
    checked the same way. Refused with exit 2 and the command to re-run with
-   a newer tag.
+   a newer tag. A capability whose code is merged but in no release yet has
+   no minimum in the registry, only the newest tag known to lack it: a ps-server
+   at or below that tag is refused with a message saying no released image has
+   the capability, and a newer one passes.
 2. **Approved-tag gate** *(also in --plan-only)*. A `--server-tag` /
    `--client-tag` must be the tag `release/approved-digests.json` approves.
    Any other tag stops the run with exit 2 (`Refusing to upgrade to a tag
@@ -87,6 +94,15 @@ a tree still cannot be made writable, the upgrade stops here, before any
 container is recreated. Stores mounted from outside the checkout are never
 created or re-owned.
 
+**Step 4a/6: Switching the DMSS addresses** (only with `--use-internal-dmss-urls`
+or `--use-public-dmss-urls`). Rewrites the five DMSS addresses in
+`config/config.js` that still hold the other form, and with
+`--use-internal-dmss-urls` adds `ARCHIVE_PUBLIC_BASE_URL` when the file has
+none, so webhook payloads keep a public `archiveUrl`. An address of your own
+is left as it is, and a second run changes nothing. A plain upgrade never runs
+this step. See
+[7.4](07-04-server-config-js.md#how-ps-server-reaches-the-dmss-services).
+
 **Step 4b/6: Enabling local e-sealing** (only with `--enable-local-eseal`).
 Each part is applied only if it is not in place yet: stages
 `dmss-digital-stamping-service/` from `installation-scripts/assets/`
@@ -121,7 +137,7 @@ one host. A changed `KC_HOSTNAME` changes the token issuer, so users sign in
 again.
 
 **Step 4e/6: Re-applying the config/config.js ownership model.**
-Steps 3, 3b and 4b rewrite `config/config.js`. This step sets its group to the
+Steps 3, 3b, 4a and 4b rewrite `config/config.js`. This step sets its group to the
 group of the ps-server image step 2 pinned and its mode to 640, and checks
 from inside that image that it can read the file. If the group cannot be
 set, the file is made readable again and the fix is printed.
@@ -129,7 +145,8 @@ set, the file is made readable again and the fix is printed.
 **Step 5/6: Pulling images and restarting.**
 Pulls and recreates ps-server and/or ps-client, and
 `dmss-digital-stamping-service` when it runs or `--enable-local-eseal` is
-given. Services they depend on (Keycloak, the DMSS services) are recreated
+given. When step 4a changed `config.js`, ps-server is recreated too (it reads
+the file only at start), whether or not a tag changed. Services they depend on (Keycloak, the DMSS services) are recreated
 too when the release changed their definition in `docker-compose.yml`, for
 example their logging or restart policy; otherwise they keep running. With
 `--enable-local-eseal` it also recreates

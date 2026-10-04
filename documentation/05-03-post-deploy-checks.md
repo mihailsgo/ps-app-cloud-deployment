@@ -33,7 +33,7 @@ hostname ([2.2 DNS](02-02-dns-and-tls-certificates.md#dns)).
 | 1 | Configuration | `validate-config.sh --host <host>` passes ([5.2](05-02-validating-configuration.md)). |
 | 2 | Keycloak (with `--company-role`) | `verify-keycloak.sh` passes, see below. |
 | 3 | Redirect | `https://<host>/` answers `301` to `/portal/`. |
-| 4 | Served portal configuration | The `/portal/constants.json` the portal is served has the same `KEYCLOAK_URL`, `KEYCLOAK_REDIRECT_URI`, `KEYCLOAK_POST_LOGOUT_REDIRECT_URI`, `PS_DOWNLOAD_API` and `PDF_TEST_PATH` as `config/constants.json` on disk. Catches a file that was changed but never reached the container. |
+| 4 | Served portal configuration | The `/portal/constants.json` the portal is served has the same `KEYCLOAK_URL`, `KEYCLOAK_REDIRECT_URI`, `KEYCLOAK_POST_LOGOUT_REDIRECT_URI`, `PS_DOWNLOAD_API` and `PDF_TEST_PATH` as `config/constants.json` on disk. A key left out of both counts as a match. Catches a file that was changed but never reached the container. |
 | 5 | Keycloak discovery | `https://<host>/auth/realms/<realm>/.well-known/openid-configuration` returns a document with an `issuer`. |
 | 6 | API protection | An unauthenticated `GET https://<host>/api/health` is rejected with `401` or `403`. A `200` is a FAIL. |
 | 7 | Signing smoke test | Only with `--signing-smoke`; otherwise `SKIP`. See [5.4](05-04-signing-smoke-test.md). |

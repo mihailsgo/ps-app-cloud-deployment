@@ -39,8 +39,12 @@ Usage:
 
 Edits in-place (with .bak backup):
   - nginx/nginx.conf: server_name, cert filenames, root→/portal/ redirect
-  - config/constants.json: Keycloak URLs, redirect URIs, download URLs
-  - config/config.js: Keycloak URLs, service URLs, ALLOWED_ORIGINS, DEMO_COMPANY_ROLE
+  - config/constants.json: Keycloak URLs, redirect URIs, download URLs. A
+    key the file leaves out (the Keycloak ones may be, for a ps-client that
+    defaults them to its own origin) is not added, and a relative value
+    (PS_DOWNLOAD_API, PDF_TEST_PATH) stays relative
+  - config/config.js: Keycloak URLs, public service URLs (in-network DMSS
+    addresses have no host and stay as they are), ALLOWED_ORIGINS, DEMO_COMPANY_ROLE
   - docker-compose.yml: ensures signed-output volume mount exists; sets the
     keycloak service's KC_HOSTNAME and the nginx service's first network
     alias to --host; --admin-user syncs the keycloak service's
@@ -234,11 +238,30 @@ path, host, enable_demo, disable_demo = sys.argv[1], sys.argv[2], sys.argv[3], s
 with open(path, "r", encoding="utf-8") as f:
     data = json.load(f)
 
-data["KEYCLOAK_URL"] = f"https://{host}/auth"
-data["KEYCLOAK_REDIRECT_URI"] = f"https://{host}/portal/"
-data["KEYCLOAK_POST_LOGOUT_REDIRECT_URI"] = f"https://{host}/portal/"
-data["PS_DOWNLOAD_API"] = f"https://{host}/archive/api/document/"
-data["PDF_TEST_PATH"] = f"https://{host}/template"
+# The Keycloak URLs are written only where the file has them. A constants.json
+# without them relies on ps-client's same-origin defaults (the
+# client-origin-defaults capability in release/capabilities.json), and adding
+# them back would pin the file to this host for no reason. A ps-client without
+# those defaults needs the keys, and validate-config.sh says so.
+for key, value in (
+    ("KEYCLOAK_URL", f"https://{host}/auth"),
+    ("KEYCLOAK_REDIRECT_URI", f"https://{host}/portal/"),
+    ("KEYCLOAK_POST_LOGOUT_REDIRECT_URI", f"https://{host}/portal/"),
+):
+    if key in data:
+        data[key] = value
+
+# These two are always set, except that a deployment's own relative value
+# ("/archive/api/document/", "/portal/template") already follows the host and
+# is kept.
+for key, value in (
+    ("PS_DOWNLOAD_API", f"https://{host}/archive/api/document/"),
+    ("PDF_TEST_PATH", f"https://{host}/template"),
+):
+    current = data.get(key)
+    if isinstance(current, str) and current.startswith("/"):
+        continue
+    data[key] = value
 
 if enable_demo == "true":
     data["DEMO_MODE"] = "ENABLE"
