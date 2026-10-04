@@ -52,6 +52,21 @@ is a `mig_<id>_needed` predicate, a `mig_<id>_body` and a `mig_<id>_apply`,
 built from shared `need_*` predicates so `--plan-only` cannot disagree with a
 real run. Never add a straight-line edit.
 
+**DMSS addresses and `constants.json` keys have two valid shapes.** The
+shipped `config/config.js` has ps-server call the DMSS services by their
+in-network names; a host installed earlier keeps the public
+`https://<host>/archive/api/...` form, and only `upgrade.sh
+--use-internal-dmss-urls` / `--use-public-dmss-urls` (the `dmss-urls`
+migration, `lib/dmss_urls.py`) switch it. A plain upgrade never touches
+those five keys, and every script that reads them accepts both forms. The
+same for `KEYCLOAK_URL`, `KEYCLOAK_REDIRECT_URI` and
+`KEYCLOAK_POST_LOGOUT_REDIRECT_URI` in `constants.json`: set to the host, or
+left out for a ps-client that defaults them (`configure-host.sh` writes them
+only where the file has them). A capability whose code is merged but in no
+release has `"min": {}` and an `unreleased` entry (the newest released tag
+that lacks it), never a guessed tag; when the release is cut, move the tag
+into `min` and delete `unreleased` and `todo`.
+
 **Compose edits anchor on structure, not a neighbouring line.** Inserts into
 a service's `environment:` list track the service block and the list (see
 the `SPRING_SECURITY_USER_*` insert and `lib/compose-hostname.sh`); a line

@@ -21,6 +21,8 @@ done
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib/compose-hostname.sh
 . "${repo_root}/installation-scripts/lib/compose-hostname.sh"
+# shellcheck source=lib/capabilities.sh
+. "${repo_root}/installation-scripts/lib/capabilities.sh"
 
 fail=0
 ok()   { printf '  OK   %s\n' "$*"; }
@@ -370,11 +372,54 @@ if [[ -n "$host" ]]; then
     bad "nginx server_name does not match '${host}'"
   fi
 
-  if grep -q "\"KEYCLOAK_URL\": \"https://${host}/auth\"" "${repo_root}/config/constants.json" 2>/dev/null || \
-     python3 -c "import json; d=json.load(open('${repo_root}/config/constants.json')); exit(0 if d.get('KEYCLOAK_URL')=='https://${host}/auth' else 1)" 2>/dev/null; then
-    ok "constants.json KEYCLOAK_URL matches"
-  else
-    bad "constants.json KEYCLOAK_URL does not match 'https://${host}/auth'"
+  # The three Keycloak URLs of constants.json are either set to this host or
+  # left out: a ps-client that reads no hard-coded host (the
+  # client-origin-defaults capability in release/capabilities.json) then uses
+  # the origin of the page, which is the same address. Both shapes are
+  # accepted; a missing key on a client without that default is not, because
+  # it starts Keycloak with undefined URLs.
+  client_tag="$(sed -nE 's|.*mihailsgordijenko/ps-client:([0-9]+\.[0-9]+(\.[0-9]+)?).*|\1|p' "${repo_root}/docker-compose.yml" 2>/dev/null | head -1 || true)"
+  host_lc="${host,,}"
+  keycloak_keys="$(python3 - "${repo_root}/config/constants.json" "$host_lc" <<'PY' 2>/dev/null | tr -d '\r' || true
+import json, sys
+path, host = sys.argv[1], sys.argv[2]
+try:
+    data = json.load(open(path, encoding="utf-8"))
+except Exception:
+    sys.exit(0)
+expected = {
+    "KEYCLOAK_URL": f"https://{host}/auth",
+    "KEYCLOAK_REDIRECT_URI": f"https://{host}/portal/",
+    "KEYCLOAK_POST_LOGOUT_REDIRECT_URI": f"https://{host}/portal/",
+}
+for key, want in expected.items():
+    have = data.get(key)
+    state = "absent" if key not in data else ("match" if have == want else "mismatch")
+    print(f"{key}\t{state}\t{want}\t{have if have is not None else ''}")
+PY
+)"
+  absent_keys=()
+  while IFS=$'\t' read -r kc_key kc_state kc_want kc_have; do
+    [[ -z "$kc_key" ]] && continue
+    case "$kc_state" in
+      match) ok "constants.json ${kc_key} matches" ;;
+      absent) absent_keys+=("$kc_key") ;;
+      mismatch)
+        if [[ "$kc_key" == KEYCLOAK_URL ]]; then
+          bad "constants.json KEYCLOAK_URL does not match '${kc_want}'"
+        else
+          warn "constants.json ${kc_key} is '${kc_have}', not '${kc_want}' - Keycloak sends users there after login or logout"
+        fi ;;
+    esac
+  done <<< "$keycloak_keys"
+  if [[ ${#absent_keys[@]} -gt 0 ]]; then
+    kc_have_rc=0
+    capability_tag_has client-origin-defaults ps-client "${client_tag:-0}" 2>/dev/null || kc_have_rc=$?
+    case "$kc_have_rc" in
+      0) ok "constants.json leaves out ${absent_keys[*]}: ps-client ${client_tag} uses this page's origin (https://${host_lc}/...)" ;;
+      1) bad "constants.json has no ${absent_keys[*]}, and ps-client ${client_tag} has no default for it - login breaks. Add the key(s) (documentation/07-03-client-constants-json.md) or run a ps-client with the client-origin-defaults capability (release/capabilities.json)" ;;
+      *) warn "constants.json has no ${absent_keys[*]} and this check could not tell whether ps-client ${client_tag:-?} defaults them (release/capabilities.json, client-origin-defaults)" ;;
+    esac
   fi
 
   if grep -q "https://${host}/auth" "${repo_root}/config/config.js"; then
@@ -405,6 +450,78 @@ if [[ -n "$host" ]]; then
     warn "docker-compose.yml nginx network alias (${nginx_aliases}) does not include '${host}' — containers reach https://${host}/ via public DNS instead of directly. Fix: ./installation-scripts/configure-host.sh --host ${host}, then docker compose up -d nginx"
   else
     ok "docker-compose.yml nginx network alias matches"
+  fi
+fi
+
+# --- DMSS service addresses ---
+# ps-server reaches the archive and container-signature services at five
+# addresses (lib/dmss_urls.py). Both forms are accepted, and they may be mixed:
+# the in-network one (http://dmss-archive-services:8090/api/..., what the
+# release ships) and the public one (https://<host>/archive/api/..., through
+# nginx, what hosts installed earlier keep until they run
+# `upgrade.sh --use-internal-dmss-urls`). What is checked is that each key
+# names the right service, that a public address names this host, and what
+# each form implies for the nginx routes and for webhook payloads.
+echo ""
+echo "DMSS service addresses (config/config.js):"
+dmss_status="$(python3 "${repo_root}/installation-scripts/lib/dmss_urls.py" status "${repo_root}/config/config.js" 2>/dev/null | tr -d '\r' || true)"
+if [[ -z "$dmss_status" ]]; then
+  warn "could not read the DMSS addresses from config/config.js"
+else
+  served_host="${host,,}"
+  [[ -z "$served_host" ]] && served_host="$(nginx_server_name "${repo_root}/nginx/nginx.conf" 2>/dev/null | tr -d '\r' | tr 'A-Z' 'a-z' || true)"
+  addr_host() {  # https://Host:443/path -> host
+    local v="${1#*://}"; v="${v%%/*}"; v="${v%%:*}"; printf '%s' "${v,,}"
+  }
+  n_internal=0 n_public=0 n_other=0
+  pub_state=missing pub_value=""
+  while IFS=$'\t' read -r key state value expects target; do
+    [[ -z "$key" ]] && continue
+    if [[ "$key" == ARCHIVE_PUBLIC_BASE_URL ]]; then pub_state="$state"; pub_value="$value"; continue; fi
+    case "$state" in
+      internal|public)
+        if [[ "$target" != "$expects" ]]; then
+          bad "config.js ${key} is '${value}', the ${target} service's address, but this key needs the ${expects} service's"
+        elif [[ "$state" == internal ]]; then
+          n_internal=$((n_internal + 1))
+        elif [[ -n "$served_host" && "$(addr_host "$value")" != "$served_host" ]]; then
+          bad "config.js ${key} names $(addr_host "$value"), not '${served_host}' - ps-server calls that host. Fix: ./installation-scripts/configure-host.sh --host ${served_host}, or ./installation-scripts/upgrade.sh --use-internal-dmss-urls"
+        else
+          n_public=$((n_public + 1))
+        fi ;;
+      other) n_other=$((n_other + 1)); warn "config.js ${key} is not the in-network or the public DMSS address (value not checked); ps-server uses it as written" ;;
+      missing) warn "config.js ${key} is not set" ;;
+    esac
+  done <<< "$dmss_status"
+
+  if [[ "$n_internal" -gt 0 && "$n_public" -eq 0 && "$n_other" -eq 0 ]]; then
+    ok "ps-server reaches the DMSS services by their in-network addresses: nginx's /archive/api/ and /container/api/ can be closed without breaking it (documentation/06-01-route-protection.md)"
+  elif [[ "$n_public" -gt 0 && "$n_internal" -eq 0 ]]; then
+    ok "ps-server reaches the DMSS services through nginx at https://${served_host:-<host>}/: /archive/api/ and /container/api/ must stay reachable from the Docker network. To use the in-network addresses instead: ./installation-scripts/upgrade.sh --use-internal-dmss-urls (documentation/07-04-server-config-js.md)"
+  elif [[ "$n_public" -gt 0 && "$n_internal" -gt 0 ]]; then
+    warn "${n_internal} DMSS address(es) are in-network and ${n_public} go through nginx: that works, but closing /archive/api/ or /container/api/ at nginx breaks the ${n_public} that do. ./installation-scripts/upgrade.sh --use-internal-dmss-urls (or --use-public-dmss-urls) makes them uniform"
+  fi
+
+  # Webhook payloads carry archiveUrl: ARCHIVE_PUBLIC_BASE_URL if set, else
+  # ARCHIVE_API_BASE_URL - which, in-network, a receiver cannot open.
+  webhook_on=false
+  if perl -0777 -ne 'exit(/type:\s*["\x27]webhook["\x27]\s*,\s*enabled:\s*true/ ? 0 : 1)' "${repo_root}/config/config.js" 2>/dev/null; then
+    webhook_on=true
+  fi
+  if [[ "$pub_state" == public && -n "$served_host" && "$(addr_host "$pub_value")" != "$served_host" ]]; then
+    warn "config.js ARCHIVE_PUBLIC_BASE_URL names $(addr_host "$pub_value"), not '${served_host}' - webhook receivers are sent there for the signed PDF. Fix: ./installation-scripts/configure-host.sh --host ${served_host}"
+  fi
+  if [[ "$n_internal" -gt 0 && "$webhook_on" == true ]]; then
+    if [[ "$pub_state" == missing ]]; then
+      warn "a webhook strategy is enabled and the DMSS addresses are in-network, but config.js has no ARCHIVE_PUBLIC_BASE_URL: webhook payloads carry an in-network archiveUrl that receivers cannot open. Set it to https://${served_host:-<host>}/archive/api/"
+    else
+      server_tag_now="$(sed -nE 's|.*mihailsgordijenko/ps-server:([0-9]+\.[0-9]+(\.[0-9]+)?).*|\1|p' "${repo_root}/docker-compose.yml" 2>/dev/null | head -1 || true)"
+      dmss_cap_rc=0
+      capability_tag_has dmss-internal-urls ps-server "${server_tag_now:-0}" 2>/dev/null || dmss_cap_rc=$?
+      if [[ "$dmss_cap_rc" == 1 ]]; then
+        warn "ps-server ${server_tag_now} ignores ARCHIVE_PUBLIC_BASE_URL (capability dmss-internal-urls in release/capabilities.json), so the enabled webhook sends the in-network archiveUrl. Upgrade ps-server, or use --use-public-dmss-urls"
+      fi
+    fi
   fi
 fi
 

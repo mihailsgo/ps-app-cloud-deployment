@@ -51,6 +51,7 @@ Optional flags:
 - `--enable-routing` to turn on filesystem document routing
 - `--enable-demo` to enable client DEMO mode
 - `--enable-local-eseal` to provision the local e-sealing stack (stamping container + demo seal.p12; external e-sealing stays the default without it)
+- `--use-internal-dmss-urls` / `--use-public-dmss-urls` (opposites, never part of a plain upgrade) to switch the five DMSS addresses in `config/config.js` to the in-network form (`http://dmss-archive-services:8090/api/...`, what a fresh install ships) or back to `https://<host>/archive/api/...`; the first needs a ps-server with the `dmss-internal-urls` capability, and closing the public nginx routes afterwards is documentation/06-01-route-protection.md
 - `--allow-self-signed` to skip cert chain verification for dev/test self-signed certs (all other cert checks still run)
 - `--realm` (default `padsign`), `--admin-user` (default `admin`)
 
@@ -58,7 +59,7 @@ If the user gives partial input, ask for the missing required fields in one pass
 
 ### `upgrade.sh` (version bump)
 
-At least one of `--server-tag` or `--client-tag` is required (exception: `--enable-local-eseal` alone is valid — it opts an existing deployment into local e-sealing without a tag bump). Confirm the target tags exist on Docker Hub before running (current registry: `mihailsgordijenko/ps-server` and `mihailsgordijenko/ps-client`). If the user just says "upgrade", check `git log --oneline -- docker-compose.yml` for the recent bump pattern before guessing. Run `upgrade.sh [same args] --plan-only` first and show the user the pending config migrations — the deployment wizard enforces this preview as a mandatory gate, and CLI runs should match that discipline.
+At least one of `--server-tag` or `--client-tag` is required (exceptions: `--enable-local-eseal` alone is valid — it opts an existing deployment into local e-sealing without a tag bump — and so are `--use-internal-dmss-urls` / `--use-public-dmss-urls`; `--require-capability NAME` alone only checks the deployed images). Confirm the target tags exist on Docker Hub before running (current registry: `mihailsgordijenko/ps-server` and `mihailsgordijenko/ps-client`). If the user just says "upgrade", check `git log --oneline -- docker-compose.yml` for the recent bump pattern before guessing. Run `upgrade.sh [same args] --plan-only` first and show the user the pending config migrations — the deployment wizard enforces this preview as a mandatory gate, and CLI runs should match that discipline.
 
 A requested tag must be the one `release/approved-digests.json` approves. Any other tag is refused with exit 2 (`ERROR: Refusing to upgrade to a tag release/approved-digests.json does not approve: ...`) before anything is pulled or modified, and `--plan-only` refuses the same way. Tell the user which tag is approved and point them at documentation/14-06-image-approval-and-digest-pinning.md to approve a new one. `--allow-unapproved` is an emergency-hotfix override: it prints a warning banner, leaves the tag without a digest pin, records it in `deployment-evidence.json` as `"unapproved_override"`, and `validate-config.sh`/`postdeploy-check.sh` keep failing until the tag is approved. See safety rule 11.
 

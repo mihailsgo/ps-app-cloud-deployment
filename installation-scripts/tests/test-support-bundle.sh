@@ -316,7 +316,7 @@ check "... the deployment's own URLs keep their path, others keep their host" \
     && grep -qF "http://dmss-archive-services:8090/api/document/1?token=<redacted>" "$1"' _ "$x/logs/ps-server.log"
 check "config/config.js: REGISTER_PDF_API_KEY is <redacted>" grep -q 'REGISTER_PDF_API_KEY: "<redacted>"' "$x/config/config.js"
 check "... own URLs keep their path; REGISTER_PDF_API_KEYS keep their company" \
-  bash -c 'grep -qF "ARCHIVE_API_BASE_URL: \"https://padsign.example.com/archive/api/\"" "$1" && grep -qF "{ company: \"Amit\", key: \"<redacted>\" }" "$1"' _ "$x/config/config.js"
+  bash -c 'grep -qF "ARCHIVE_PUBLIC_BASE_URL: \"https://padsign.example.com/archive/api/\"" "$1" && grep -qF "ARCHIVE_API_BASE_URL: \"http://dmss-archive-services:8090/api/\"" "$1" && grep -qF "{ company: \"Amit\", key: \"<redacted>\" }" "$1"' _ "$x/config/config.js"
 check "... same lines as the original but the PEM key's two dropped (structure kept)" \
   test "$(wc -l < "$x/config/config.js")" = "$(( $(wc -l < "$d/config/config.js") - 2 ))"
 check "PEM keys: one <private key redacted> line; the YAML after them survives" \

@@ -197,7 +197,14 @@ Success event:
 With `includeFile: true` it also carries
 `"file": { "content": "<base64 PDF>", "contentType": "application/pdf", "filename": "<docid>-sealed.pdf" }`.
 `archiveUrl` may require a Keycloak token when the download route is
-protected ([6.1 Route protection](06-01-route-protection.md)).
+protected ([6.1 Route protection](06-01-route-protection.md)). It is built
+from `ARCHIVE_PUBLIC_BASE_URL` in `config/config.js` when that is set, and
+otherwise from `ARCHIVE_API_BASE_URL`: with ps-server on the in-network
+addresses ([7.4](07-04-server-config-js.md#how-ps-server-reaches-the-dmss-services))
+set `ARCHIVE_PUBLIC_BASE_URL` to `https://<host>/archive/api/`, or the
+receiver is given an address inside the Docker network that it cannot open.
+An older ps-server ignores the key; `validate-config.sh` warns when that
+would affect an enabled webhook.
 
 Error event: the same `document` (id only), `signer` and `archiveUrl`,
 with `"event": "document.signing_error"` and `"error": "<what failed>"`.

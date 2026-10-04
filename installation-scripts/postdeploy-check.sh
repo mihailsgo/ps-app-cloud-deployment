@@ -51,6 +51,7 @@ Runs, in order:
   2. verify-keycloak.sh --host <host> --company-role <role>   (only if --company-role given)
   3. Redirect check:            https://<host>/ -> 301 -> /portal/
   4. Portal/runtime config:     served /portal/constants.json matches config/constants.json
+                                (a key left out of both counts as a match)
   5. Keycloak discovery:        /auth/realms/<realm>/.well-known/openid-configuration
   6. Protected API behavior:    unauthenticated /api/health is rejected, not 200
   7. Authorized signing smoke test (opt-in: --signing-smoke): runs
@@ -175,6 +176,11 @@ for field in fields:
     if lv != sv:
         print(f"  FAIL served constants.json field {field!r}: local={lv!r} served={sv!r}")
         failed = True
+    elif sv is None:
+        # Left out of both: valid for the Keycloak URLs, which a ps-client
+        # that reads no hard-coded host defaults to the origin of the page
+        # (validate-config.sh checks the client is one).
+        print(f"  OK   served constants.json field {field!r} is not set, here or on disk")
     else:
         print(f"  OK   served constants.json field {field!r} matches ({sv!r})")
 

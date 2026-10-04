@@ -84,9 +84,14 @@ nginx (`nginx/nginx.conf`) sends each path prefix to one service by its service 
 | `https://<host>/container/api/...` | `dmss-container-and-signature-services` |
 | `http://<host>/...` | redirect (`301`) to the same path over HTTPS |
 
-ps-server also reaches the archive, container-signature and Keycloak through `https://<host>/...`
-(the URLs in `config/config.js`). Inside the Docker network your hostname is a network alias of the
-`nginx` service, so those calls go straight to nginx without leaving the host. `configure-host.sh`
+ps-server reaches the archive and container-signature services by their Docker service names
+(`http://dmss-archive-services:8090/api/...`, the addresses in `config/config.js`), not through
+nginx, so the `/archive/api/` and `/container/api/` routes serve only the browser's PDF download and
+can be closed to everyone else. A host installed with an earlier release keeps the public
+addresses (`https://<host>/archive/api/...`) until you switch it
+([7.4](07-04-server-config-js.md#how-ps-server-reaches-the-dmss-services)). ps-server reaches
+Keycloak through `https://<host>/auth`: inside the Docker network your hostname is a network alias of
+the `nginx` service, so that call goes straight to nginx without leaving the host. `configure-host.sh`
 sets the alias together with the hostname. To restrict which routes are public, see
 [6.1 Route protection](06-01-route-protection.md).
 

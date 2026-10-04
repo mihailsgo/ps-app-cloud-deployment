@@ -14,7 +14,9 @@ To read it, work as root or as a member of that group.
 
 `configure-host.sh` rewrites the hostname in every `https://<host>/auth`,
 `/archive/api/` and `/container/api/` URL and in `ALLOWED_ORIGINS`, and sets
-`DEMO_COMPANY_ROLE`. `bootstrap.sh` also writes the backend client secret and
+`DEMO_COMPANY_ROLE`. An in-network DMSS address
+([below](#how-ps-server-reaches-the-dmss-services)) names no host and is left
+as it is. `bootstrap.sh` also writes the backend client secret and
 generates `REGISTER_PDF_API_KEY` and `SESSION_SECRET`.
 
 Defaults below are the values in the shipped file. `<host>` is your
@@ -25,15 +27,75 @@ hostname.
 | Key | Default | Meaning |
 |-----|---------|---------|
 | `PORT` | `3001` | Port ps-server listens on inside the Docker network. nginx proxies `/api/` to it. |
-| `ARCHIVE_API_BASE_URL` | `"https://<host>/archive/api/"` | Archive service base URL. |
-| `CREATE_DOCUMENT_API_URL` | `"https://<host>/archive/api/document/create"` | Archive endpoint that creates a document. |
-| `DOCUMENT_DOWNLOAD_API_URL` | `"https://<host>/archive/api/document/"` | Archive endpoint to download a document by ID. |
-| `VISUAL_SIGNATURE_API_TEMPLATE` | `"https://<host>/container/api/signing/visual/pdf/{docid}/sign"` | Visual-signature call. ps-server replaces `{docid}`. |
-| `FORM_FILL_API_URL` | `"https://<host>/container/api/forms/fill/template/application"` | Template form fill (`+ <lang>`). Not used in the standard flow. |
+| `ARCHIVE_API_BASE_URL` | `"http://dmss-archive-services:8090/api/"` | Archive service base URL. |
+| `CREATE_DOCUMENT_API_URL` | `"http://dmss-archive-services:8090/api/document/create"` | Archive endpoint that creates a document. |
+| `DOCUMENT_DOWNLOAD_API_URL` | `"http://dmss-archive-services:8090/api/document/"` | Archive endpoint to download a document by ID. |
+| `VISUAL_SIGNATURE_API_TEMPLATE` | `"http://dmss-container-and-signature-services:8092/api/signing/visual/pdf/{docid}/sign"` | Visual-signature call. ps-server replaces `{docid}`. |
+| `FORM_FILL_API_URL` | `"http://dmss-container-and-signature-services:8092/api/forms/fill/template/application"` | Template form fill (`+ <lang>`). Not used in the standard flow. |
+| `ARCHIVE_PUBLIC_BASE_URL` | `"https://<host>/archive/api/"` | Optional. The archive address a webhook receiver can reach: the `archiveUrl` field of webhook payloads ([11](11-document-routing-and-receive-back.md)) uses it, and nothing else does. Left out, the payload carries `ARCHIVE_API_BASE_URL`. Needs the ps-server image named by the `dmss-internal-urls` capability in [`release/capabilities.json`](../release/capabilities.json); an older one ignores it. |
 | `DEFAULT_DOCUMENT_JSON` | `{ objectName: "template", contentType: "application/pdf", documentType: "DMSSDoc", documentFilename: "template.pdf" }` | Metadata sent when ps-server creates an archive document. |
 
-ps-server reaches these URLs through nginx, using the network alias that
-maps `<host>` to nginx inside the Docker network.
+### How ps-server reaches the DMSS services
+
+The five addresses above can take two forms, and either works. The code
+only joins them with a path, and each key can differ from the others.
+
+| Form | Example | ps-server's calls |
+|---|---|---|
+| In-network (shipped) | `http://dmss-archive-services:8090/api/` | Go straight to the service by its Docker service name. nginx is not involved, so its `/archive/api/` and `/container/api/` routes can be closed ([6.1](06-01-route-protection.md#closing-the-routes-after-switching-ps-server-to-in-network-addresses)). |
+| Public | `https://<host>/archive/api/` | Leave the stack, enter again through nginx's network alias and take a TLS hop each way. The two nginx routes must stay reachable from the Docker network. |
+
+A host installed with a release that shipped the public form keeps it. A
+plain `upgrade.sh` never changes these keys; you decide when to switch. From
+the deployment directory:
+
+```bash
+# See exactly what would change (writes nothing)
+./installation-scripts/upgrade.sh --use-internal-dmss-urls --plan-only
+
+# Switch: rewrites the five keys, recreates ps-server
+./installation-scripts/upgrade.sh --use-internal-dmss-urls
+
+# Switch back (needs the two nginx routes open to ps-server)
+./installation-scripts/upgrade.sh --use-public-dmss-urls
+```
+
+What `--use-internal-dmss-urls` does:
+
+- It rewrites each of the five keys that holds `https://<host>/archive/api/...`
+  or `https://<host>/container/api/...` to the in-network address with the same
+  path. A key that holds anything else (an address of your own, an
+  expression) is left as it is, and a key already in-network is not touched,
+  so a second run changes nothing.
+- When `config.js` has no `ARCHIVE_PUBLIC_BASE_URL`, it adds one with the
+  public archive address you had, so webhook payloads keep the `archiveUrl`
+  receivers can open. It adds two comment lines above the key; `--use-public-dmss-urls`
+  removes exactly that key again, and a key you wrote yourself is never
+  removed.
+- It refuses to run unless the ps-server image you run is new enough to read
+  `ARCHIVE_PUBLIC_BASE_URL` (the `dmss-internal-urls` capability). Until a
+  ps-server release has it, `upgrade.sh` says so and exits without changing
+  anything; `--use-public-dmss-urls` has no such requirement.
+- It takes a rollback snapshot first like any upgrade, and recreates the
+  ps-server container so it reads the new `config.js`
+  ([9.8](09-08-rollback.md)).
+
+`--use-public-dmss-urls` writes the public form back with the host from
+`ARCHIVE_PUBLIC_BASE_URL`, or from `nginx/nginx.conf` when there is none.
+A customized (overlay) host is not edited in place: make the same change in
+a new overlay version ([9.11](09-11-start-at-boot-backups-and-customized-hosts.md)).
+
+**What protects these calls.** Neither DMSS service checks a credential, so
+ps-server sends none to the archive. The Docker network is the protection:
+the DMSS ports are published on `127.0.0.1` only, and any container that
+shares the network can read and write documents. Keep it that way, and do
+not publish the DMSS ports on a public interface. The PadSign application
+repository documents the same design in `documentation/dmss-internal-urls.md`.
+
+`validate-config.sh` accepts both forms, flags a key that names the wrong
+service or a public address on another host, and warns about a mix of the two
+or an enabled webhook without a usable public archive address
+([5.2](05-02-validating-configuration.md)).
 
 ## Authentication and CORS
 

@@ -128,7 +128,14 @@ if it is `true`. Turn it on only for a short auth-debugging session.
   [9.3](09-03-monitoring-the-served-certificate.md).
 - [ ] **Close or protect `/archive/api/` and `/container/api/`.** By default
   nginx forwards them to the DMSS services without authentication:
-  [6.1 Route protection](06-01-route-protection.md).
+  [6.1 Route protection](06-01-route-protection.md). If ps-server still calls
+  the DMSS services through them (public addresses in `config.js`), switch it
+  to the in-network addresses first with
+  `./installation-scripts/upgrade.sh --use-internal-dmss-urls`
+  ([7.4](07-04-server-config-js.md#how-ps-server-reaches-the-dmss-services)),
+  then close the routes as
+  [6.1](06-01-route-protection.md#closing-the-routes-after-switching-ps-server-to-in-network-addresses)
+  describes.
 - [ ] **Tighten CORS.** `ALLOWED_ORIGINS` in `config/config.js` contains
   `https://padsign.example.com` and a development origin
   `https://padsign.example.com:5173`. Remove the `:5173` entry unless you use

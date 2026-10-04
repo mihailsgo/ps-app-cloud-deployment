@@ -23,10 +23,23 @@ ps-server and the fallback archive publish no host port. As a result, the
 public ports 80 and 443 are the only way in. Enforce the same at your
 firewall ([2.3](02-03-network-and-firewall.md)).
 
-`/archive/api/` and `/container/api/` must stay reachable from inside the
-stack, because ps-server calls them through `https://padsign.example.com/...`
-(nginx's network alias). Outside callers should either be blocked or be
-required to authenticate. The pattern below does that.
+Whether `/archive/api/` and `/container/api/` must stay reachable from
+inside the stack depends on how ps-server reaches the DMSS services
+([7.4](07-04-server-config-js.md#how-ps-server-reaches-the-dmss-services)):
+
+- **Public addresses** (a host installed with an earlier release keeps them):
+  ps-server calls `https://padsign.example.com/archive/api/...` through
+  nginx's network alias, so the routes must stay open to the Docker network.
+  Outside callers should either be blocked or be required to authenticate.
+  [The pattern](#the-pattern) below does that.
+- **In-network addresses** (the shipped default, and what
+  `upgrade.sh --use-internal-dmss-urls` switches a host to): ps-server calls
+  `http://dmss-archive-services:8090/api/...` directly and never uses these
+  routes. They only have to serve the pad browser's PDF download, and the
+  rest can be closed:
+  [Closing the routes after switching ps-server to in-network addresses](#closing-the-routes-after-switching-ps-server-to-in-network-addresses).
+
+`validate-config.sh` reports which form a host uses.
 
 ## The pattern
 
@@ -242,6 +255,99 @@ this check, because `userinfo` requires a user token.
 
 Finally, sign a document in the portal and check that the viewer still loads
 the PDF.
+
+## Closing the routes after switching ps-server to in-network addresses
+
+With ps-server on the in-network addresses, nothing inside the stack needs
+the public routes, and the Docker-subnet exception in the pattern above
+protects nothing. Close everything except the one route a browser uses.
+
+**Before you start.** All of these must hold:
+
+1. `./installation-scripts/validate-config.sh --host padsign.example.com`
+   reports `ps-server reaches the DMSS services by their in-network
+   addresses`. If it reports public or mixed addresses, switch first:
+   `./installation-scripts/upgrade.sh --use-internal-dmss-urls`
+   ([7.4](07-04-server-config-js.md#how-ps-server-reaches-the-dmss-services)).
+2. The ps-client you run sends the Keycloak token on the download
+   (`closable-download-route`, [above](#check-that-the-client-is-new-enough-first)).
+3. Nothing of yours calls `/archive/api/` or `/container/api/` from outside
+   the host without credentials. Anything that does (a script, an
+   integration) must authenticate afterwards, or use the loopback ports 86
+   and 84 on the host itself. To keep an outside caller working with a
+   password, leave `auth_basic` and its `auth_basic_user_file` on the location
+   as in [step 3](#3-edit-nginxnginxconf), without the `allow` / `deny` lines.
+
+**Edit `nginx/nginx.conf`.** In the `listen 443` server block, replace the
+`location /archive/api/` and `location /container/api/` blocks with:
+
+```nginx
+    # The pad browser downloads the PDF with the signed-in user's Keycloak
+    # token. A regex location, so it wins over the /archive/api/ prefix below.
+    location ~ ^/archive/api/document/[^/]+/download$ {
+        auth_request /_kc_token;
+
+        rewrite ^/archive/api/(.*)$ /api/$1 break;
+        proxy_pass http://dmss-archive-services:8090;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Token check for the route above: Keycloak answers 200 for a valid
+    # user token and 401 otherwise.
+    location = /_kc_token {
+        internal;
+        proxy_pass http://keycloak:8080/auth/realms/padsign/protocol/openid-connect/userinfo;
+        proxy_pass_request_body off;
+        proxy_set_header Content-Length "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header Authorization $http_authorization;
+    }
+
+    location /archive/api/ {
+        deny all;
+    }
+
+    location /container/api/ {
+        deny all;
+    }
+```
+
+Apply it as in [step 4](#4-test-and-apply) (`nginx -t`, then
+`docker compose restart nginx`). The `htpasswd` file and the Docker subnet are
+not needed.
+
+**Test.** From another machine (`HOST=https://padsign.example.com`, a real
+`DOCID`, and a user token as in [End-to-end test](#end-to-end-test)):
+
+```bash
+curl -s -o /dev/null -w "create:   %{http_code}
+" -X POST $HOST/archive/api/document/create
+curl -s -o /dev/null -w "container: %{http_code}
+" $HOST/container/api/actuator/health
+curl -s -o /dev/null -w "no token: %{http_code}
+" $HOST/archive/api/document/$DOCID/download
+curl -s -o /dev/null -w "token:    %{http_code}
+" -H "Authorization: Bearer $TOKEN" $HOST/archive/api/document/$DOCID/download
+```
+
+Expect `403`, `403`, `401`, `200`. Then sign a document in the portal and
+check that the viewer loads the PDF and the signed result, and run
+`./installation-scripts/signing-smoke.sh` ([5.4](05-04-signing-smoke-test.md)):
+the signature, the e-seal and the archive upload all go through the
+in-network addresses.
+
+**Undo.** Restore the previous `nginx/nginx.conf` and restart nginx.
+ps-server keeps working throughout, because it does not use the routes. Only
+if you also want it back on the public addresses, then run
+`./installation-scripts/upgrade.sh --use-public-dmss-urls`; that needs the
+routes open to it, so restore them first.
 
 ## Other DMSS hardening
 

@@ -59,7 +59,11 @@ other service published on a non-loopback address is a FAIL
 
 **Hostname consistency** (with `--host`). These must all name your host: `server_name` in
 `nginx/nginx.conf`, `KEYCLOAK_URL` in `constants.json`, `auth-server-url` in `config.js`, and
-`KC_HOSTNAME` of the `keycloak` service in `docker-compose.yml`. A different `KC_HOSTNAME` is a FAIL:
+`KC_HOSTNAME` of the `keycloak` service in `docker-compose.yml`. `constants.json` may leave out
+`KEYCLOAK_URL`, `KEYCLOAK_REDIRECT_URI` and `KEYCLOAK_POST_LOGOUT_REDIRECT_URI`: that is OK when the
+ps-client in `docker-compose.yml` defaults them to its own origin (the `client-origin-defaults`
+capability, [7.3](07-03-client-constants-json.md#authentication-keycloak)) and a FAIL when it does
+not; a redirect URI that names another host is a WARN. A different `KC_HOSTNAME` is a FAIL:
 Keycloak uses it for the login page's URLs and as the token issuer. A WARN if the `nginx` service's
 network alias does not include the host. The fix for both is to rewrite the files, then recreate
 the two containers (a plain `restart` keeps the old `KC_HOSTNAME` and alias):
@@ -70,6 +74,21 @@ docker compose up -d keycloak nginx
 ```
 
 See [9.1 Changing hostname](09-01-changing-hostname.md).
+
+**DMSS service addresses.** The five addresses ps-server uses for the archive and container-signature
+services in `config.js` ([7.4](07-04-server-config-js.md#how-ps-server-reaches-the-dmss-services)) may
+be in-network (`http://dmss-archive-services:8090/api/...`, the shipped form) or public
+(`https://<host>/archive/api/...`); both are OK. The check reports which form the host uses and what
+that means for the nginx routes ([6.1](06-01-route-protection.md)).
+
+| Check | Result |
+|---|---|
+| A key holds the other service's address (an archive key pointing at the container service) | FAIL |
+| A public address names a host other than `--host` (or the host `nginx.conf` serves) | FAIL |
+| In-network and public addresses are mixed | WARN: closing an nginx route breaks the public ones |
+| A key holds an address of your own, or is missing | WARN, not checked further |
+| `ARCHIVE_PUBLIC_BASE_URL` names another host | WARN: webhook receivers are sent there |
+| A webhook strategy is enabled, the addresses are in-network, and `ARCHIVE_PUBLIC_BASE_URL` is missing, or the ps-server tag is older than the `dmss-internal-urls` capability | WARN: payloads carry an in-network `archiveUrl` |
 
 **Image tags.** Prints the ps-server and ps-client tags in `docker-compose.yml`. A FAIL if they differ
 from the release in `release/approved-digests.json` ([14.3 Release snapshot](14-03-release-snapshot.md)),

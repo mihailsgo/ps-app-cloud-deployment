@@ -1,15 +1,36 @@
   module.exports = {
-    VISUAL_SIGNATURE_API_TEMPLATE: "https://padsign.trustlynx.com/container/api/signing/visual/pdf/{docid}/sign",
+    // Container-signature service, in-network (see "DMSS service addresses" below).
+    VISUAL_SIGNATURE_API_TEMPLATE: "http://dmss-container-and-signature-services:8092/api/signing/visual/pdf/{docid}/sign",
     STAMP_API_URL: "https://eseal.trustlynx.com/api/gateway/esealing/sign/api-key/DEMOCOMPANY",
     STAMP_API_KEY: "CHANGE_ME",
     STAMP_COMPANY_ID: "CHANGE_ME",
     STAMP_COMPANY_SECRET: "CHANGE_ME",
     API_PROTECT_LOGS_ENABLED: false,
     PORT: 3001,
-    ARCHIVE_API_BASE_URL: "https://padsign.trustlynx.com/archive/api/",
-    CREATE_DOCUMENT_API_URL: "https://padsign.trustlynx.com/archive/api/document/create",
-    FORM_FILL_API_URL: "https://padsign.trustlynx.com/container/api/forms/fill/template/application",
-    DOCUMENT_DOWNLOAD_API_URL: "https://padsign.trustlynx.com/archive/api/document/",
+    // ── DMSS service addresses ─────────────────────────────────────────────
+    // How ps-server reaches the archive and container-signature services:
+    // directly, by Docker service name, not through nginx and the public
+    // hostname. Neither service checks a credential, so nothing is sent with
+    // these calls; the Docker network is what keeps them private
+    // (documentation/07-04-server-config-js.md). That is what lets nginx's
+    // /archive/api/ and /container/api/ be closed to outside callers
+    // (documentation/06-01-route-protection.md). Service names and ports match
+    // the proxy_pass lines in nginx/nginx.conf. The code only concatenates these
+    // values, so the public form (https://<host>/archive/api/..., what releases
+    // up to the 3.34 image shipped) keeps working if you set it; a host that
+    // runs on it switches with `upgrade.sh --use-internal-dmss-urls` (and back
+    // with --use-public-dmss-urls).
+    ARCHIVE_API_BASE_URL: "http://dmss-archive-services:8090/api/",
+    CREATE_DOCUMENT_API_URL: "http://dmss-archive-services:8090/api/document/create",
+    FORM_FILL_API_URL: "http://dmss-container-and-signature-services:8092/api/forms/fill/template/application",
+    DOCUMENT_DOWNLOAD_API_URL: "http://dmss-archive-services:8090/api/document/",
+    // The archive address a webhook receiver can reach. Only the `archiveUrl`
+    // field of webhook payloads uses it; ps-server's own calls use the URLs
+    // above. Leave it out and the payload carries ARCHIVE_API_BASE_URL (the
+    // in-network name above, which a receiver outside the stack cannot open).
+    // Needs the ps-server named by the dmss-internal-urls capability in
+    // release/capabilities.json; an older one ignores it.
+    ARCHIVE_PUBLIC_BASE_URL: "https://padsign.trustlynx.com/archive/api/",
     TEMP_DIRECTORY: "./tmp/",
     DOCUMENT_OUTPUT_DIRECTORY: "/PSDOCS/out/",
     READONLY_PDF_DIRECTORY: "/PSDOCS/in/",

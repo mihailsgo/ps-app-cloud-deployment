@@ -11,8 +11,10 @@ The file must stay valid JSON: no comments, no trailing commas.
 `validate-config.sh` checks this. `configure-host.sh` rewrites these keys for
 the deployment host and saves the whole file as indented JSON:
 `KEYCLOAK_URL`, `KEYCLOAK_REDIRECT_URI`, `KEYCLOAK_POST_LOGOUT_REDIRECT_URI`,
-`PS_DOWNLOAD_API`, `PDF_TEST_PATH`. With `--enable-demo` / `--disable-demo` it
-also rewrites `DEMO_MODE`.
+`PS_DOWNLOAD_API`, `PDF_TEST_PATH`. It rewrites a Keycloak key only where the
+file has it, and keeps a relative `PS_DOWNLOAD_API` or `PDF_TEST_PATH`
+(`"/archive/api/document/"`, `"/portal/template"`) as it is. With
+`--enable-demo` / `--disable-demo` it also rewrites `DEMO_MODE`.
 
 Defaults below are the values in the shipped file. `<host>` is your
 hostname, for example `padsign.example.com`.
@@ -43,6 +45,17 @@ hostname, for example `padsign.example.com`.
 The login itself is configured by `config/keycloak.js` (below). These keys
 are used for logout and role lookup, and by the SPA's built-in fallback when
 `keycloak.js` cannot be loaded. Keep both consistent.
+
+`KEYCLOAK_URL`, `KEYCLOAK_REDIRECT_URI` and `KEYCLOAK_POST_LOGOUT_REDIRECT_URI`
+may be set to `<host>` as shown, or left out of the file. A ps-client that
+reads no hard-coded host (the `client-origin-defaults` capability in
+[`release/capabilities.json`](../release/capabilities.json)) then uses the
+origin of the page, `https://<host>/auth` and `https://<host>/portal/`, which
+is the same address on a standard deployment. An older ps-client has no such
+default and needs the keys: without them login fails.
+`validate-config.sh --host <host>` accepts either form, fails a missing key
+on a ps-client without the default, and fails a `KEYCLOAK_URL` that names
+another host. `config/keycloak.js` still carries the host itself.
 
 ## Backend endpoints and polling
 
