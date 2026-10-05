@@ -13,7 +13,7 @@ and digest pinning work: [14.6 Image approval and digest pinning](14-06-image-ap
 | Keycloak (identity provider) | `keycloak` | `quay.io/keycloak/keycloak` | `26.7.4` |
 | Reverse proxy | `nginx` | `nginx` | `1.30.5` (stable line) |
 | DMSS archive | `dmss-archive-services` | `trustlynx/dmss-archive-services` | `24.3.0.3` |
-| DMSS container and signature | `dmss-container-and-signature-services` | `trustlynx/container-signature-service` | `24.3.0.29` |
+| DMSS container and signature | `dmss-container-and-signature-services` | `trustlynx/container-signature-service` | `24.3.0.36` |
 | DMSS fallback archive | `dmss-archive-services-fallback` | `trustlynx/dmss-archive-services-fallback` | `24.1.7` |
 | DMSS digital stamping (local e-sealing only, profile `local-eseal`) | `dmss-digital-stamping-service` | `trustlynx/digital-stamping-service` | `24.0.3.1` |
 | Deployment Wizard (profile `wizard`) | `wizard` | `mihailsgordijenko/padsign-wizard` | `0.2.0` |
