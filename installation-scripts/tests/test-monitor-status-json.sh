@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-# =====================================================================
+# ============================================================================
 # Tests for monitor-status.sh --format json, the read-only machine form of
 # report mode that the Deployment Wizard's Monitoring page reads:
 #
@@ -320,7 +320,6 @@ HOST_PROJECT_DIR="$absd" PADSIGN_MOUNTINFO="${work}/mountinfo-store" STUB_EXEC=n
 jeq "... with the storage mounted into the wizard at the same path: inspectable again" "$ja" \
   '[[s["name"], s["inspectable"], s["exists"]] for s in d["disk"]["stores"]]' \
   '[["signed-output",true,true],["docs",true,false]]'
-=======
 # Compose itself failing (on an overlay host, a compose file COMPOSE_FILE
 # names that the caller cannot read): the error carries compose's reason,
 # its first line that is not a warning, redacted.
