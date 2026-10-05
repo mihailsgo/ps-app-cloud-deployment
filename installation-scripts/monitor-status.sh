@@ -42,9 +42,13 @@ set -euo pipefail
 #                is unknown; notAfter and daysLeft null when not found/read
 #   failures     {window, counts: [{key, label, count}]}; null when ps-server
 #                is not running
-#   disk         {stores: [{name, path, exists, size, inTree, volume}],
-#                 filesystems: [{mount, path, usedPct}]}; a named-volume store
-#                has path, exists and size null
+#   disk         {stores: [{name, path, exists, size, inTree, volume,
+#                 inspectable}], filesystems: [{mount, path, usedPct}]}; a
+#                named-volume store has path, exists and size null; a store
+#                this process cannot look at (mounted from outside what the
+#                wizard container sees, or unreadable by this user) has
+#                inspectable false and exists and size null; inspectable is
+#                true for every store whose directory could be examined
 #   buffer       {state, count, oldestAgeHours, error}; state "ok",
 #                "not-in-use" (no filesystem strategy), "not-running"
 #                (ps-server down) or "error"; count and oldestAgeHours are
@@ -447,7 +451,7 @@ fi
 store_dirs=()
 # For --format json: one entry per store. exists is true/false, empty for a
 # named volume.
-store_names=(); store_paths=(); store_exists=(); store_sizes=(); store_in_tree=(); store_volume=()
+store_names=(); store_paths=(); store_exists=(); store_sizes=(); store_in_tree=(); store_volume=(); store_inspectable=()
 for store in "ps-server /signed-output signed-output" "dmss-archive-services-fallback /docs docs"; do
   read -r store_svc store_target store_name <<< "$store"
   # storage_mount resolves in-tree mounts against repo_root: here, the
@@ -456,12 +460,26 @@ for store in "ps-server /signed-output signed-output" "dmss-archive-services-fal
   store_names+=("$store_name")
   if [[ "$storage_how" == volume ]]; then
     echo "  ${store_name}: a named Docker volume (no host directory) - see 'docker system df -v'"
-    store_paths+=(""); store_exists+=(""); store_sizes+=(""); store_in_tree+=(false); store_volume+=(true)
+    store_paths+=(""); store_exists+=(""); store_sizes+=(""); store_in_tree+=(false); store_volume+=(true); store_inspectable+=(false)
     continue
   fi
   where=""
   [[ "$storage_in_tree" == true ]] || where=" (${store_name}, mounted from outside the checkout)"
   store_paths+=("$storage_path"); store_in_tree+=("$storage_in_tree"); store_volume+=(false)
+  # A store mounted from outside what this process can see (the wizard
+  # container sees the deployment directory only) or that this user may not
+  # read is "cannot inspect", not "does not exist".
+  repo_root="$compose_dir" store_probe "$storage_path"
+  if [[ "$store_state" == outside || "$store_state" == denied ]]; then
+    if [[ "$store_state" == denied ]]; then
+      echo "  ${storage_path}: cannot inspect (permission denied for this user)${where}"
+    else
+      echo "  ${storage_path}: cannot inspect (outside what the wizard can read)${where}"
+    fi
+    store_exists+=(""); store_sizes+=(""); store_inspectable+=(false)
+    continue
+  fi
+  store_inspectable+=(true)
   if [[ -d "$storage_path" ]]; then
     store_size="$(du -sh "$storage_path" 2>/dev/null | cut -f1 || echo "?")"
     echo "  ${storage_path}: ${store_size}${where}"
@@ -619,9 +637,13 @@ if [[ "$format" == json ]]; then
     if [[ "${store_volume[$i]}" == true ]]; then
       j_store_where="\"path\":null,\"exists\":null,\"size\":null"
     else
-      j_store_where="\"path\":$(json_str "${store_paths[$i]}"),\"exists\":$(json_bool "${store_exists[$i]}"),\"size\":$(json_str_or_null "${store_sizes[$i]}")"
+      if [[ "${store_inspectable[$i]}" == true ]]; then
+        j_store_where="\"path\":$(json_str "${store_paths[$i]}"),\"exists\":$(json_bool "${store_exists[$i]}"),\"size\":$(json_str_or_null "${store_sizes[$i]}")"
+      else
+        j_store_where="\"path\":$(json_str "${store_paths[$i]}"),\"exists\":null,\"size\":null"
+      fi
     fi
-    j_stores+="${j_stores:+,}{\"name\":$(json_str "${store_names[$i]}"),${j_store_where},\"inTree\":$(json_bool "${store_in_tree[$i]}"),\"volume\":$(json_bool "${store_volume[$i]}")}"
+    j_stores+="${j_stores:+,}{\"name\":$(json_str "${store_names[$i]}"),${j_store_where},\"inTree\":$(json_bool "${store_in_tree[$i]}"),\"volume\":$(json_bool "${store_volume[$i]}"),\"inspectable\":$(json_bool "${store_inspectable[$i]}")}"
   done
   j_filesystems=""
   for ((i = 0; i < ${#fs_mounts[@]}; i++)); do

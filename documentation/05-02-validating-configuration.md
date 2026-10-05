@@ -33,7 +33,12 @@ model.
 
 - `DOCUMENT_ROUTING` is present in `config.js` and the `signed-output` mount is in `docker-compose.yml`.
 - `signed-output/` and `docs/` exist, everything in them is owned by the uid their container image
-  runs as, and neither is world-writable. A FAIL prints the exact `chown`/`chmod` to run.
+  runs as, and neither is world-writable. A FAIL prints the exact `chown`/`chmod` to run. The
+  directories checked are the sources of the `/signed-output` and `/docs` mounts in the rendered
+  compose model, which are `./signed-output` and `./docs` unless an overlay or override mounts them
+  elsewhere. A store the check cannot look at (a named volume, a path the user cannot read, a path
+  outside the wizard container) is reported as `INFO`, not `FAIL`
+  ([9.11](09-11-start-at-boot-backups-and-customized-hosts.md#storage-outside-the-checkout)).
 
 **Secret hygiene.** It never prints a secret value, only field names and states.
 

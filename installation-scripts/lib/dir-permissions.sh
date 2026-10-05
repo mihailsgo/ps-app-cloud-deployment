@@ -239,6 +239,57 @@ storage_mount() {  # <service> <target> <default dir> [mounts]
 signed_output_mount() { storage_mount ps-server /signed-output "${repo_root}/signed-output" "$@"; }
 docs_mount()          { storage_mount dmss-archive-services-fallback /docs "${repo_root}/docs" "$@"; }
 
+# ── Can this process look at a store directory? ─────────────────────────────
+#
+# A store mounted from an absolute path is not always visible to whoever runs
+# the check. The wizard container sees the deployment directory (mounted at
+# the same path as on the host) and whatever else is mounted into it; the
+# rest of the host's filesystem is not there, so "no such directory" says
+# nothing about the host. A user without access to the path's parents gets
+# "permission denied" for a directory that exists. Neither is a failure, and
+# neither may be answered with "re-run upgrade.sh" or "mkdir".
+#
+# The wizard container is recognised by HOST_PROJECT_DIR, which only its
+# compose service sets. PADSIGN_MOUNTINFO overrides /proc/self/mountinfo
+# (tests).
+running_in_wizard_container() { [[ -n "${HOST_PROJECT_DIR:-}" ]]; }
+
+# True when <path> is in the checkout or under a mount (other than the
+# container's root) of this process.
+wizard_sees_path() {  # <path>
+  local p="$1" mi="${PADSIGN_MOUNTINFO:-/proc/self/mountinfo}" mp
+  case "$p" in "$repo_root"|"$repo_root"/*) return 0;; esac
+  [[ -r "$mi" ]] || return 0   # cannot tell: look, and report what is found
+  while IFS= read -r mp; do
+    mp="${mp//\\040/ }"
+    [[ -n "$mp" && "$mp" != / ]] || continue
+    case "$p" in "$mp"|"$mp"/*) return 0;; esac
+  done < <(awk '{print $5}' "$mi")
+  return 1
+}
+
+# Sets store_state for <path>:
+#   dir      a directory this process can see
+#   notdir   something else is there
+#   denied   permission denied on the path or one of its parents
+#   outside  not visible from here (the wizard container, path not mounted)
+#   missing  nothing there
+store_probe() {  # <path>
+  local p="$1" err
+  store_state=missing
+  if running_in_wizard_container && ! wizard_sees_path "$p"; then
+    store_state=outside
+    return 0
+  fi
+  if [[ -d "$p" ]]; then store_state=dir; return 0; fi
+  if err="$(LC_ALL=C stat -- "$p" 2>&1 >/dev/null </dev/null)"; then
+    store_state=notdir
+  elif [[ "$err" == *'ermission denied'* ]]; then
+    store_state=denied
+  fi
+  return 0
+}
+
 # True when the store is (or, once the mount is added, will be) a directory
 # inside the checkout that does not exist yet: the only kind upgrade.sh and
 # bootstrap.sh create. A store the effective model mounts from outside the

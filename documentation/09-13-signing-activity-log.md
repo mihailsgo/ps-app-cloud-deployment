@@ -119,8 +119,23 @@ for line in sys.stdin:
 |---|---|---|
 | ps-server is older than the version that writes the log | The running image is below the minimum | Upgrade ([9.5](09-05-upgrading.md)) |
 | The audit log is disabled | `AUDIT_LOG.enabled` is `false` | Set it to `true`, then `docker compose restart ps-server` |
-| The directory is outside the deployment directory | `AUDIT_LOG.dir` is not under `signed-output/` on the host | Use the default directory, or read the files on the host as above |
+| The log is written to a host path the wizard cannot read | The compose model mounts the log directory from outside the deployment directory (for example `/signed-output` from another disk on an overlay host). The tab names the path | Mount that directory into the wizard read-only at the same path, as in the note below, or read the files on the host as above |
+| The log directory is not on a mounted volume | `AUDIT_LOG.dir` is not under any mount of ps-server | Keep `AUDIT_LOG.dir` under `/signed-output` |
 | Nothing has been signed yet | The log exists but has no events in the selected range | Widen the date range, or sign a test document ([5.4](05-04-signing-smoke-test.md)) |
+
+The wizard container sees the deployment directory and what is mounted into it, nothing else. When
+`/signed-output` is mounted from elsewhere, the tab shows the host path of the log directory. Add it
+to the wizard in a compose override, with the same path on both sides:
+
+```yaml
+services:
+  wizard:
+    volumes:
+      - "/srv/padsign-storage/signed-output/.padsign-audit:/srv/padsign-storage/signed-output/.padsign-audit:ro"
+```
+
+then recreate the wizard (`docker compose --profile wizard up -d wizard`). The wizard reads the
+files and never writes them.
 
 ## Backups
 

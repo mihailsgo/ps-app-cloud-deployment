@@ -2,13 +2,14 @@
 
 // Parses the clean ok()/bad()/warn() convention shared by
 // validate-certs.sh and validate-config.sh:
-//   "  OK   <msg>" / "  FAIL <msg>" / "  WARN <msg>"
+//   "  OK   <msg>" / "  FAIL <msg>" / "  WARN <msg>" / "  INFO <msg>"
+// (INFO: something the run could not look at; neither a pass nor a failure)
 // A bad()/warn() message can itself span multiple physical lines (some
 // checks in validate-certs.sh embed a multi-line remediation hint via a
 // single printf argument) — continuation lines have no OK/FAIL/WARN
 // prefix and are folded into the preceding check's message until a blank
 // line or the next prefixed line.
-const HELPER_CHECK_RE = /^\s{2,4}(OK|FAIL|WARN)\b\s+(.*)$/;
+const HELPER_CHECK_RE = /^\s{2,4}(OK|FAIL|WARN|INFO)\b\s+(.*)$/;
 
 //
 // Options (both default to the behaviour above, so existing callers are

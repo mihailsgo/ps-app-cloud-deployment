@@ -362,7 +362,10 @@ function initMonitoringOverview(data) {
         '</div>';
     }).join('');
     var stores = (disk.stores || []).map(function (s) {
-      var size = s.volume ? 'Docker volume' : s.exists === false ? 'not created yet' : (s.size || MON_DASH);
+      var size = s.volume ? 'Docker volume'
+        : s.inspectable === false ? 'cannot inspect from the wizard' + (s.path ? ' (mounted from ' + s.path + ')' : '')
+        : s.exists === false ? 'not created yet'
+        : (s.size || MON_DASH);
       return '<li><span class="badge badge-pending">DATA</span><span>' + escapeHtml(s.name) + ': ' + escapeHtml(size) + '</span></li>';
     }).join('');
     if (!fsHtml && !stores) return '<p class="mon-note">No disk information was reported.</p>';

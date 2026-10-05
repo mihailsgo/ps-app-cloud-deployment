@@ -28,6 +28,9 @@ fail=0
 ok()   { printf '  OK   %s\n' "$*"; }
 bad()  { printf '  FAIL %s\n' "$*"; fail=1; }
 warn() { printf '  WARN %s\n' "$*"; }
+# Not a pass or a failure: something this run cannot look at (an overlay's
+# storage the caller cannot read, a named volume). The wizard shows it as INFO.
+info() { printf '  INFO %s\n' "$*"; }
 
 # The EFFECTIVE compose model: run from the project directory without -f, so
 # .env's COMPOSE_FILE (an environment overlay, see installation-scripts/
@@ -83,46 +86,40 @@ else
   bad "DOCUMENT_ROUTING missing from config.js"
 fi
 
-if grep -q 'signed-output:/signed-output' "${repo_root}/docker-compose.yml"; then
-  ok "signed-output volume mount in docker-compose.yml"
-else
-  bad "signed-output volume mount missing from docker-compose.yml"
-fi
+# Where the signed-document stores actually are: what the effective compose
+# model mounts at ps-server's /signed-output and the fallback archive's /docs
+# (lib/dir-permissions.sh storage_mount, which reads `docker compose config
+# --format json` like the port-binding check below). Normally the in-tree
+# ./signed-output and ./docs, but an environment overlay (overlay.sh) or a
+# docker-compose.override.yml can mount them from an absolute path elsewhere,
+# or from a named volume, instead.
+# shellcheck source=lib/dir-permissions.sh
+. "${repo_root}/installation-scripts/lib/dir-permissions.sh"
+store_mounts="$(effective_mounts)"
+signed_output_mount "$store_mounts"
+signed_output_how="$storage_how"; signed_output_dir="$storage_path"
+docs_mount "$store_mounts"
+docs_how="$storage_how"; docs_dir="$storage_path"
 
-# Where the signed-document stores actually are. Normally the in-tree
-# ./signed-output and ./docs, but an environment overlay (overlay.sh) points
-# them at the documents' existing location instead of moving the data.
-signed_output_dir="${repo_root}/signed-output"
-docs_dir="${repo_root}/docs"
-storage_sources="$(compose_config --format json 2>/dev/null | python3 -c '
-import json, sys
-try:
-    services = json.load(sys.stdin).get("services") or {}
-except Exception:
-    sys.exit(0)
-want = {("ps-server", "/signed-output"), ("dmss-archive-services-fallback", "/docs")}
-for name, svc in services.items():
-    for v in svc.get("volumes") or []:
-        if (name, v.get("target")) in want and v.get("type") == "bind" and v.get("source"):
-            print(v["target"] + "\t" + v["source"])
-' 2>/dev/null | tr -d '\r' || true)"
-while IFS=$'\t' read -r tgt src; do
-  case "$tgt" in
-    /signed-output) signed_output_dir="$src";;
-    /docs) docs_dir="$src";;
-  esac
-done <<< "$storage_sources"
-if [[ "$signed_output_dir" != "${repo_root}/signed-output" ]]; then
+case "$signed_output_how" in
+  bind|volume) ok "signed-output volume mount in docker-compose.yml" ;;
+  none)        bad "signed-output volume mount missing from docker-compose.yml (the effective compose model has no /signed-output mount for ps-server)" ;;
+  *)  # the model could not be read: look in the file itself
+    if grep -q 'signed-output:/signed-output' "${repo_root}/docker-compose.yml"; then
+      ok "signed-output volume mount in docker-compose.yml"
+    else
+      bad "signed-output volume mount missing from docker-compose.yml"
+    fi ;;
+esac
+if [[ "$signed_output_how" == bind && "$signed_output_dir" != "${repo_root}/signed-output" ]]; then
   ok "signed-output is mounted from ${signed_output_dir} (environment overlay)"
 fi
-if [[ "$docs_dir" != "${repo_root}/docs" ]]; then
+if [[ "$docs_how" == bind && "$docs_dir" != "${repo_root}/docs" ]]; then
   ok "docs is mounted from ${docs_dir} (environment overlay)"
 fi
 
 # Ownership checks (below) need the same image-uid resolution the scripts
-# that create these directories use.
-# shellcheck source=lib/dir-permissions.sh
-. "${repo_root}/installation-scripts/lib/dir-permissions.sh"
+# that create these directories use (lib/dir-permissions.sh, sourced above).
 
 # Reports whether <dir>'s tree is owned by the uid <repository>'s pinned image
 # runs as. Skipped (not failed) when that can't be determined, e.g. no docker.
@@ -163,32 +160,71 @@ world_writable() {
   find "$1" -maxdepth 0 -perm -002 2>/dev/null | grep -q .
 }
 
-if [[ -d "${signed_output_dir}" ]]; then
-  ok "signed-output directory exists"
-  if world_writable "${signed_output_dir}"; then
-    bad "signed-output directory is world-writable ($(stat -c '%a' "${signed_output_dir}" 2>/dev/null || stat -f '%Lp' "${signed_output_dir}" 2>/dev/null)). ps-server does not need this (it owns the tree, or runs as root); fix: chmod 750 ${signed_output_dir}"
-  else
-    ok "signed-output directory is not world-writable"
+# Says why a store that is not a directory this run can see was not checked.
+# Sets store_skipped=true for the states that are not failures: a named
+# volume, a path this process cannot read, a path the wizard container does
+# not mount. A missing or non-directory path is the caller's to report.
+store_skipped=false
+store_unchecked() {  # <label> <how> <path>, after store_probe <path>
+  store_skipped=false
+  if [[ "$2" == volume ]]; then
+    store_skipped=true
+    info "$1 is a named Docker volume: there is no host directory to check (see 'docker system df -v')"
+    return 0
   fi
-  check_tree_owner "${signed_output_dir}" "$ps_server_image_repo" "signed-output directory"
-elif in_tree_store "${signed_output_dir}"; then
-  bad "signed-output directory missing (re-run upgrade.sh, which creates it owned by the ps-server image's user, mode 750)"
-else
-  bad "signed-output directory ${signed_output_dir} (environment-overlay mount) is missing - restore or re-point the mount; upgrade.sh does not create it"
-fi
+  case "$store_state" in
+    denied)
+      store_skipped=true
+      info "$1 at $3 cannot be inspected: permission denied for $(id -un 2>/dev/null || echo 'this user'). Ownership and mode were not checked; run validate-config.sh as a user that can read it (for example with sudo)" ;;
+    outside)
+      store_skipped=true
+      info "$1 is mounted from $3, outside what the wizard can read (it sees the deployment directory only). Ownership and mode were not checked; run validate-config.sh on the host to check it" ;;
+  esac
+}
 
-if [[ -d "${docs_dir}" ]]; then
-  check_tree_owner "${docs_dir}" "$dmss_fallback_image_repo" "docs directory"
-  if world_writable "${docs_dir}"; then
-    bad "docs directory is world-writable ($(stat -c '%a' "${docs_dir}" 2>/dev/null || stat -f '%Lp' "${docs_dir}" 2>/dev/null)). Fix: chmod 770 ${docs_dir}$(in_tree_store "${docs_dir}" && echo ' (re-running upgrade.sh does this)') - see installation-scripts/lib/dir-permissions.sh"
+signed_output_dir_check() {
+  store_probe "${signed_output_dir}"
+  store_unchecked "signed-output" "$signed_output_how" "${signed_output_dir}"
+  [[ "$store_skipped" == true ]] && return 0
+  if [[ "$store_state" == dir ]]; then
+    ok "signed-output directory exists"
+    if world_writable "${signed_output_dir}"; then
+      bad "signed-output directory is world-writable ($(stat -c '%a' "${signed_output_dir}" 2>/dev/null || stat -f '%Lp' "${signed_output_dir}" 2>/dev/null)). ps-server does not need this (it owns the tree, or runs as root); fix: chmod 750 ${signed_output_dir}"
+    else
+      ok "signed-output directory is not world-writable"
+    fi
+    check_tree_owner "${signed_output_dir}" "$ps_server_image_repo" "signed-output directory"
+  elif [[ "$store_state" == notdir ]]; then
+    bad "signed-output ${signed_output_dir} exists but is not a directory"
+  elif in_tree_store "${signed_output_dir}"; then
+    bad "signed-output directory missing (re-run upgrade.sh, which creates it owned by the ps-server image's user, mode 750)"
   else
-    ok "docs directory is not world-writable"
+    bad "signed-output directory ${signed_output_dir} (environment-overlay mount) is missing - restore or re-point the mount; upgrade.sh does not create it"
   fi
-elif in_tree_store "${docs_dir}"; then
-  bad "docs directory missing (create with: mkdir -p docs — then see installation-scripts/lib/dir-permissions.sh for the correct group/mode)"
-else
-  bad "docs directory ${docs_dir} (environment-overlay mount) is missing - restore or re-point the mount"
-fi
+}
+
+docs_dir_check() {
+  store_probe "${docs_dir}"
+  store_unchecked "docs" "$docs_how" "${docs_dir}"
+  [[ "$store_skipped" == true ]] && return 0
+  if [[ "$store_state" == dir ]]; then
+    check_tree_owner "${docs_dir}" "$dmss_fallback_image_repo" "docs directory"
+    if world_writable "${docs_dir}"; then
+      bad "docs directory is world-writable ($(stat -c '%a' "${docs_dir}" 2>/dev/null || stat -f '%Lp' "${docs_dir}" 2>/dev/null)). Fix: chmod 770 ${docs_dir}$(in_tree_store "${docs_dir}" && echo ' (re-running upgrade.sh does this)') - see installation-scripts/lib/dir-permissions.sh"
+    else
+      ok "docs directory is not world-writable"
+    fi
+  elif [[ "$store_state" == notdir ]]; then
+    bad "docs ${docs_dir} exists but is not a directory"
+  elif in_tree_store "${docs_dir}"; then
+    bad "docs directory missing (create with: mkdir -p docs — then see installation-scripts/lib/dir-permissions.sh for the correct group/mode)"
+  else
+    bad "docs directory ${docs_dir} (environment-overlay mount) is missing - restore or re-point the mount"
+  fi
+}
+
+signed_output_dir_check
+docs_dir_check
 
 # --- Secret hygiene ---
 # Nothing here prints a secret value - only field names and file modes.

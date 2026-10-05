@@ -498,3 +498,15 @@ test('monitoring.js: no unescaped interpolation into HTML strings (spot check of
     assert.match(rhs, /Html\(|Markup$|'<|"<|highlightLine\(|\.map\(|\.join\(|checklist\(|rowsHtml\(|items \|\||^''$/, rhs);
   }
 });
+
+test('monitoring.js Overview: a store the wizard cannot inspect is reported as such, not as "not created yet"', () => {
+  const source = fs.readFileSync(PAGE_SCRIPT, 'utf8');
+  const start = source.indexOf('var stores = (disk.stores');
+  assert.ok(start >= 0, 'the disk card builds its store rows from disk.stores');
+  const block = source.slice(start, source.indexOf('}).join', start));
+  const inspect = block.indexOf('inspectable === false');
+  const missing = block.indexOf("exists === false");
+  assert.ok(inspect >= 0, 'checks inspectable === false');
+  assert.ok(inspect < missing, 'an uninspectable store is decided before "exists === false" is read');
+  assert.match(block, /cannot inspect from the wizard/);
+});
