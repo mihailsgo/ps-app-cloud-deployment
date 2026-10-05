@@ -27,7 +27,7 @@ to read its output.
 | 1 | Keycloak master-realm admin password | `admin` (fallback when `.env` sets nothing) | `.env`: `KEYCLOAK_FIRST_BOOT_ADMIN_PASSWORD`, read by `docker-compose.yml` | `bootstrap.sh --admin-pass` writes it. Keycloak reads it **only on its first boot** against an empty `keycloak_data` volume. Editing `.env` later changes nothing. To change it later, see [8.3](08-03-admin-password-and-break-glass.md). |
 | 2 | Backend client secret (`KEYCLOAK_CONFIG.credentials.secret`) | `CHANGE_ME` | `config/config.js` | `bootstrap.sh` writes the secret Keycloak issues (step 6 of 8). If it still says `CHANGE_ME`, see [8.1](08-01-automated-setup.md). |
 | 3 | `REGISTER_PDF_API_KEY` | a public `tlx_pdf_...` value | `config/config.js` | `bootstrap.sh` replaces it with a random key and never prints it. If the validator still warns, run the fix below, then give the new key to every API client ([7.5](07-05-register-pdf-api.md#reading-the-api-key)). |
-| 4 | `SESSION_SECRET` | `change-this-session-secret` | `config/config.js` | Replaced by `bootstrap.sh` like #3. Changing it only ends existing sessions. |
+| 4 | `SESSION_SECRET` | `change-this-session-secret` | `config/config.js` | Not used by ps-server 3.33+. The value in `config/config.js` is kept as-is for compatibility with rollback to 3.32 or earlier. |
 | 5 | `STAMP_API_KEY`, `STAMP_COMPANY_ID`, `STAMP_COMPANY_SECRET` | `CHANGE_ME` | `config/config.js` | For external e-sealing, put in the values your e-sealing provider issued for this deployment, then `docker compose restart ps-server`. They are not used when `STAMP_MODE` is `"local"`. |
 | 6 | `STAMP_API_URL` | a TrustLynx demo endpoint (`https://eseal.trustlynx.com/.../DEMOCOMPANY`) | `config/config.js` | Not a secret, and not flagged as `CHANGE_ME`. For external e-sealing, set it to the URL your e-sealing provider gives you, together with #5. Not used when `STAMP_MODE` is `"local"`. |
 | 7 | Visual-PDF signing CA (`dmssrootca.p12`, `cakeystorepassword`) | a labelled demo CA whose private key is public | `dmss-container-and-signature-services/` | `bootstrap.sh` generates one for this deployment (`configure-host.sh --generate-ca`). If the validator warns that it is the shipped CA, run the fix below. |
@@ -41,7 +41,7 @@ The Syncfusion viewer key `PDF_RENDER_SYNCFUSION_SECRET_KEY` in
 `config/constants.json` is the licensed key PadSign ships with. You do not
 need to change it.
 
-Fixes for #3/#4 and #7. Each one changes only a value that still equals the
+Fixes for #3 and #7. Each one changes only a value that still equals the
 shipped one, so it is safe to re-run:
 
 ```bash
@@ -168,7 +168,7 @@ The installation scripts set these for you. `validate-config.sh` checks them.
 
 | Path | Expected | Why |
 |------|----------|-----|
-| `config/config.js` | mode `640`, group = the gid the pinned ps-server image runs as | Holds the backend secret, API key, session secret and e-sealing credentials. ps-server must still read it. |
+| `config/config.js` | mode `640`, group = the gid the pinned ps-server image runs as | Holds the backend secret, API key and e-sealing credentials. ps-server must still read it. |
 | `.env` | mode `600`, owned by the deployment directory's owner | Holds the Keycloak first-boot admin password and, if you set it, `ALERT_WEBHOOK_URL`. Only `docker compose` reads it. |
 | `nginx/certs/*.key` | mode `600` | TLS private key. |
 | `*.bak` (written by the scripts) | mode `600` | `config/config.js.bak` holds the same secrets as `config/config.js`. |

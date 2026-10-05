@@ -45,7 +45,7 @@ model.
 | Check | Result |
 |---|---|
 | `API_PROTECT_LOGS_ENABLED` is true (ps-server would log raw bearer tokens) | FAIL |
-| A `config.js` credential still holds the value shipped in this public repository, or the `CHANGE_ME` placeholder: `REGISTER_PDF_API_KEY`, `SESSION_SECRET`, the Keycloak backend client secret, `STAMP_API_KEY`, `STAMP_COMPANY_ID`, `STAMP_COMPANY_SECRET` | WARN, with the fix. The three `STAMP_*` fields are OK while `STAMP_MODE` is `"local"`, which does not use them. |
+| A `config.js` credential still holds the value shipped in this public repository, or the `CHANGE_ME` placeholder: `REGISTER_PDF_API_KEY`, the Keycloak backend client secret, `STAMP_API_KEY`, `STAMP_COMPANY_ID`, `STAMP_COMPANY_SECRET` | WARN, with the fix. The three `STAMP_*` fields are OK while `STAMP_MODE` is `"local"`, which does not use them. |
 | The visual-PDF signing CA (`dmss-container-and-signature-services/dmssrootca.p12`) is the demo CA shipped in the repository | WARN: run `configure-host.sh --host <host> --generate-ca`, then restart `dmss-container-and-signature-services`. The installer generates one per deployment |
 | That CA keystore is missing or does not open with the password in its `application.yml` | FAIL |
 | `dmss-archive-services` has JWT checking enabled with the shipped secret | FAIL |

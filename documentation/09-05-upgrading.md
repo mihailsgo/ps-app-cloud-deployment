@@ -69,7 +69,7 @@ and settings into files the repository tracks, so on every deployed host
 
 | File | What the host changed |
 |---|---|
-| `config/config.js` | hostname URLs, the Keycloak backend client secret, the generated `REGISTER_PDF_API_KEY` / `SESSION_SECRET`, the company role, `DOCUMENT_ROUTING`, `STAMP_MODE` / `STAMP_LOCAL`, your e-sealing credentials |
+| `config/config.js` | hostname URLs, the Keycloak backend client secret, the generated `REGISTER_PDF_API_KEY`, the company role, `DOCUMENT_ROUTING`, `STAMP_MODE` / `STAMP_LOCAL`, your e-sealing credentials |
 | `config/constants.json` | hostname, Keycloak URL, `DEMO_MODE` |
 | `docker-compose.yml` | `KC_HOSTNAME`, the nginx network alias, image pins, and with local e-sealing the stamping service and `SPRING_SECURITY_USER_*` |
 | `nginx/nginx.conf` | `server_name`, certificate paths |

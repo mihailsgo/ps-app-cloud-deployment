@@ -59,7 +59,7 @@ not production-grade: see
 |---------|----------|---------|
 | ps-server | `NO_PROXY`, `no_proxy` | Internal names that bypass any proxy. |
 | ps-server | `HTTP_PROXY`, `HTTPS_PROXY` (and lower case) | Empty, so no host proxy settings leak in. Set them if ps-server must reach an external e-sealing or customer-data service through a proxy. |
-| ps-server | `SESSION_SECRET` | Not set by default. If set, it overrides `SESSION_SECRET` in `config/config.js` ([7.4](07-04-server-config-js.md)). |
+| ps-server | `SESSION_SECRET` | Not read by ps-server 3.33+; has no effect. |
 | ps-server | `ALLOW_INSECURE_TLS` | Not set by default. `true` turns insecure TLS on even when `config/config.js` has `ALLOW_INSECURE_TLS: false`. It can only turn it on: `false` (or any other value) does not turn it off when `config/config.js` has `true` ([7.4](07-04-server-config-js.md)). |
 | DMSS services | `SPRING_CONFIG_LOCATION` / `SPRING_CONFIG_ADDITIONAL_LOCATION` | Point the Spring services at their mounted `application.yml`. |
 | dmss-container-and-signature-services | `SPRING_SECURITY_USER_NAME`, `SPRING_SECURITY_USER_PASSWORD` | Only with local e-sealing. Container-signature's Basic-auth credentials, which must match `STAMP_LOCAL` in `config/config.js`. Ship as `user` / `changeit`: rotate them ([6](06-production-hardening.md)). |

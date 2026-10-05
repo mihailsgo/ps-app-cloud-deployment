@@ -17,7 +17,7 @@ To read it, work as root or as a member of that group.
 `DEMO_COMPANY_ROLE`. An in-network DMSS address
 ([below](#how-ps-server-reaches-the-dmss-services)) names no host and is left
 as it is. `bootstrap.sh` also writes the backend client secret and
-generates `REGISTER_PDF_API_KEY` and `SESSION_SECRET`.
+generates `REGISTER_PDF_API_KEY`.
 
 Defaults below are the values in the shipped file. `<host>` is your
 hostname.
@@ -105,7 +105,7 @@ or an enabled webhook without a usable public archive address
 | `ALLOWED_ORIGINS` | `['https://<host>:5173', 'https://<host>']` | Origins allowed by CORS. The portal origin `https://<host>` is enough in production. The `:5173` entry is a development origin you can remove. |
 | `REGISTER_PDF_API_KEY` | public value, replaced by `bootstrap.sh` | Shared API key for the integration endpoints ([7.5](07-05-register-pdf-api.md)). |
 | `REGISTER_PDF_API_KEYS` | not set | Optional per-company keys, a list of `{ company: "Acme", key: "tlx_pdf_..." }`. They are checked before `REGISTER_PDF_API_KEY`. A caller using one is scoped to that company on the receive-back endpoints ([7.5](07-05-register-pdf-api.md#per-company-keys)). |
-| `SESSION_SECRET` | public value, replaced by `bootstrap.sh` | Signs ps-server's session cookie. Changing it only ends existing sessions. The `SESSION_SECRET` environment variable overrides it if set. |
+| `SESSION_SECRET` | public value, kept as-is | Not read by ps-server 3.33+; left in place for compatibility with rollback to 3.32 or earlier. The `SESSION_SECRET` environment variable has no effect. |
 | `PRIVILEGED_API_ROLES` | `["padsign-admin", "psapp-integration"]` | Realm roles allowed to run the privileged internal cleanup operations. |
 | `API_PROTECT_LOGS_ENABLED` | `false` | Logs every bearer-token validation, including the raw token. Keep it `false`. `validate-config.sh` fails if it is `true`. |
 | `ALLOW_INSECURE_TLS` | `false` | Disables TLS certificate verification for ps-server's outgoing calls. Only for troubleshooting a test host with a self-signed certificate. Never enable it in production. |
