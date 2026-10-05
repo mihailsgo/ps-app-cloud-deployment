@@ -181,7 +181,7 @@ services:
       retries: 10
       start_period: 300s   # JVM: see dmss-container-and-signature-services for the numbers
   ps-server:
-    image: 'mihailsgordijenko/ps-server:3.34@sha256:140ba74ec1b4f5abd419f28c96022a52bb25e71d2183383a5e7ff76077f9f1e6'
+    image: 'mihailsgordijenko/ps-server:3.35@sha256:76b16b5fe21ce0e11412fb56df429825e0859a90341323842469a2cda7518314'
     container_name: ps-server
     # No host port mapping: nginx reaches this by service name on the Docker
     # network (see nginx/nginx.conf `/api/`). Nothing else in this repo needs
@@ -250,7 +250,7 @@ services:
       start_period: 20s
 
   ps-client:
-    image: mihailsgordijenko/ps-client:8.41@sha256:c328c6e3de0280817d736b1d96204a9826c3609d546d3b09cd3e6eb7591a81ea
+    image: mihailsgordijenko/ps-client:8.42@sha256:80ee534a0bb9aeaa67931b0beac6c64ce2207d4f6362574b272d2ee92e6a12dd
     container_name: ps-client
     restart: unless-stopped
     logging: *default-logging

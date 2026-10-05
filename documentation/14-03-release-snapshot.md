@@ -8,8 +8,8 @@ and digest pinning work: [14.6 Image approval and digest pinning](14-06-image-ap
 
 | Component | Compose service | Image | Tag |
 |---|---|---|---|
-| PadSign server (API) | `ps-server` | `mihailsgordijenko/ps-server` | `3.34` |
-| PadSign client (web app) | `ps-client` | `mihailsgordijenko/ps-client` | `8.41` |
+| PadSign server (API) | `ps-server` | `mihailsgordijenko/ps-server` | `3.35` |
+| PadSign client (web app) | `ps-client` | `mihailsgordijenko/ps-client` | `8.42` |
 | Keycloak (identity provider) | `keycloak` | `quay.io/keycloak/keycloak` | `26.7.4` |
 | Reverse proxy | `nginx` | `nginx` | `1.30.5` (stable line) |
 | DMSS archive | `dmss-archive-services` | `trustlynx/dmss-archive-services` | `24.3.0.3` |
@@ -32,11 +32,7 @@ of each service as well.
 
 Some features need at least a given image tag. The minimums are in
 [`release/capabilities.json`](../release/capabilities.json), which `upgrade.sh` and
-`toggle-features.sh` read and enforce; look the numbers up there. The images above meet every
-minimum in that file except for the two capabilities the file marks `unreleased`
-(`dmss-internal-urls`, `client-origin-defaults`): their code is merged but no released image has it
-yet, so the file records the newest tag known to lack it instead of a minimum, and `upgrade.sh`
-refuses a switch that needs one until a release is approved. For the others this only matters on a
+`toggle-features.sh` read and enforce; look the numbers up there. The images above meet every minimum in that file. This only matters on a
 host that still runs older images:
 
 | Capability in `capabilities.json` | Feature |
