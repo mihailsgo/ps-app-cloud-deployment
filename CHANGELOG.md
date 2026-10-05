@@ -2,7 +2,7 @@
 
 Release notes for the PadSign deployment package, newest first; versions follow this repository's git tags (`vX.Y.Z`).
 
-## Unreleased
+## v1.0.51 - 2026-10-05
 
 ### Added
 
@@ -13,6 +13,7 @@ Release notes for the PadSign deployment package, newest first; versions follow 
 ### Changed
 
 - The release pins `ps-server` 3.35 (from 3.34) and `ps-client` 8.42 (from 8.41); `release/approved-digests.json` has the digests. `ps-server` 3.35 adds HMAC-signed webhook deliveries (`X-Padsign-Signature`, `X-Padsign-Timestamp` for a strategy with a `secret`) and `ARCHIVE_PUBLIC_BASE_URL`, and splits `app.js` into modules with no change in behaviour. `ps-client` 8.42 signs with one `POST /api/sign` and follows its status, moves the form-fill and new-version routes off `/demo/`, translates the remaining UI strings, and no longer ships absolute demo-host values in `constants.json`.
+- `dmss-container-and-signature-services` moves from `24.3.0.29` to `24.3.0.36` (`trustlynx/container-signature-service`), after `dmss-seal-smoke.sh` passed on it: it boots and seals the `LocalDemo` profile repeatedly. `release/approved-digests.json` has the digest.
 - `config/config.js` ships the in-network DMSS addresses and `ARCHIVE_PUBLIC_BASE_URL`, so a fresh install has ps-server call the DMSS services directly instead of through nginx and the public hostname. An existing host keeps what it has; nothing changes until you run the switch above. The in-network addresses work with every ps-server image; only the webhook `archiveUrl` needs the `dmss-internal-urls` capability.
 - `validate-config.sh` accepts both address forms, fails a key that holds the other service's address or a public address on another host, and warns about a mix, about an `ARCHIVE_PUBLIC_BASE_URL` on another host, and about an enabled webhook that would send an in-network `archiveUrl`. It also accepts a `constants.json` that leaves out `KEYCLOAK_URL`, `KEYCLOAK_REDIRECT_URI` and `KEYCLOAK_POST_LOGOUT_REDIRECT_URI` when the ps-client defaults them to its own origin, and fails one that does so on a ps-client that does not.
 - `configure-host.sh` writes the three Keycloak URLs into `constants.json` only where the file has them, and keeps a relative `PS_DOWNLOAD_API` / `PDF_TEST_PATH`. `postdeploy-check.sh` counts a key left out of both the on-disk and the served `constants.json` as a match. `diff-baseline-overlay.sh` treats either DMSS address form and `ARCHIVE_PUBLIC_BASE_URL` as expected overlay values.
