@@ -22,6 +22,11 @@ intermediates) and the key must not be encrypted. See
 4. Click **Renew Certificate**, confirm, and watch the progress. nginx
    restarts, which is a short interruption.
 
+On an overlay-managed host these controls are disabled
+([3.3, Overlay-managed hosts](03-03-how-the-wizard-works.md#overlay-managed-hosts));
+use the command line and re-capture the overlay afterwards
+([9.11](09-11-start-at-boot-backups-and-customized-hosts.md#certificate-renewal-on-a-customized-host)).
+
 ## Using the command line
 
 Check the new files first (this changes nothing):

@@ -22,6 +22,11 @@ running deployment, in any combination, with one restart:
 Flipping several switches before **Apply changes** costs one restart, not
 one per switch.
 
+On an overlay-managed host these controls are disabled
+([3.3, Overlay-managed hosts](03-03-how-the-wizard-works.md#overlay-managed-hosts));
+use the command line and re-capture the overlay afterwards
+([9.11](09-11-start-at-boot-backups-and-customized-hosts.md#certificate-renewal-on-a-customized-host)).
+
 ## Using the command line
 
 ```bash

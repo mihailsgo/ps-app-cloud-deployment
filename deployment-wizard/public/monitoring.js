@@ -205,17 +205,20 @@ function initMonitoringOverview(data) {
   }
 
   function renderServices(payload) {
-    if (!payload.dockerAvailable) showEmpty('Docker is not reachable from the wizard.');
+    var failed = composeFailedText(payload);
+    if (failed && !payload.services.length) showEmpty(failed);
+    else if (!payload.dockerAvailable) showEmpty('Docker is not reachable from the wizard.');
     else if (!payload.services.length) showEmpty('No services were found in the compose project.');
     else syncServices(payload.services);
 
     if (payload.dockerAvailable) {
       setTextIfChanged(timeEl, 'Updated ' + fmtTime(payload.generatedAt) + ' UTC.');
-      setTextIfChanged(updated, '');
     } else {
       setTextIfChanged(timeEl, '');
-      setTextIfChanged(updated, 'Docker is not reachable. Trying again in 10 seconds.');
     }
+    if (failed) setTextIfChanged(updated, failed + ' Trying again in 10 seconds.');
+    else if (!payload.dockerAvailable) setTextIfChanged(updated, 'Docker is not reachable. Trying again in 10 seconds.');
+    else setTextIfChanged(updated, '');
   }
 
   function loadServices() {
@@ -362,7 +365,10 @@ function initMonitoringOverview(data) {
         '</div>';
     }).join('');
     var stores = (disk.stores || []).map(function (s) {
-      var size = s.volume ? 'Docker volume' : s.exists === false ? 'not created yet' : (s.size || MON_DASH);
+      var size = s.volume ? 'Docker volume'
+        : s.inspectable === false ? 'cannot inspect from the wizard' + (s.path ? ' (mounted from ' + s.path + ')' : '')
+        : s.exists === false ? 'not created yet'
+        : (s.size || MON_DASH);
       return '<li><span class="badge badge-pending">DATA</span><span>' + escapeHtml(s.name) + ': ' + escapeHtml(size) + '</span></li>';
     }).join('');
     if (!fsHtml && !stores) return '<p class="mon-note">No disk information was reported.</p>';
@@ -637,11 +643,14 @@ function initMonitoringLogs() {
   // A connection error tells us nothing: was the session lost, did the server
   // refuse (400/429, which EventSource cannot read), or did the network blip?
   function probeAfterError(source) {
-    monFetch('/api/monitoring/services').then(function () {
+    monFetch('/api/monitoring/services').then(function (payload) {
       if (es !== source) return;
       if (source.readyState === EventSource.CLOSED) {
         closeStream();
-        setStatus('Could not open the log stream - reload the page (the service may have been removed, or too many Logs tabs are open).');
+        var failed = composeFailedText(payload);
+        setStatus(failed
+          ? 'Could not open the log stream. ' + failed
+          : 'Could not open the log stream - reload the page (the service may have been removed, or too many Logs tabs are open).');
       } else if (source.readyState === EventSource.CONNECTING) {
         setStatus('Disconnected — retrying…'); // already OPEN again: leave the status alone
       }

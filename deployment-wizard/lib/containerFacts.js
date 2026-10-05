@@ -5,7 +5,8 @@ const { promisify } = require('util');
 const execFileP = promisify(execFile);
 
 const { HOST_PROJECT_DIR } = require('./paths');
-const { parseComposePsOutput } = require('./dockerFacts');
+const { parseComposePsOutput, unreadableComposeFiles } = require('./dockerFacts');
+const { composeErrorLine } = require('./execError');
 
 // Read-only Docker introspection for the Monitoring section (Overview table
 // + per-service Logs, wired up by a later task's routes). Every call here is
@@ -30,18 +31,43 @@ function _resetCache() {
   overviewInFlight = null;
 }
 
+// A failed compose call as the Monitoring pages show it: the reason
+// (composeErrorLine: first line, redacted) and, when COMPOSE_FILE names a
+// file this container cannot see, which one and where the fix is described.
+function composeFailure(err, unreadable = unreadableComposeFiles) {
+  const error = composeErrorLine(err);
+  let missing = [];
+  try {
+    missing = unreadable() || [];
+  } catch (e) {
+    missing = [];
+  }
+  const hint = missing.length
+    ? `COMPOSE_FILE names ${missing.join(', ')}, which the wizard container cannot read - mount it at the same path ` +
+      '(documentation/09-12-monitoring-from-the-wizard.md).'
+    : null;
+  return { error, hint };
+}
+
 // `docker compose config --services` lists every service the compose file
 // defines, including ones not currently running (a stopped/never-created
 // container is still a row in the Overview table, via getOverview's
 // state:'missing'). 'wizard' is excluded — it is this container itself, not
 // part of the PadSign stack it is monitoring.
 //
+// Resolves to { services, error, hint }: error is null on success, else the
+// reason compose gave (composeFailure), so a compose failure is never
+// mistaken for "the project has no services". On a failure services is the
+// last good list (a transient failure does not blank the table), [] when
+// there never was one. Never throws.
+//
 // Callers always get a copy (a caller sorting or pushing must not corrupt the
 // cache), and overlapping calls while nothing is cached share one exec.
-async function listStackServices({ exec = execFileP, now = Date.now } = {}) {
+async function readStackServices({ exec = execFileP, now = Date.now, unreadable } = {}) {
   const t = now();
-  if (t - cache.at < CACHE_MS) return cache.list.slice();
-  if (listInFlight) return (await listInFlight).slice();
+  const copy = (r) => ({ services: r.services.slice(), error: r.error, hint: r.hint });
+  if (t - cache.at < CACHE_MS) return { services: cache.list.slice(), error: null, hint: null };
+  if (listInFlight) return copy(await listInFlight);
 
   const pending = (async () => {
     try {
@@ -56,19 +82,23 @@ async function listStackServices({ exec = execFileP, now = Date.now } = {}) {
         .filter((s) => s !== 'wizard')
         .sort();
       cache = { at: t, list };
-      return list;
+      return { services: list, error: null, hint: null };
     } catch (err) {
-      // Docker unreachable this tick — keep showing the last known list rather
-      // than blanking the whole table; [] only ever means "never succeeded".
-      return cache.list;
+      return { services: cache.list, ...composeFailure(err, unreadable) };
     }
   })();
   listInFlight = pending;
   try {
-    return (await pending).slice();
+    return copy(await pending);
   } finally {
     if (listInFlight === pending) listInFlight = null;
   }
+}
+
+// The service names alone, for callers that only validate a name against
+// the stack (Logs, Restart): [] when compose has never answered.
+async function listStackServices(options) {
+  return (await readStackServices(options)).services;
 }
 
 const SIZE_UNITS = {
@@ -230,10 +260,11 @@ function tryParseJsonArray(text) {
   }
 }
 
-async function computeOverview({ exec = execFileP, now = Date.now } = {}) {
+async function computeOverview({ exec = execFileP, now = Date.now, unreadable } = {}) {
   const nowMs = now();
   const generatedAt = new Date(nowMs).toISOString();
-  const services = await listStackServices({ exec, now: () => nowMs });
+  const listed = await readStackServices({ exec, now: () => nowMs, unreadable });
+  const services = listed.services;
 
   let psRows;
   try {
@@ -244,8 +275,9 @@ async function computeOverview({ exec = execFileP, now = Date.now } = {}) {
     psRows = parseComposePsOutput(stdout);
   } catch (err) {
     // Compose itself isn't answering -> nothing downstream can be trusted
-    // either; this is the wizard's existing "docker isn't reachable" signal.
-    return { generatedAt, dockerAvailable: false, services: [] };
+    // either. error says why (the daemon unreachable, or a compose file it
+    // cannot read), so the page does not have to guess.
+    return { generatedAt, dockerAvailable: false, services: [], ...composeFailure(err, unreadable) };
   }
 
   // Only containers of stack services are inspected/statted — `compose ps`
@@ -338,11 +370,15 @@ async function computeOverview({ exec = execFileP, now = Date.now } = {}) {
     };
   });
 
-  return { generatedAt, dockerAvailable: true, services: rows };
+  // error/hint: `compose config --services` failed this tick (rows, if any,
+  // are the last good list); null when it answered.
+  return { generatedAt, dockerAvailable: true, services: rows, error: listed.error, hint: listed.hint };
 }
 
 module.exports = {
+  readStackServices,
   listStackServices,
+  composeFailure,
   getOverview,
   parseInspect,
   parseStats,

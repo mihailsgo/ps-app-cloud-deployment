@@ -69,7 +69,7 @@ and settings into files the repository tracks, so on every deployed host
 
 | File | What the host changed |
 |---|---|
-| `config/config.js` | hostname URLs, the Keycloak backend client secret, the generated `REGISTER_PDF_API_KEY` / `SESSION_SECRET`, the company role, `DOCUMENT_ROUTING`, `STAMP_MODE` / `STAMP_LOCAL`, your e-sealing credentials |
+| `config/config.js` | hostname URLs, the Keycloak backend client secret, the generated `REGISTER_PDF_API_KEY`, the company role, `DOCUMENT_ROUTING`, `STAMP_MODE` / `STAMP_LOCAL`, your e-sealing credentials |
 | `config/constants.json` | hostname, Keycloak URL, `DEMO_MODE` |
 | `docker-compose.yml` | `KC_HOSTNAME`, the nginx network alias, image pins, and with local e-sealing the stamping service and `SPRING_SECURITY_USER_*` |
 | `nginx/nginx.conf` | `server_name`, certificate paths |
@@ -374,6 +374,10 @@ live progress follows `upgrade.sh`'s steps. A failed
 run offers **Retry**, **Back to Dashboard** and **Copy log**. The wizard
 has no rollback button: use `rollback.sh` on the host
 ([9.8](09-08-rollback.md)).
+
+On an overlay-managed host the panel offers no upgrade and the server
+refuses one: upgrade it as in
+[9.11, Upgrading an overlay host](09-11-start-at-boot-backups-and-customized-hosts.md#upgrading-an-overlay-host).
 
 ## Options
 

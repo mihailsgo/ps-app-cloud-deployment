@@ -1,8 +1,14 @@
 <%- include('partials/head', { title: 'Dashboard — PadSign Deployment Wizard' }) %>
+<%
+  // res.locals.overlay (lib/overlayGuard.js): set on an overlay-managed
+  // checkout, where Upgrade is refused server-side and not offered here.
+  const overlayManaged = typeof overlay !== 'undefined' && Boolean(overlay);
+-%>
 <%- include('partials/topbar', { hostname, version, hasCompletedSetup, runActive }) %>
 <%- include('partials/collapsed-progress', { sessionNote: 'Deployment overview, health and upgrades' }) %>
 <main id="main" class="wizard-shell">
   <h1 class="visually-hidden">Dashboard</h1>
+  <%- include('partials/overlay-banner') %>
   <div class="dashboard-grid">
     <div class="card">
       <h3>Version</h3>
@@ -30,6 +36,13 @@
 
   <div class="card upgrade-panel">
     <h3>Upgrade</h3>
+  <% if (overlayManaged) { %>
+    <p class="subtitle" id="upgrade-overlay-note">
+      Not available here: an overlay-managed host is upgraded by rebasing its overlay onto the new release
+      and cutting over to a new release directory, never in place.
+      See <code>documentation/09-11-start-at-boot-backups-and-customized-hosts.md</code>, “Upgrading an overlay host”.
+    </p>
+  <% } else { %>
 
     <div id="panel-up-to-date" class="upgrade-state upgrade-state-uptodate" style="display:none;">
       <div class="upgrade-row upgrade-row-uptodate">
@@ -73,9 +86,11 @@
         <a href="#" class="btn-quiet-link" onclick="showPanel(defaultPanel); return false;">Use recommended version instead</a>
       <% } %>
     </div>
+  <% } %>
   </div>
 </main>
 <script>
+<% if (!overlayManaged) { %>
   // 'unknown' (can't determine a latest tag at all — e.g. no
   // readable release/approved-digests.json in this checkout) goes straight to
   // the custom-tag panel: claiming "up to date" or naming an "available"
@@ -99,6 +114,7 @@
       enableLocalEseal: false
     });
   }
+<% } %>
 
   const badgeClass = { ok: 'badge-ok', fail: 'badge-fail', warn: 'badge-warn' };
   // escapeHtml comes from /wizard-ui.js.
@@ -123,6 +139,7 @@
     }
   })();
 
+<% if (!overlayManaged) { %>
   // Both entry points go to the preview, never straight to a run. The server
   // enforces this too — /api/deploy no longer accepts mode:'upgrade'.
   async function submitUpgrade(payload) {
@@ -155,5 +172,6 @@
       enableLocalEseal: document.getElementById('enableLocalEseal').checked
     }).finally(() => { submitBtn.disabled = false; });
   });
+<% } %>
 </script>
 <%- include('partials/foot') %>

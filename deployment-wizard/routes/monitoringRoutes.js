@@ -16,7 +16,7 @@ const supportBundle = require('../lib/supportBundle');
 const signingActivity = require('../lib/signingActivity');
 
 const DEFAULT_DEPS = {
-  listStackServices: containerFacts.listStackServices,
+  readStackServices: containerFacts.readStackServices,
   getOverview: containerFacts.getOverview,
   TAIL_CHOICES: logStream.TAIL_CHOICES,
   validateLogParams: logStream.validateLogParams,
@@ -46,6 +46,12 @@ const DEFAULT_DEPS = {
 };
 
 const TOO_MANY_STREAMS = 'Too many open log streams - close another Logs tab.';
+
+// The sentence an operator sees when `docker compose` itself failed: its own
+// reason (already redacted by containerFacts), then the hint when there is one.
+function composeFailedMessage(listed) {
+  return [`docker compose failed: ${listed.error}`, listed.hint].filter(Boolean).join(' ');
+}
 
 // The service the Logs tab opens on: the one asked for in the URL when it is
 // really part of the stack, else ps-server (the service operators look at
@@ -118,9 +124,11 @@ function createMonitoringRouter(overrides = {}) {
 
   router.get('/monitoring/logs', async (req, res, next) => {
     try {
-      const services = await d.listStackServices();
+      const listed = await d.readStackServices();
+      const services = listed.services;
       await renderPage(req, res, next, 'monitoring-logs', 'logs', {
         services,
+        servicesError: listed.error ? composeFailedMessage(listed) : null,
         selected: pickSelectedService(services, req.query.service),
         TAIL_CHOICES: d.TAIL_CHOICES
       });
@@ -154,6 +162,18 @@ function createMonitoringRouter(overrides = {}) {
       next(err);
     }
   });
+
+  // The stack's service names for a request that acts on one of them. When
+  // compose fails and no earlier list is cached, answers 503 with compose's
+  // reason (instead of a misleading "unknown service") and resolves to null.
+  async function servicesOr503(res) {
+    const listed = await d.readStackServices();
+    if (!listed.services.length && listed.error) {
+      res.status(503).json({ error: composeFailedMessage(listed) });
+      return null;
+    }
+    return listed.services;
+  }
 
   // ---- Overview data ----
 
@@ -190,10 +210,10 @@ function createMonitoringRouter(overrides = {}) {
 
   router.get('/api/monitoring/logs/stream', async (req, res) => {
     try {
-      const services = await d.listStackServices();
+      const services = await servicesOr503(res);
       // The tab may have been closed while the service list was read; do not
       // take a stream slot (or start `docker compose logs -f`) for it.
-      if (req.destroyed) return;
+      if (!services || req.destroyed) return;
 
       const check = d.validateLogParams(req.query, services);
       if (!check.ok) return res.status(400).json({ error: check.error });
@@ -215,8 +235,8 @@ function createMonitoringRouter(overrides = {}) {
 
   router.get('/api/monitoring/logs/download', async (req, res) => {
     try {
-      const services = await d.listStackServices();
-      if (req.destroyed) return;
+      const services = await servicesOr503(res);
+      if (!services || req.destroyed) return;
       // Following makes no sense for a file: drop it before validating.
       const check = d.validateLogParams({ ...req.query, follow: undefined }, services);
       if (!check.ok) return res.status(400).json({ error: check.error });
@@ -231,7 +251,8 @@ function createMonitoringRouter(overrides = {}) {
   router.post('/api/monitoring/restart', requireJson, async (req, res) => {
     try {
       const service = req.body && req.body.service;
-      const services = await d.listStackServices();
+      const services = await servicesOr503(res);
+      if (!services) return;
       // Only names from the compose service list ever reach the script.
       if (typeof service !== 'string' || !services.includes(service)) {
         return res.status(400).json({ error: 'Unknown service - reload the page and try again.' });
@@ -346,3 +367,4 @@ module.exports.createMonitoringRouter = createMonitoringRouter;
 module.exports.pickSelectedService = pickSelectedService;
 module.exports.bundleErrorStatus = bundleErrorStatus;
 module.exports.serviceFromRunArgs = serviceFromRunArgs;
+module.exports.composeFailedMessage = composeFailedMessage;

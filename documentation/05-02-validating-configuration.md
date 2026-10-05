@@ -33,14 +33,19 @@ model.
 
 - `DOCUMENT_ROUTING` is present in `config.js` and the `signed-output` mount is in `docker-compose.yml`.
 - `signed-output/` and `docs/` exist, everything in them is owned by the uid their container image
-  runs as, and neither is world-writable. A FAIL prints the exact `chown`/`chmod` to run.
+  runs as, and neither is world-writable. A FAIL prints the exact `chown`/`chmod` to run. The
+  directories checked are the sources of the `/signed-output` and `/docs` mounts in the rendered
+  compose model, which are `./signed-output` and `./docs` unless an overlay or override mounts them
+  elsewhere. A store the check cannot look at (a named volume, a path the user cannot read, a path
+  outside the wizard container) is reported as `INFO`, not `FAIL`
+  ([9.11](09-11-start-at-boot-backups-and-customized-hosts.md#storage-outside-the-checkout)).
 
 **Secret hygiene.** It never prints a secret value, only field names and states.
 
 | Check | Result |
 |---|---|
 | `API_PROTECT_LOGS_ENABLED` is true (ps-server would log raw bearer tokens) | FAIL |
-| A `config.js` credential still holds the value shipped in this public repository, or the `CHANGE_ME` placeholder: `REGISTER_PDF_API_KEY`, `SESSION_SECRET`, the Keycloak backend client secret, `STAMP_API_KEY`, `STAMP_COMPANY_ID`, `STAMP_COMPANY_SECRET` | WARN, with the fix. The three `STAMP_*` fields are OK while `STAMP_MODE` is `"local"`, which does not use them. |
+| A `config.js` credential still holds the value shipped in this public repository, or the `CHANGE_ME` placeholder: `REGISTER_PDF_API_KEY`, the Keycloak backend client secret, `STAMP_API_KEY`, `STAMP_COMPANY_ID`, `STAMP_COMPANY_SECRET` | WARN, with the fix. The three `STAMP_*` fields are OK while `STAMP_MODE` is `"local"`, which does not use them. |
 | The visual-PDF signing CA (`dmss-container-and-signature-services/dmssrootca.p12`) is the demo CA shipped in the repository | WARN: run `configure-host.sh --host <host> --generate-ca`, then restart `dmss-container-and-signature-services`. The installer generates one per deployment |
 | That CA keystore is missing or does not open with the password in its `application.yml` | FAIL |
 | `dmss-archive-services` has JWT checking enabled with the shipped secret | FAIL |

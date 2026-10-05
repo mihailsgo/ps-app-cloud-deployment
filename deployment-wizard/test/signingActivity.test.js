@@ -349,7 +349,30 @@ test('resolveAuditSource: outside-project when the mounted host dir is not under
   assert.equal(result.dir, null);
   assert.match(result.message, /^The signing activity log is written to /);
   assert.ok(result.message.includes(path.normalize(path.join(outsideDir, '.padsign-audit'))), result.message);
-  assert.match(result.message, /outside the deployment directory the wizard can read; keep AUDIT_LOG\.dir under \/signed-output\.$/);
+  // The advice is to let the wizard see the directory (a read-only mount at
+  // the same path), not to move AUDIT_LOG.dir: it is already under /signed-output.
+  const logDir = path.normalize(path.join(outsideDir, '.padsign-audit'));
+  assert.ok(result.message.includes(`"${logDir}:${logDir}:ro"`), result.message);
+  assert.match(result.message, /the wizard container cannot read: it sees only the deployment directory/);
+  assert.doesNotMatch(result.message, /keep AUDIT_LOG\.dir under/);
+});
+
+test('resolveAuditSource: a mounted host dir outside projectDir that the wizard can see is read like any other', async () => {
+  const dir = makeTempProjectDir();
+  const outsideDir = makeTempDir('signing-activity-visible-');
+  fs.mkdirSync(path.join(outsideDir, '.padsign-audit'));
+  const mounts = [{ Source: outsideDir, Destination: '/signed-output' }];
+
+  const result = await resolveAuditSource({
+    projectDir: dir,
+    capabilities: null,
+    serverTag: null,
+    exec: async () => ({ stdout: JSON.stringify(mounts) })
+  });
+
+  assert.equal(result.status, 'ok');
+  assert.equal(result.dir, fs.realpathSync(path.join(outsideDir, '.padsign-audit')));
+  assert.equal(result.message, '');
 });
 
 test('resolveAuditSource (M5): docker inspect works but no mount covers AUDIT_LOG.dir -> outside-project, no default-mount guess', async () => {

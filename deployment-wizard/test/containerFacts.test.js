@@ -12,6 +12,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 
 const {
+  readStackServices,
   listStackServices,
   getOverview,
   parseInspect,
@@ -239,6 +240,56 @@ test('listStackServices: on error, falls back to the last good list (or [] with 
   assert.deepEqual(second, ['nginx'], 'stale-but-good beats blanking the table');
 });
 
+// ---- readStackServices: a compose failure is an error, not "no services" ----
+
+// What `docker compose config --services` prints on an overlay host whose
+// overlay directory is not mounted into the wizard container.
+const OVERLAY_STDERR = 'stat /srv/padsign-overlay/compose.overlay.yml: no such file or directory\n';
+
+function composeError(stderr = OVERLAY_STDERR) {
+  return Object.assign(new Error('Command failed: docker compose config --services'), { code: 1, stderr });
+}
+
+test('readStackServices: a failing compose call resolves to its first stderr line, not an empty success', async () => {
+  _resetCache();
+  const exec = async () => { throw composeError(); };
+  const result = await readStackServices({ exec, now: () => 1000, unreadable: () => [] });
+  assert.deepEqual(result.services, []);
+  assert.equal(result.error, 'stat /srv/padsign-overlay/compose.overlay.yml: no such file or directory');
+  assert.equal(result.hint, null, 'no hint when every COMPOSE_FILE entry is readable');
+});
+
+test('readStackServices: names the COMPOSE_FILE entry the container cannot read, and the page that explains it', async () => {
+  _resetCache();
+  const exec = async () => { throw composeError(); };
+  const result = await readStackServices({ exec, now: () => 1000, unreadable: () => ['/srv/padsign-overlay/compose.overlay.yml'] });
+  assert.match(result.hint, /COMPOSE_FILE names \/srv\/padsign-overlay\/compose\.overlay\.yml, which the wizard container cannot read/);
+  assert.match(result.hint, /documentation\/09-12-monitoring-from-the-wizard\.md/);
+});
+
+test('readStackServices: success has error null; a later failure keeps the last good list and reports the error', async () => {
+  _resetCache();
+  let t = 1000;
+  const now = () => t;
+  const ok = await readStackServices({ exec: async () => ({ stdout: 'nginx\n' }), now });
+  assert.deepEqual(ok, { services: ['nginx'], error: null, hint: null });
+  t += 40000;
+  const stale = await readStackServices({ exec: async () => { throw composeError(); }, now, unreadable: () => [] });
+  assert.deepEqual(stale.services, ['nginx']);
+  assert.match(stale.error, /no such file or directory/);
+});
+
+test('readStackServices: an unreadable() that throws still yields the compose error', async () => {
+  _resetCache();
+  const result = await readStackServices({
+    exec: async () => { throw composeError(); },
+    now: () => 1000,
+    unreadable: () => { throw new Error('boom'); }
+  });
+  assert.match(result.error, /no such file or directory/);
+  assert.equal(result.hint, null);
+});
+
 // ---- getOverview ----
 
 function fakeExecFor({ services, ps, inspect, stats, failPs, failStats }) {
@@ -306,6 +357,45 @@ test('getOverview: dockerAvailable is false and services is [] when "compose ps"
   assert.equal(result.dockerAvailable, false);
   assert.deepEqual(result.services, []);
   assert.ok(result.generatedAt);
+});
+
+test('getOverview: every compose call failing (overlay compose file not mounted) is an error state, not an empty table', async () => {
+  _resetCache();
+  const exec = async (file, args) => {
+    if (args[0] === 'compose') throw composeError();
+    throw new Error(`unexpected exec call: ${args.join(' ')}`);
+  };
+  const result = await getOverview({ exec, now: () => 1000, unreadable: () => ['/srv/padsign-overlay/compose.overlay.yml'] });
+  assert.equal(result.dockerAvailable, false);
+  assert.deepEqual(result.services, []);
+  assert.equal(result.error, 'stat /srv/padsign-overlay/compose.overlay.yml: no such file or directory');
+  assert.match(result.hint, /cannot read/);
+});
+
+test('getOverview: "compose config" failing while "compose ps" answers still reports the error', async () => {
+  _resetCache();
+  const exec = async (file, args) => {
+    if (args[0] === 'compose' && args[1] === 'config') throw composeError();
+    if (args[0] === 'compose' && args[1] === 'ps') return { stdout: '' };
+    throw new Error(`unexpected exec call: ${args.join(' ')}`);
+  };
+  const result = await getOverview({ exec, now: () => 1000, unreadable: () => [] });
+  assert.equal(result.dockerAvailable, true);
+  assert.deepEqual(result.services, []);
+  assert.match(result.error, /no such file or directory/);
+});
+
+test('getOverview: a healthy run carries error and hint null', async () => {
+  _resetCache();
+  const exec = fakeExecFor({
+    services: 'nginx\n',
+    ps: readFixture('compose-ps.json'),
+    inspect: readFixture('inspect.json'),
+    stats: readFixture('stats.ndjson')
+  });
+  const result = await getOverview({ exec, now: () => Date.parse('2026-09-29T08:00:00.000Z') });
+  assert.equal(result.error, null);
+  assert.equal(result.hint, null);
 });
 
 test('getOverview: a failing "docker stats" degrades cpu/mem to null without throwing', async () => {

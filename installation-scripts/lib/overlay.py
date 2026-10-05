@@ -41,7 +41,8 @@ EXCLUDED_DIRS = {
     ".git", "signed-output", "docs", ".rollback-snapshots", "node_modules",
     "tmp", "temp", "PSDOCS", "logs", "log", "__pycache__",
 }
-EXCLUDED_FILES = {"deployment-evidence.json", "deployment-evidence.json.previous", ".overlay-applied.json"}
+EXCLUDED_FILES = {"deployment-evidence.json", "deployment-evidence.json.previous", ".overlay-applied.json",
+                  ".overlay-wizard.yml"}
 
 STORAGE_TARGETS = {
     # container target path -> (service, human label)
@@ -288,7 +289,8 @@ def existing_compose_overlay(project_dir):
             if line.startswith("COMPOSE_FILE="):
                 for f in line.split("=", 1)[1].strip().strip("\"'").split(os.pathsep):
                     f = f if os.path.isabs(f) else os.path.join(project_dir, f)
-                    if os.path.basename(f) != "docker-compose.yml" and os.path.isfile(f):
+                    # .overlay-wizard.yml is apply's own output, not the operator's overlay.
+                    if os.path.basename(f) not in ("docker-compose.yml", WIZARD_MOUNTS_FILE) and os.path.isfile(f):
                         return f
     return None
 
@@ -1333,6 +1335,103 @@ def no_unresolved_conflicts(overlay, m, r):
     return ok
 
 
+# The Deployment Wizard (the profile-gated `wizard` service) runs `docker
+# compose` inside its container, which mounts only the checkout
+# ("${PWD}:${PWD}") and the Docker socket. On an overlay-managed checkout
+# COMPOSE_FILE also names <overlay>/compose.overlay.yml, outside the checkout,
+# and every compose call the wizard makes fails on it. Compose cannot derive
+# a mount from COMPOSE_FILE itself (interpolation has no dirname, and a
+# conditional `${VAR:+...}` volume entry is an "invalid empty volume spec"
+# when the variable is unset), so apply writes this file into the checkout and
+# lists it last in COMPOSE_FILE: it mounts each directory outside the checkout
+# that COMPOSE_FILE reads from, read-only, at the same absolute path. A plain
+# `docker compose --profile wizard up -d wizard` then sees it; without the
+# wizard profile it adds nothing. documentation/09-12-monitoring-from-the-wizard.md.
+WIZARD_MOUNTS_FILE = ".overlay-wizard.yml"
+
+
+def wizard_mount_dirs(target, compose_files):
+    """Directories outside target that hold a file of compose_files, in order."""
+    dirs = []
+    for f in compose_files:
+        d = os.path.dirname(f if os.path.isabs(f) else os.path.join(target, f))
+        if not is_within(d, target) and d not in dirs:
+            dirs.append(d)
+    return dirs
+
+
+def write_wizard_mounts(path, dirs):
+    lines = [
+        f"# {WIZARD_MOUNTS_FILE} - written by overlay.sh apply; regenerate with apply, do not hand-edit.",
+        "#",
+        "# Mounts the overlay directory into the Deployment Wizard container, read-only",
+        "# and at the same absolute path, so the `docker compose` calls the wizard makes",
+        "# can read every file COMPOSE_FILE names. Affects only the profile-gated",
+        "# wizard service (documentation/09-12-monitoring-from-the-wizard.md).",
+        "services:",
+        "  wizard:",
+        "    volumes:",
+    ]
+    for d in dirs:
+        # Long syntax: a Windows path's drive colon cannot split the entry.
+        lines += [
+            "      - type: bind",
+            f"        source: {yaml_str(d)}",
+            f"        target: {yaml_str(d)}",
+            "        read_only: true",
+        ]
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
+    os.chmod(path, 0o644)
+
+
+def env_compose_files(project_dir):
+    """COMPOSE_FILE from project_dir/.env as written by apply, or []."""
+    path = os.path.join(project_dir, ".env")
+    if not os.path.isfile(path):
+        return []
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            line = line.strip()
+            if line.startswith("COMPOSE_FILE="):
+                return [f for f in line.split("=", 1)[1].strip().strip("\"'").split(os.pathsep) if f]
+    return []
+
+
+def wizard_mounted_dirs(path):
+    """The bind sources write_wizard_mounts() recorded in path, or []."""
+    if not os.path.isfile(path):
+        return []
+    out = []
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            m = re.match(r'^\s+source:\s*(".*")\s*$', line)
+            if m:
+                try:
+                    out.append(json.loads(m.group(1)).replace("$$", "$"))
+                except ValueError:
+                    pass
+    return out
+
+
+def report_wizard_mounts(r, target):
+    files = env_compose_files(target)
+    dirs = wizard_mount_dirs(target, [f for f in files if os.path.basename(f) != WIZARD_MOUNTS_FILE])
+    if not dirs:
+        r.ok("COMPOSE_FILE names no compose file outside the checkout")
+        return
+    listed = any(os.path.basename(f) == WIZARD_MOUNTS_FILE for f in files)
+    mounted = wizard_mounted_dirs(os.path.join(target, WIZARD_MOUNTS_FILE)) if listed else []
+    missing = [d for d in dirs if d not in mounted]
+    if missing:
+        r.warn(f"the Deployment Wizard container would not see {', '.join(missing)}, which COMPOSE_FILE reads from: "
+               "its Monitoring pages and checks fail on every `docker compose` call. Re-run "
+               f"`overlay.sh apply --force` to write {WIZARD_MOUNTS_FILE}, then recreate the wizard "
+               "(documentation/09-12-monitoring-from-the-wizard.md)")
+    else:
+        r.ok(f"{WIZARD_MOUNTS_FILE} mounts {', '.join(dirs)} into the Deployment Wizard container (read-only)")
+
+
 def cmd_apply(args):
     target = os.path.realpath(args.repo_root)
     overlay = os.path.realpath(args.overlay)
@@ -1424,8 +1523,18 @@ def cmd_apply(args):
         r.warn("overlay has no compose project name - the new checkout would get a NEW, EMPTY Keycloak volume. "
                "Set COMPOSE_PROJECT_NAME in .env by hand before `docker compose up`.")
     overlay_compose = os.path.join(overlay, "compose.overlay.yml")
+    wizard_mounts = os.path.join(target, WIZARD_MOUNTS_FILE)
     if os.path.isfile(overlay_compose):
-        env_lines.append(f"COMPOSE_FILE=docker-compose.yml{os.pathsep}{overlay_compose}")
+        compose_files = ["docker-compose.yml", overlay_compose]
+        dirs = wizard_mount_dirs(target, compose_files)
+        if dirs:
+            write_wizard_mounts(wizard_mounts, dirs)
+            compose_files.append(WIZARD_MOUNTS_FILE)
+            r.ok(f"{WIZARD_MOUNTS_FILE} (the Deployment Wizard container mounts {', '.join(dirs)} read-only, "
+                 "so its `docker compose` calls can read COMPOSE_FILE)")
+        env_lines.append("COMPOSE_FILE=" + os.pathsep.join(compose_files))
+    elif os.path.isfile(wizard_mounts):
+        os.remove(wizard_mounts)  # left by an earlier apply of an overlay that had a compose file
     env_path = os.path.join(target, ".env")
     fd = os.open(env_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
@@ -1478,7 +1587,7 @@ def cmd_apply(args):
 
 # ── verify ──────────────────────────────────────────────────────────────────
 
-IGNORED_EXPECTED = re.compile(r"^(\.env|\.overlay-applied\.json|\.rollback-applied\.json|deployment-evidence\.json(\.previous)?|nginx/certs/.*|\.rollback-snapshots/.*)$")
+IGNORED_EXPECTED = re.compile(r"^(\.env|\.overlay-applied\.json|\.overlay-wizard\.yml|\.rollback-applied\.json|deployment-evidence\.json(\.previous)?|nginx/certs/.*|\.rollback-snapshots/.*)$")
 
 
 def cmd_verify(args):
@@ -1592,6 +1701,9 @@ def cmd_verify(args):
     hooks, not_scanned = host_hooks(old_dirs, checkout=target, storage=[
         s.get("source") for s in (m.get("storage") or {}).values() if s.get("type") == "bind"])
     report_host_hooks(r, hooks, not_scanned, old_dirs, checkout=target)
+
+    print("\n== Deployment Wizard (runs docker compose inside its container) ==")
+    report_wizard_mounts(r, target)
 
     print("\n== Effective Docker Compose model ==")
     model, err = compose_config(target)

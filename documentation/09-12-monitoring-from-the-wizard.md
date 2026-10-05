@@ -46,6 +46,12 @@ Cards above the table summarise alerts, certificate expiry, disk use and the rec
 `installation-scripts/monitor-status.sh --format json`, the read-only report of
 [9.10](09-10-monitoring-and-alerting.md): it keeps no state file and sends no webhook.
 
+The disk card lists the two signed-document stores at the paths the compose model mounts them from.
+The wizard container sees the deployment directory only, so a store on another disk shows as "cannot
+inspect from the wizard" with its path, rather than "not created yet"; the disk figures for it come
+from running `monitor-status.sh` on the host
+([9.11](09-11-start-at-boot-backups-and-customized-hosts.md#storage-outside-the-checkout)).
+
 ## Logs
 
 Read a service's log in the browser.
@@ -101,7 +107,7 @@ subset the other filters leave. **Export CSV** downloads the filtered set. The l
 page.
 
 When the tab is empty, it says why: ps-server is older than the version that writes the log,
-`AUDIT_LOG` is disabled in `config/config.js`, the log directory is outside the deployment
+`AUDIT_LOG` is disabled in `config/config.js`, the log directory is on the host outside the deployment
 directory, or nothing has been signed yet. [9.13](09-13-signing-activity-log.md) covers each cause.
 
 ## Diagnostics
@@ -198,6 +204,66 @@ Every command the script runs has a time limit, so a hung Docker daemon cannot s
 times out prints a warning and the rest of the bundle is still written. `SUPPORT_BUNDLE_CMD_TIMEOUT`,
 `SUPPORT_BUNDLE_LOGS_TIMEOUT`, `SUPPORT_BUNDLE_REPORT_TIMEOUT` and `SUPPORT_BUNDLE_DEADLINE` change the
 limits; the defaults keep a whole run under the wizard's 10-minute limit.
+
+## When docker compose fails
+
+The Monitoring pages read the stack with `docker compose`, run inside the wizard container from the
+deployment directory. When a compose call fails, the page shows compose's own reason (the first line
+that is not a warning, with secret values replaced by `<redacted>`) instead of an empty list:
+
+| Where | What it shows |
+|---|---|
+| Overview, services table | `docker compose failed: <reason>`, tried again every 10 seconds |
+| Logs | The same message above a disabled service list |
+| Receive-back buffer card | `docker compose exec into ps-server failed: <reason>` |
+
+When `COMPOSE_FILE` in `.env` names a compose file the wizard container cannot read, the message
+names that file. Run the same command on the host to see the full error:
+
+```bash
+cd /opt/padsign
+docker compose config --services
+```
+
+### On an overlay-managed checkout
+
+On a host run as release plus overlay
+([9.11](09-11-start-at-boot-backups-and-customized-hosts.md#customized-hosts-overlay)), `.env` sets
+`COMPOSE_FILE` to `docker-compose.yml`, `<overlay>/compose.overlay.yml` and `.overlay-wizard.yml`.
+The wizard container mounts only the deployment directory and the Docker socket, so it would not see
+the overlay's compose file. `overlay.sh apply` writes `.overlay-wizard.yml` into the deployment
+directory to close that gap:
+
+```yaml
+services:
+  wizard:
+    volumes:
+      - type: bind
+        source: "/etc/padsign/overlay/20261005-initial"
+        target: "/etc/padsign/overlay/20261005-initial"
+        read_only: true
+```
+
+It mounts the overlay directory read-only at the same absolute path, so every `docker compose` call
+the wizard makes reads the same files as on the host. It changes only the wizard service, which runs
+only with the `wizard` profile. Docker Compose cannot derive this mount from `COMPOSE_FILE` itself,
+which is why `apply` writes it. The file is git-ignored, `overlay.sh capture` does not carry it, and
+the next `apply` rewrites it.
+
+Start the wizard as usual; compose reads `COMPOSE_FILE` from `.env`:
+
+```bash
+cd /opt/padsign
+docker compose --profile wizard up -d wizard
+```
+
+`overlay.sh verify` reports whether the mount is in place. When it warns that the Deployment Wizard
+container would not see the overlay directory, re-run
+`./installation-scripts/overlay.sh apply --overlay <overlay> --force` and run the command above
+again: it recreates the wizard container with the mount (a `docker compose restart` would not).
+
+Any file that `compose.overlay.yml` names by path, such as an `env_file`, must be inside the overlay
+directory or the deployment directory for the wizard to read it.
 
 ## Security notes
 

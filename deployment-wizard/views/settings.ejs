@@ -1,7 +1,16 @@
 <%- include('partials/head', { title: 'Settings — PadSign Deployment Wizard' }) %>
+<%
+  // res.locals.overlay (lib/overlayGuard.js): on an overlay-managed checkout
+  // the server refuses every change below, so each card's controls sit in a
+  // disabled fieldset; the live state (current hostname, certificate checks,
+  // feature flags) stays visible.
+  const overlayManaged = typeof overlay !== 'undefined' && Boolean(overlay);
+  const lockAttr = overlayManaged ? ' disabled' : '';
+-%>
 <%- include('partials/topbar', { hostname, version, hasCompletedSetup, runActive }) %>
 <%- include('partials/collapsed-progress', { sessionNote: 'Change hostname, certificate or feature flags' }) %>
 <main id="main" class="wizard-shell">
+  <%- include('partials/overlay-banner') %>
 
   <% if (runActive) { %>
     <p class="subtitle" style="color:var(--gold-ink);">
@@ -14,6 +23,7 @@
     <h1>Hostname</h1>
     <p class="subtitle">Currently configured for: <strong><%= host || 'unknown' %></strong></p>
 
+    <fieldset class="settings-actions" id="host-actions"<%= lockAttr %>>
     <div class="field">
       <label for="host-newHost">New hostname</label>
       <input type="text" id="host-newHost" placeholder="padsign.newclient.com">
@@ -63,6 +73,7 @@
 
     <button id="host-updateBtn" type="button" class="btn btn-danger" <%= runActive ? 'disabled' : '' %>>Update Hostname</button>
     <p id="host-error" class="error-text" style="margin-top:1rem;"></p>
+    </fieldset>
   </div>
 
   <div class="card">
@@ -97,6 +108,7 @@
     <% } %>
 
     <hr class="divider">
+    <fieldset class="settings-actions" id="cert-actions"<%= lockAttr %>>
     <p class="subtitle">Upload a renewed certificate for <strong><%= host || 'this deployment' %></strong>.</p>
 
     <div class="field">
@@ -124,11 +136,14 @@
     <hr class="divider">
     <button id="cert-renewBtn" type="button" class="btn btn-danger" disabled <%= runActive ? 'disabled' : '' %>>Renew Certificate</button>
     <p id="cert-error" class="error-text" style="margin-top:1rem;"></p>
+    </fieldset>
   </div>
 
   <div class="card">
     <h1>Feature Toggles</h1>
     <p class="subtitle">Live state of this deployment — flip any combination, then Apply.</p>
+
+    <fieldset class="settings-actions" id="features-actions"<%= lockAttr %>>
 
     <div class="field toggle-row">
       <label class="toggle-switch">
@@ -168,6 +183,7 @@
     <hr class="divider">
     <button id="features-applyBtn" type="button" class="btn btn-primary" disabled>Apply changes</button>
     <p id="features-error" class="error-text" style="margin-top:1rem;"></p>
+    </fieldset>
   </div>
 </main>
 

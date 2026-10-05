@@ -67,12 +67,28 @@ The wizard cannot reach the Docker daemon. The container was started without its
 `docker compose --profile wizard up -d wizard`, using the unmodified `wizard` service from
 `docker-compose.yml`.
 
+## Monitoring shows "docker compose failed"
+
+A `docker compose` call inside the wizard container failed, and the message after the colon is
+compose's own reason. When it names a compose file that does not exist, `COMPOSE_FILE` in `.env`
+points outside `/opt/padsign`, as it does on an overlay-managed checkout:
+[9.12](09-12-monitoring-from-the-wizard.md#when-docker-compose-fails) explains the mount the wizard
+needs there.
+
 ## The Welcome screen shows DEPLOYED_STOPPED or the Dashboard instead of a fresh install
 
 The directory has been installed before (`docker-compose.yml.bak` exists). **DEPLOYED_STOPPED** means
 the stack is installed but not running; start it with `docker compose up -d` from `/opt/padsign`, or
 run the install again from the Welcome screen if a previous attempt failed partway. If you meant to
 install on a clean host, check you started the wizard in the right directory.
+
+## Settings and Upgrade are disabled, with an "overlay-managed" banner
+
+The deployment directory contains `.overlay-applied.json`: the host runs from an environment
+overlay, and the wizard does not change it ([3.3, Overlay-managed hosts](03-03-how-the-wizard-works.md#overlay-managed-hosts)).
+A request made anyway is answered with *This host is overlay-managed* and HTTP 409. Make the change
+on the host through a new overlay version
+([9.11](09-11-start-at-boot-backups-and-customized-hosts.md#living-with-an-overlay)).
 
 ## A run seems stuck
 

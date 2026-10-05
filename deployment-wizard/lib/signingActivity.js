@@ -154,8 +154,13 @@ const NO_MOUNT_MESSAGE =
   'ps-server writes the signing activity log inside its container (AUDIT_LOG.dir is not on a mounted volume); keep AUDIT_LOG.dir under /signed-output.';
 const MISSING_MESSAGE = 'No signing activity has been recorded yet.';
 
+// hostDir is where the compose model's mount puts AUDIT_LOG.dir on the host.
+// Moving AUDIT_LOG.dir cannot help: the directory is already on the mount
+// ps-server writes to. What helps is the wizard seeing it, so name the
+// exact read-only mount (the wizard container sees the deployment directory
+// and what is mounted into it, at the same paths as on the host).
 function outsideProjectMessage(hostDir) {
-  return `The signing activity log is written to ${hostDir}, outside the deployment directory the wizard can read; keep AUDIT_LOG.dir under /signed-output.`;
+  return `The signing activity log is written to ${hostDir} on the host, which the wizard container cannot read: it sees only the deployment directory. To show it here, mount that directory into the wizard service read-only at the same path ("${hostDir}:${hostDir}:ro" under volumes in a compose override), or read the files on the host (documentation/09-13-signing-activity-log.md).`;
 }
 
 // Only reachable when docker inspect could not be used AND AUDIT_LOG.dir is not
@@ -272,12 +277,27 @@ async function resolveAuditSource(opts = {}) {
     // not there (yet): compare the path as computed
   }
 
-  // A real deployment's Mounts can legitimately point somewhere the wizard
-  // container never sees (an overlay host mounting signed-output from a
-  // different path than the project directory it itself is mounted at).
+  // A real deployment's Mounts can legitimately point somewhere outside the
+  // project directory (an overlay host mounting signed-output from another
+  // disk). When docker inspect named that path and the wizard has it mounted
+  // too (read-only, at the same path: documentation/09-13), it is read like
+  // any other. Otherwise the wizard container never sees it and the message
+  // says which mount to add. A directory only guessed from the project (the
+  // docker inspect fallback above) must stay inside the project, so a link
+  // there cannot pull in an outside directory.
   const rel = path.relative(projectDir, realHostDir);
   if (rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) {
-    return { status: 'outside-project', dir: null, message: outsideProjectMessage(hostDir) };
+    let visible = false;
+    if (mounts !== null) {
+      try {
+        visible = fs.statSync(realHostDir).isDirectory();
+      } catch (err) {
+        visible = false;
+      }
+    }
+    if (!visible) {
+      return { status: 'outside-project', dir: null, message: outsideProjectMessage(realHostDir) };
+    }
   }
 
   let exists = false;

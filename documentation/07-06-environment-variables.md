@@ -20,7 +20,7 @@ itself: copy a line into `.env` only when you need it.
 | `KEYCLOAK_FIRST_BOOT_ADMIN_PASSWORD` | `bootstrap.sh` / `configure-host.sh --admin-pass` | Keycloak's master-realm admin password, passed to the keycloak container as `KEYCLOAK_ADMIN_PASSWORD`. Used **only on Keycloak's first boot** against an empty `keycloak_data` volume ([8.3](08-03-admin-password-and-break-glass.md)). |
 | `COMPOSE_PROFILES` | `--enable-local-eseal` / `toggle-features.sh` | `local-eseal` makes a plain `docker compose up -d` include the stamping service ([10](10-local-e-sealing.md)). Do not add `wizard` here: start the wizard on demand ([3.1](03-01-starting-the-wizard.md)). |
 | `ALERT_WEBHOOK_URL` | you | Where `monitor-status.sh --alert` posts alerts ([9.10](09-10-monitoring-and-alerting.md)). An exported variable of the same name wins over `.env`. |
-| `COMPOSE_FILE`, `COMPOSE_PROJECT_NAME` | `overlay.sh` | Only on hosts run as release baseline plus overlay ([9.11](09-11-start-at-boot-backups-and-customized-hosts.md)). |
+| `COMPOSE_FILE`, `COMPOSE_PROJECT_NAME` | `overlay.sh` | Only on hosts run as release baseline plus overlay ([9.11](09-11-start-at-boot-backups-and-customized-hosts.md)). `COMPOSE_FILE` names `docker-compose.yml`, the overlay's `compose.overlay.yml` and `.overlay-wizard.yml`, which mounts the overlay directory into the Deployment Wizard ([9.12](09-12-monitoring-from-the-wizard.md#on-an-overlay-managed-checkout)). |
 | `WIZARD_BIND_ADDRESS` | you | Host address the Deployment Wizard's port 8443 is published on. Unset, it is `127.0.0.1` (reach it through an SSH tunnel). `0.0.0.0` opens it on all interfaces: only on a trusted admin network, because Docker-published ports bypass host firewalls such as `ufw`, and `validate-config.sh` warns ([3.1](03-01-starting-the-wizard.md#reaching-the-wizard-without-a-tunnel-wizard_bind_address)). |
 | `WIZARD_TLS_SANS` | you | Extra names or IPv4 addresses, comma-separated, for the wizard's self-signed certificate, when you browse to it by the host's address instead of through the tunnel ([3.1](03-01-starting-the-wizard.md#the-wizards-certificate-names-wizard_tls_sans)). |
 
@@ -59,7 +59,7 @@ not production-grade: see
 |---------|----------|---------|
 | ps-server | `NO_PROXY`, `no_proxy` | Internal names that bypass any proxy. |
 | ps-server | `HTTP_PROXY`, `HTTPS_PROXY` (and lower case) | Empty, so no host proxy settings leak in. Set them if ps-server must reach an external e-sealing or customer-data service through a proxy. |
-| ps-server | `SESSION_SECRET` | Not set by default. If set, it overrides `SESSION_SECRET` in `config/config.js` ([7.4](07-04-server-config-js.md)). |
+| ps-server | `SESSION_SECRET` | Not read by ps-server 3.33+; has no effect. |
 | ps-server | `ALLOW_INSECURE_TLS` | Not set by default. `true` turns insecure TLS on even when `config/config.js` has `ALLOW_INSECURE_TLS: false`. It can only turn it on: `false` (or any other value) does not turn it off when `config/config.js` has `true` ([7.4](07-04-server-config-js.md)). |
 | DMSS services | `SPRING_CONFIG_LOCATION` / `SPRING_CONFIG_ADDITIONAL_LOCATION` | Point the Spring services at their mounted `application.yml`. |
 | dmss-container-and-signature-services | `SPRING_SECURITY_USER_NAME`, `SPRING_SECURITY_USER_PASSWORD` | Only with local e-sealing. Container-signature's Basic-auth credentials, which must match `STAMP_LOCAL` in `config/config.js`. Ship as `user` / `changeit`: rotate them ([6](06-production-hardening.md)). |

@@ -17,7 +17,8 @@ const {
   createMonitoringRouter,
   pickSelectedService,
   bundleErrorStatus,
-  serviceFromRunArgs
+  serviceFromRunArgs,
+  composeFailedMessage
 } = monitoringRoutes;
 
 // ---------------------------------------------------------------------------
@@ -42,6 +43,11 @@ test('pickSelectedService(): a non-string query value (?service[]=x) is ignored'
   assert.equal(pickSelectedService(['nginx', 'ps-server'], ['nginx']), 'ps-server');
 });
 
+test('composeFailedMessage(): the compose reason, then the hint when there is one', () => {
+  assert.equal(composeFailedMessage({ error: 'boom', hint: null }), 'docker compose failed: boom');
+  assert.equal(composeFailedMessage({ error: 'boom', hint: 'Mount it.' }), 'docker compose failed: boom Mount it.');
+});
+
 test('bundleErrorStatus(): maps the error codes createBundle() throws', () => {
   assert.equal(bundleErrorStatus({ code: 'BAD_SINCE' }), 400);
   assert.equal(bundleErrorStatus({ code: 'BAD_HOST' }), 400);
@@ -64,7 +70,7 @@ const VIEWS = path.join(__dirname, '..', 'views');
 
 function baseDeps(overrides = {}) {
   return {
-    listStackServices: async () => ['nginx', 'ps-server'],
+    readStackServices: async () => ({ services: ['nginx', 'ps-server'], error: null, hint: null }),
     getOverview: async () => ({ generatedAt: 'now', dockerAvailable: true, services: [] }),
     runMonitorStatus: async () => ({ ok: false, error: 'not available' }),
     listChecks: () => [{ id: 'config', label: 'Configuration', description: 'Runs validate-config.sh.' }],
@@ -306,7 +312,7 @@ test('GET logs/stream: a client that left during the service lookup takes no slo
   let release;
   const gate = new Promise((resolve) => { release = resolve; });
   const deps = {
-    ...baseDeps({ listStackServices: async () => { await gate; return ['nginx']; } }),
+    ...baseDeps({ readStackServices: async () => { await gate; return { services: ['nginx'], error: null, hint: null }; } }),
     ...logStreamDeps(),
     streamLogsSse: () => { started = true; return null; }
   };
@@ -604,5 +610,68 @@ test('GET /monitoring/restart-progress: an unknown run goes back to Monitoring, 
     const res = await fetch(`${base}/monitoring/restart-progress?runId=r1`);
     assert.equal(res.status, 200);
     assert.match(await res.text(), /Restarting nginx/);
+  });
+});
+
+// ---- A failing docker compose is reported, never shown as "no services" ----
+
+const COMPOSE_DOWN = {
+  services: [],
+  error: 'stat /srv/padsign-overlay/compose.overlay.yml: no such file or directory',
+  hint: 'COMPOSE_FILE names /srv/padsign-overlay/compose.overlay.yml, which the wizard container cannot read.'
+};
+
+test('GET /monitoring/logs: a compose failure is shown with its reason and the hint, the picker disabled', async () => {
+  await withServer(makeApp(baseDeps({ readStackServices: async () => COMPOSE_DOWN })), async (base) => {
+    const html = await (await fetch(`${base}/monitoring/logs`)).text();
+    assert.match(html, /id="logComposeError"/);
+    assert.match(html, /docker compose failed: stat \/srv\/padsign-overlay\/compose\.overlay\.yml: no such file or directory COMPOSE_FILE names/);
+    assert.doesNotMatch(html, /id="logNoServices"/);
+    assert.match(html, /<select id="logService" disabled>/);
+  });
+});
+
+test('GET logs/stream, logs/download, POST restart: 503 with the compose reason when no service list was ever read', async () => {
+  let started = false;
+  const deps = baseDeps({
+    readStackServices: async () => COMPOSE_DOWN,
+    validateLogParams: () => { throw new Error('must not validate'); },
+    startRun: () => { started = true; return 'r1'; }
+  });
+  await withServer(makeApp(deps), async (base) => {
+    for (const res of [
+      await fetch(`${base}/api/monitoring/logs/stream?service=ps-server`),
+      await fetch(`${base}/api/monitoring/logs/download?service=ps-server`),
+      await post(`${base}/api/monitoring/restart`, { service: 'ps-server' })
+    ]) {
+      assert.equal(res.status, 503);
+      assert.match((await res.json()).error, /^docker compose failed: stat .*no such file or directory COMPOSE_FILE names/);
+    }
+  });
+  assert.equal(started, false);
+});
+
+test('POST restart: a compose error with a cached service list still validates against that list', async () => {
+  let args;
+  const deps = baseDeps({
+    readStackServices: async () => ({ ...COMPOSE_DOWN, services: ['nginx'] }),
+    startRun: (opts) => { args = opts.args; return 'r1'; },
+    isRunActive: () => false
+  });
+  await withServer(makeApp(deps), async (base) => {
+    const res = await post(`${base}/api/monitoring/restart`, { service: 'nginx' });
+    assert.equal(res.status, 200);
+    assert.deepEqual(args, ['--service', 'nginx']);
+  });
+});
+
+test('GET /api/monitoring/services: the error and hint reach the page', async () => {
+  const deps = baseDeps({
+    getOverview: async () => ({ generatedAt: 'now', dockerAvailable: false, services: [], error: COMPOSE_DOWN.error, hint: COMPOSE_DOWN.hint })
+  });
+  await withServer(makeApp(deps), async (base) => {
+    const body = await (await fetch(`${base}/api/monitoring/services`)).json();
+    assert.equal(body.error, COMPOSE_DOWN.error);
+    assert.equal(body.hint, COMPOSE_DOWN.hint);
   });
 });
