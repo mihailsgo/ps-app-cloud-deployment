@@ -82,25 +82,24 @@ function readImageTags() {
 }
 
 // "What's the latest release this repo checkout knows about" — for the
-// Dashboard's 3-state Upgrade panel (nav/UX pass). Reads
-// documentation/01-release-snapshot.md, the same single source of truth
-// validate-config.sh's own release-snapshot consistency check already
-// treats as authoritative, using the identical extraction pattern as
-// readImageTags() above. Returns nulls (never throws) if the file is
-// missing or doesn't match — the dashboard treats that as "can't tell,
-// show the custom-tag state" rather than a hard error.
+// Dashboard's 3-state Upgrade panel (nav/UX pass). Reads the ps-server /
+// ps-client tags release/approved-digests.json approves: the file
+// validate-config.sh's release-tag check and upgrade.sh's approval gate
+// already treat as authoritative (documentation/14-03-release-snapshot.md
+// describes it). Returns nulls (never throws) if the file is missing or
+// unreadable — the dashboard treats that as "can't tell, show the
+// custom-tag state" rather than a hard error.
 function readLatestKnownTags() {
-  let content = '';
+  let images = {};
   try {
-    content = fs.readFileSync(projectPath('documentation', '01-release-snapshot.md'), 'utf8');
+    images = JSON.parse(fs.readFileSync(projectPath('release', 'approved-digests.json'), 'utf8')).images || {};
   } catch (err) {
     return { serverTag: null, clientTag: null };
   }
-  const serverMatch = content.match(/mihailsgordijenko\/ps-server:([0-9.]+)/);
-  const clientMatch = content.match(/mihailsgordijenko\/ps-client:([0-9.]+)/);
+  const tagOf = (name) => (images[name] && typeof images[name].tag === 'string' ? images[name].tag : null);
   return {
-    serverTag: serverMatch ? serverMatch[1] : null,
-    clientTag: clientMatch ? clientMatch[1] : null
+    serverTag: tagOf('ps-server'),
+    clientTag: tagOf('ps-client')
   };
 }
 
@@ -195,6 +194,7 @@ function readConfiguredCompanyRole() {
 
 module.exports = {
   listComposeServices,
+  parseComposePsOutput,
   dockerAvailable,
   readImageTags,
   readLatestKnownTags,

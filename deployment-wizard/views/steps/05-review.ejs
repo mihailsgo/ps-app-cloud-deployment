@@ -1,37 +1,56 @@
-<%- include('../partials/head', { title: 'Review — PadSign Deployment Wizard' }) %>
-<%- include('../partials/topbar', { hostname, version, hasCompletedSetup, runActive }) %>
-<main id="main" class="wizard-shell">
-  <%- include('../partials/stepProgress', { current: 5, furthestStepReached: wizard.furthestStepReached }) %>
+<%- include('../partials/head', { title: 'Review — PadSign Deployment Wizard', bodyClass: 'is-onboarding' }) %>
+<%- include('../partials/wizard-layout-start', { current: 5, furthestStepReached: wizard.furthestStepReached, hostname, version, hasCompletedSetup, runActive }) %>
+  <div class="form-col form-col--wide">
+    <div class="page-head">
+      <span class="eyebrow">Step 5 · Review &amp; Confirm</span>
+      <h1 class="page-title">Review &amp; Confirm</h1>
+      <p class="page-lead">Everything below is what a direct <code>bootstrap.sh</code> run would be given, in the same shape.</p>
+    </div>
 
-  <div class="card">
-    <h1>Review &amp; Confirm</h1>
-    <p class="subtitle">Everything below is what a direct <code>bootstrap.sh</code> run would be given, in the same shape.</p>
+    <p id="deployError" class="error-text" role="alert"></p>
 
-    <ul class="checklist">
-      <li><span class="badge badge-ok">OK</span><span>Host: <strong><%= wizard.host %></strong></span></li>
-      <li><span class="badge badge-ok">OK</span><span>Company / role: <strong><%= wizard.companyRole %></strong></span></li>
-      <li><span class="badge badge-ok">OK</span><span>Keycloak realm: <strong><%= wizard.realm %></strong></span></li>
-      <li><span class="badge badge-ok">OK</span><span>Keycloak admin: <strong><%= wizard.adminUser %></strong> / <span id="pw-mask">••••••••</span><button type="button" id="pw-toggle" class="btn btn-link" style="padding:0 0.25rem;" aria-label="Show the Keycloak admin password" aria-pressed="false">show</button></span></li>
-      <li><span class="badge badge-ok">OK</span><span>TLS certificate validated for <strong><%= wizard.cert.host %></strong><% if (wizard.allowSelfSigned) { %> (chain check skipped — self-signed allowed)<% } %></span></li>
-      <% features.forEach((f) => { %>
-        <li>
-          <span class="badge <%= wizard.features[f.key] ? 'badge-ok' : 'badge-pending' %>"><%= wizard.features[f.key] ? 'ON' : 'OFF' %></span>
-          <span><%= f.label %></span>
-        </li>
-      <% }) %>
-    </ul>
+    <section class="card" aria-labelledby="sec-host">
+      <%- include('../partials/card-head', { id: 'sec-host', icon: 'globe', title: 'Host & Company', edit: { href: '/wizard/step/2', label: 'Edit Host & Company' } }) %>
+      <dl class="review-list">
+        <div class="review-row"><dt>Host</dt><dd><%= wizard.host %></dd></div>
+        <div class="review-row"><dt>Company / role</dt><dd><%= wizard.companyRole %></dd></div>
+        <div class="review-row"><dt>Keycloak realm</dt><dd><%= wizard.realm %></dd></div>
+        <div class="review-row">
+          <dt>Keycloak admin</dt>
+          <dd><%= wizard.adminUser %> / <span id="pw-mask">••••••••</span><button type="button" id="pw-toggle" class="btn btn-text btn-sm" aria-label="Show the Keycloak admin password" aria-pressed="false">show</button></dd>
+        </div>
+      </dl>
+    </section>
 
-    <hr class="divider">
-    <p class="subtitle">
-      Deploying runs the same steps as
-      <code>KEYCLOAK_ADMIN_PASSWORD=**** bootstrap.sh --host <%= wizard.host %> --company-role "<%= wizard.companyRole %>"<% features.forEach((f) => { if (wizard.features[f.key]) { %> --<%= f.key.replace(/_/g, '-') %><% } }) %><% if (wizard.allowSelfSigned) { %> --allow-self-signed<% } %></code>
-    </p>
+    <section class="card" aria-labelledby="sec-tls">
+      <%- include('../partials/card-head', { id: 'sec-tls', icon: 'lock', title: 'TLS certificate', edit: { href: '/wizard/step/3', label: 'Edit TLS certificate' } }) %>
+      <ul class="checklist">
+        <li><span class="badge badge-ok">OK</span><span>TLS certificate validated for <strong><%= wizard.cert.host %></strong><% if (wizard.allowSelfSigned) { %> (chain check skipped — self-signed allowed)<% } %></span></li>
+      </ul>
+    </section>
 
-    <button id="deployBtn" class="btn btn-primary">Confirm &amp; Deploy</button>
-    <a href="/wizard/step/4" class="btn btn-link">Back</a>
-    <p id="deployError" class="error-text" role="alert" style="margin-top:1rem;"></p>
+    <section class="card" aria-labelledby="sec-review-features">
+      <%- include('../partials/card-head', { id: 'sec-review-features', icon: 'toggle-right', title: 'Features', edit: { href: '/wizard/step/4', label: 'Edit Features' } }) %>
+      <ul class="checklist">
+        <% features.forEach((f) => { %>
+          <li>
+            <span class="badge <%= wizard.features[f.key] ? 'badge-ok' : 'badge-pending' %>"><%= wizard.features[f.key] ? 'ON' : 'OFF' %></span>
+            <span><%= f.label %></span>
+          </li>
+        <% }) %>
+      </ul>
+    </section>
+
+    <section class="card" aria-labelledby="sec-command">
+      <%- include('../partials/card-head', { id: 'sec-command', icon: 'clipboard-check', title: 'Equivalent command' }) %>
+      <p class="review-note">Deploying runs the same steps as</p>
+      <pre class="cmd"><code>KEYCLOAK_ADMIN_PASSWORD=**** bootstrap.sh --host <%= wizard.host %> --company-role "<%= wizard.companyRole %>"<% features.forEach((f) => { if (wizard.features[f.key]) { %> --<%= f.key.replace(/_/g, '-') %><% } }) %><% if (wizard.allowSelfSigned) { %> --allow-self-signed<% } %></code></pre>
+    </section>
   </div>
-</main>
+<%- include('../partials/wizard-layout-end', { actionbar: {
+  back: { href: '/wizard/step/4', label: 'Back' },
+  next: { kind: 'button', id: 'deployBtn', label: 'Confirm & Deploy' }
+} }) %>
 <script>
   document.getElementById('deployBtn').addEventListener('click', async function () {
     this.disabled = true;

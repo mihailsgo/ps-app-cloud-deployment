@@ -1,15 +1,16 @@
 # /etc/systemd/system/padsign.service - start the PadSign stack at boot.
 #
-# For a baseline + overlay host (documentation/42-06, "Starting the stack at
-# boot"). Install:
+# See documentation/09-11-start-at-boot-backups-and-customized-hosts.md,
+# "Starting the stack at boot". Install:
 #   sudo install -m 644 -o root -g root installation-scripts/assets/padsign.service.example /etc/systemd/system/padsign.service
 #   sudo systemctl daemon-reload && sudo systemctl enable padsign.service
 #
-# WorkingDirectory is a symlink to the live release checkout, repointed at
-# every cut-over (sudo ln -sfn <release dir> /opt/trustlynx/padsign-current),
-# so this file never changes between releases. systemd starts compose in the
-# directory the symlink resolves to, so compose sees the same project
-# directory as a `docker compose` run from the release directory itself.
+# WorkingDirectory is the PadSign checkout (/opt/padsign by default; change
+# it if yours lives elsewhere). It may also be a symlink to a release
+# checkout that is repointed at every cut-over (sudo ln -sfn <release dir>
+# /opt/padsign), so this file never changes between releases: systemd starts
+# compose in the directory the symlink resolves to, so compose sees the same
+# project directory as a `docker compose` run from that directory itself.
 #
 # Deliberately NOT here:
 #   -f docker-compose.yml   an explicit -f makes compose ignore COMPOSE_FILE
@@ -17,8 +18,8 @@
 #                           compose.overlay.yml (storage mounts, image
 #                           overrides) is added. Plain `docker compose` reads it.
 #   ExecStartPre=... down   `down` removes the containers. Against a directory
-#   ExecStop=... down       with the same compose project name (the previous
-#                           checkout, on the demo host) it tears down the
+#   ExecStop=... down       with the same compose project name (e.g. a
+#                           previous release checkout) it tears down the
 #                           running stack. `stop` keeps the containers.
 #
 # ExecStart retries: on a cold boot every JVM starts at once, and a DMSS
@@ -37,7 +38,7 @@ After=docker.service network-online.target
 Wants=network-online.target
 
 [Service]
-WorkingDirectory=/opt/trustlynx/padsign-current
+WorkingDirectory=/opt/padsign
 Type=oneshot
 RemainAfterExit=yes
 User=root

@@ -40,8 +40,14 @@ secret value: only field names, states and file modes.
       line's indentation, list style and quoting. Prints "changed",
       "unchanged" (already a reference) or "absent".
 
+config/config.js now ships the credentials that are not ours to choose (the
+backend client secret, STAMP_API_KEY, STAMP_COMPANY_SECRET) as the
+placeholder CHANGE_ME; `shipped` reports a placeholder as not set. The hashes
+of the values earlier releases shipped stay listed, so a deployment still
+running on them is found.
+
 Why the shipped values are known by sha256 and not read from git HEAD: a
-host that commits its own config.js (documentation/04-04 allows "stash or
+host that commits its own config.js (documentation/09-05-upgrading.md allows "stash or
 commit") would otherwise have its real values taken for the shipped ones, and
 `generate` would rotate them. The hashes identify public values without this
 file becoming one more copy of them. When a release changes a shipped value
@@ -77,16 +83,23 @@ FIELDS = [
      r"""^\s*["']?STAMP_API_KEY["']?\s*:\s*(?P<q>["'])(?P<v>[^"'\n]*)(?P=q)""",
      {"4455f71d8673905b28b19fa65f02f607b878d615ecdcaf3566cbb79e2948a6f5"},
      None),
+    ("STAMP_COMPANY_ID",
+     r"""^\s*["']?STAMP_COMPANY_ID["']?\s*:\s*(?P<q>["'])(?P<v>[^"'\n]*)(?P=q)""",
+     {"9233adc47d00ea560fac0113c2c7569857912b2e9058e4e583018623377ed2c2"},
+     None),
     ("STAMP_COMPANY_SECRET",
      r"""^\s*["']?STAMP_COMPANY_SECRET["']?\s*:\s*(?P<q>["'])(?P<v>[^"'\n]*)(?P=q)""",
      {"d0e3a7a61c343e8c2cfc8cf07dd63ce147a86e3da907bf51802f3758b14fe0f3"},
      None),
 ]
-EXTERNAL_STAMP_FIELDS = {"STAMP_API_KEY", "STAMP_COMPANY_SECRET"}
+EXTERNAL_STAMP_FIELDS = {"STAMP_API_KEY", "STAMP_COMPANY_ID", "STAMP_COMPANY_SECRET"}
+# What config/config.js ships in place of a credential that is not ours to
+# choose. Never a working value.
+PLACEHOLDER_VALUE = "CHANGE_ME"
 
 # The compose variable the release's docker-compose.yml reads Keycloak's
 # first-boot admin password from. Deliberately NOT KEYCLOAK_ADMIN_PASSWORD:
-# operators export that one for the scripts (documentation/42-02 and others),
+# operators export that one for the scripts (documentation/08-03-admin-password-and-break-glass.md and others),
 # and compose lets the shell environment override .env, so reusing the name
 # would let an exported current password change the keycloak container's
 # definition (and recreate it) on the next `docker compose up`.
@@ -139,6 +152,21 @@ def cmd_shipped(config_js):
     host = os.environ.get("PADSIGN_HOST_HINT") or "<host>"
     found = 0
     for label, m, hashes, gen in field_values(text):
+        if m and m.group("v") == PLACEHOLDER_VALUE:
+            found += 1
+            if label in EXTERNAL_STAMP_FIELDS:
+                if local_stamp:
+                    print(f"OK	{label} is not set (placeholder), and unused here "
+                          "(STAMP_MODE is \"local\", so ps-server never sends it)")
+                else:
+                    print(f"WARN	{label} is not set (placeholder {PLACEHOLDER_VALUE}) - external e-sealing "
+                          "fails until you put the credential your e-sealing provider issued for this "
+                          "deployment in config/config.js, then docker compose restart ps-server")
+            else:
+                print(f"WARN	{label} is not set (placeholder {PLACEHOLDER_VALUE}) - bootstrap.sh writes the "
+                      "one Keycloak issues; ps-server cannot validate tokens until it is set "
+                      "(documentation/08-01-automated-setup.md)")
+            continue
         if not m or not m.group("v") or sha256(m.group("v")) not in hashes:
             continue
         found += 1
@@ -152,14 +180,14 @@ def cmd_shipped(config_js):
                       "deployment's own and put it in config/config.js")
         elif gen is not None:
             # An overlay-managed checkout is never edited in place
-            # (documentation/42-06): the value changes in the overlay.
-            fix = ("change it in the overlay's config.js (documentation/42-06, Changing a value in the overlay)"
+            # (documentation/09-11-start-at-boot-backups-and-customized-hosts.md): the value changes in the overlay.
+            fix = ("change it in the overlay's config.js (documentation/09-11-start-at-boot-backups-and-customized-hosts.md, Changing a value in the overlay)"
                    if os.environ.get("PADSIGN_OVERLAY_HOST") else
                    f"./installation-scripts/configure-host.sh --host {host} --generate-secrets, then "
                    "docker compose restart ps-server")
             print(f"WARN\t{label} is still the value shipped in the public repository (value not shown). "
                   f"Fix: {fix}"
-                  + (" - and give the new key (documentation/18-05) to every /api/registerPDF client, "
+                  + (" - and give the new key (documentation/07-05-register-pdf-api.md) to every /api/registerPDF client, "
                      "e.g. the Virtual Printer" if label == "REGISTER_PDF_API_KEY" else ""))
         else:
             print(f"WARN\t{label} is still the value shipped in the public repository - rotate it "
@@ -200,7 +228,7 @@ def dotenv_key_re(key):
 ENV_COMMENT = {
     FIRST_BOOT_VAR: (
         "# Keycloak's master-realm admin password, used by Keycloak ONLY on its first\n"
-        "# boot against an empty keycloak_data volume (documentation/17-01). Written by\n"
+        "# boot against an empty keycloak_data volume (documentation/07-06-environment-variables.md). Written by\n"
         "# bootstrap.sh; editing it later changes nothing in Keycloak. Keep this file\n"
         "# mode 600 and out of git (.gitignore already excludes it).\n"
     ),

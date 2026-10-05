@@ -1,24 +1,53 @@
 <%
-  // Expects: hostname, version (nullable), hasCompletedSetup, runActive.
-  // (see lib/topbarContext.js — every route spreads its result into locals).
-  // `activeNav` comes from res.locals in app.js, derived from the request
-  // path, so the current section is highlighted without every route having
-  // to remember to pass it.
-  // Sticky header, present on every page except login.ejs (per the nav/UX
-  // design handoff, no-git-assets/design_handoff_deployment_wizard_nav/).
+  // Expects: hostname, version (nullable), hasCompletedSetup, runActive
+  // (see lib/topbarContext.js: every route spreads its result into locals).
+  // Optional: variant ('onboarding' for Welcome-to-Verify steps, which also
+  // pass current), otherwise the default bar used by Dashboard / Settings /
+  // Upgrade. `activeNav` comes from res.locals in app.js, derived from the
+  // request path, so the current section is highlighted without every route
+  // having to pass it.
   const nav = typeof activeNav !== 'undefined' ? activeNav : '';
   const homeHref = hasCompletedSetup ? '/dashboard' : '/';
+  const isOnboarding = typeof variant !== 'undefined' && variant === 'onboarding';
   // Links are left in the tab order but marked aria-disabled rather than
   // carrying a title="" tooltip: .is-disabled sets pointer-events:none,
   // which suppresses the hover a native tooltip needs, so the explanation
-  // was never actually reachable. It's a visible note now instead.
+  // is a visible note instead.
   const lockedClass = runActive ? 'is-disabled' : '';
   const lockedAttr = runActive ? 'aria-disabled="true"' : '';
-%>
+  const TOTAL_STEPS = 7;
+  const stepN = isOnboarding ? current : 0;
+  const progressPct = isOnboarding ? Math.max(0, Math.min(100, ((stepN - 1) / (TOTAL_STEPS - 1)) * 100)) : 0;
+-%>
+<% if (isOnboarding) { %>
+<header class="topbar topbar--onboarding">
+  <div class="topbar__progress">
+    <span class="topbar__count" aria-hidden="true">Step <%= stepN %> of <%= TOTAL_STEPS %></span>
+    <div class="progress" role="progressbar" aria-label="Step progress"
+         aria-valuemin="1" aria-valuemax="<%= TOTAL_STEPS %>" aria-valuenow="<%= stepN %>"
+         aria-valuetext="Step <%= stepN %> of <%= TOTAL_STEPS %>">
+      <div class="progress__fill" style="width: <%= progressPct.toFixed(1) %>%;"></div>
+    </div>
+  </div>
+  <nav class="topbar__actions" aria-label="Main">
+    <% if (runActive) { %>
+      <span class="topbar-lock-note" id="topbar-lock-note">Run in progress — navigation locked</span>
+    <% } %>
+    <% if (hasCompletedSetup) { %>
+      <a href="/dashboard" class="btn btn-outline btn-sm <%= lockedClass %>" <%- lockedAttr %>>Dashboard</a>
+      <a href="/monitoring" class="btn btn-outline btn-sm <%= lockedClass %>" <%- lockedAttr %>>Monitoring</a>
+      <a href="/settings" class="btn btn-outline btn-sm <%= lockedClass %>" <%- lockedAttr %>>Settings</a>
+    <% } %>
+    <button type="button" class="btn btn-secondary btn-sm" onclick="openModal('exit-modal')">Save &amp; Exit</button>
+    <button type="button" class="btn btn-text btn-sm <%= lockedClass %>" <%- lockedAttr %>
+      onclick="openModal('logout-modal')">Log Out</button>
+  </nav>
+</header>
+<% } else { %>
 <header class="topbar">
   <div class="topbar-left">
     <a href="<%= homeHref %>" class="topbar-home" aria-label="PadSign Deployment Wizard — home">
-      <span class="brand-name">TRUST<span class="accent">LYNX</span></span>
+      <img src="/logo-dark.png" class="topbar-logo" alt="" width="94" height="28">
     </a>
     <span class="topbar-app-name">PadSign Deployment Wizard</span>
   </div>
@@ -33,6 +62,8 @@
     <% if (hasCompletedSetup) { %>
       <a href="/dashboard" class="btn btn-outline <%= lockedClass %>"
          <%- nav === 'dashboard' ? 'aria-current="page"' : '' %> <%- lockedAttr %>>Dashboard</a>
+      <a href="/monitoring" class="btn btn-outline <%= lockedClass %>"
+         <%- nav === 'monitoring' ? 'aria-current="page"' : '' %> <%- lockedAttr %>>Monitoring</a>
       <a href="/settings" class="btn btn-outline <%= lockedClass %>"
          <%- nav === 'settings' ? 'aria-current="page"' : '' %> <%- lockedAttr %>>Settings</a>
     <% } %>
@@ -40,6 +71,7 @@
       onclick="openModal('logout-modal')">Log Out</button>
   </nav>
 </header>
+<% } %>
 <%- include('modal', {
   id: 'logout',
   title: 'End this session?',

@@ -21,6 +21,8 @@ done
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib/compose-hostname.sh
 . "${repo_root}/installation-scripts/lib/compose-hostname.sh"
+# shellcheck source=lib/capabilities.sh
+. "${repo_root}/installation-scripts/lib/capabilities.sh"
 
 fail=0
 ok()   { printf '  OK   %s\n' "$*"; }
@@ -188,7 +190,7 @@ else
   bad "docs directory ${docs_dir} (environment-overlay mount) is missing - restore or re-point the mount"
 fi
 
-# --- Secret hygiene (psapp-saas#6, #7) ---
+# --- Secret hygiene ---
 # Nothing here prints a secret value - only field names and file modes.
 echo ""
 echo "Secret hygiene:"
@@ -221,8 +223,35 @@ while IFS=$'\t' read -r gate_status gate_message; do
   esac
 done <<< "$shipped_report"
 
+# The visual-PDF signing CA: the copies this public repository ships have a
+# public private key, so anyone could issue certificates under them.
+# shellcheck source=lib/visual-pdf-ca.sh
+source "${repo_root}/installation-scripts/lib/visual-pdf-ca.sh"
+case "$(vpca_state "$repo_root")" in
+  shipped)
+    warn "the visual-PDF signing CA (dmss-container-and-signature-services/dmssrootca.p12) is the one shipped in the public repository - its private key is public. Fix: ./installation-scripts/configure-host.sh --host ${host} --generate-ca, then docker compose restart dmss-container-and-signature-services" ;;
+  custom)
+    ok "the visual-PDF signing CA is this deployment's own" ;;
+  unreadable)
+    bad "dmss-container-and-signature-services/dmssrootca.p12 does not open with cakeystorepassword from its application.yml - visual PDF signing will fail" ;;
+  missing)
+    bad "the visual-PDF signing CA keystore named by cakeystorepath in dmss-container-and-signature-services/application.yml is missing" ;;
+esac
+
+# The archive's JWT secret ships in this public repository. JWT checking is
+# off by default; turned on with the shipped secret, anyone can forge tokens.
+archive_yml="${repo_root}/dmss-archive-services/application.yml"
+if [[ -f "$archive_yml" ]] && awk '/^  jwt:/{on=1; next} on && /^  [^ ]/{on=0} on && /^[[:space:]]+enabled:[[:space:]]*true/{f=1} END{exit !f}' "$archive_yml"; then
+  archive_jwt="$(awk '/^  jwt:/{on=1; next} on && /^  [^ ]/{on=0} on && /^[[:space:]]+secret:/{sub(/^[[:space:]]+secret:[[:space:]]*/, ""); gsub(/["\r]/, ""); print; exit}' "$archive_yml")"
+  if [[ "$(printf '%s' "$archive_jwt" | openssl dgst -sha256 -r 2>/dev/null | cut -d' ' -f1)" == "2e3843c62bc8fc34f64834d70eef5fa5786bd110a668999a042c598541895433" ]]; then
+    bad "dmss-archive-services has JWT checking enabled with the secret shipped in the public repository - anyone can forge tokens. Set authentication.jwt.secret in dmss-archive-services/application.yml to your own value"
+  else
+    ok "dmss-archive-services JWT checking uses a secret of this deployment's own"
+  fi
+fi
+
 # Keycloak's bootstrap admin password is read only on Keycloak's first boot
-# against an empty volume (documentation/14-07). A real value in the TRACKED
+# against an empty volume (documentation/08-03-admin-password-and-break-glass.md). A real value in the TRACKED
 # docker-compose.yml still leaks: into `git diff`, into the stash objects of
 # a stash/pull/pop upgrade, and to every local user (the file is 644). The
 # release reads it from .env (KEYCLOAK_FIRST_BOOT_ADMIN_PASSWORD) instead.
@@ -230,13 +259,13 @@ admin_state="$(python3 "${repo_root}/installation-scripts/lib/secret_hygiene.py"
 admin_var="$(awk '{print $2}' <<< "$admin_state")"
 case "$admin_state" in
   inline)
-    warn "docker-compose.yml, a tracked file, carries the Keycloak admin password inline (value not shown) - it shows in git diff, in git stash objects and to every local user. Move it to .env: documentation/17-01" ;;
+    warn "docker-compose.yml, a tracked file, carries the Keycloak admin password inline (value not shown) - it shows in git diff, in git stash objects and to every local user. Move it to .env: documentation/07-06-environment-variables.md" ;;
   inline-default)
-    warn "docker-compose.yml still carries KEYCLOAK_ADMIN_PASSWORD=admin (used only on Keycloak's first boot against an empty volume - see documentation/14-07)" ;;
+    warn "docker-compose.yml still carries KEYCLOAK_ADMIN_PASSWORD=admin (used only on Keycloak's first boot against an empty volume - see documentation/08-03-admin-password-and-break-glass.md)" ;;
   "placeholder "*" default")
-    warn "Keycloak's first-boot admin password falls back to the demo default admin: ${admin_var} is not set in .env (used only on Keycloak's first boot against an empty volume - see documentation/14-07; bootstrap.sh sets it)" ;;
+    warn "Keycloak's first-boot admin password falls back to the demo default admin: ${admin_var} is not set in .env (used only on Keycloak's first boot against an empty volume - see documentation/08-03-admin-password-and-break-glass.md; bootstrap.sh sets it)" ;;
   "placeholder "*" empty")
-    warn "Keycloak's first-boot admin password is empty: ${admin_var} is not set in .env (see documentation/17-01)" ;;
+    warn "Keycloak's first-boot admin password is empty: ${admin_var} is not set in .env (see documentation/07-06-environment-variables.md)" ;;
   "placeholder "*" set")
     ok "Keycloak's first-boot admin password is read from ${admin_var} (.env), not stored in the tracked docker-compose.yml" ;;
   absent)
@@ -283,7 +312,7 @@ else
   bad "nginx root→/portal/ redirect missing"
 fi
 
-# --- Port bindings (psapp-saas#13) ---
+# --- Port bindings ---
 # Internal services must never bind to a non-loopback host interface — nginx is
 # the only intended public ingress. A service is allowed to publish on all
 # interfaces only if it's on this allow-list (documented exception); everything
@@ -293,7 +322,7 @@ echo ""
 echo "Port bindings:"
 declare -A PORT_ALLOWLIST_NONLOOPBACK=(
   [nginx]="public HTTPS/HTTP ingress — the only intended entrypoint"
-  [wizard]="opt-in, profile-gated deployment UI; own HTTPS+token controls, see documentation/36-05"
+  [wizard]="opt-in, profile-gated deployment UI; own HTTPS+token controls, see documentation/03-03-how-the-wizard-works.md"
 )
 
 port_config_json="$(compose_config --format json 2>/dev/null || echo "")"
@@ -319,6 +348,10 @@ for name, svc in sorted((data.get('services') or {}).items()):
       [[ -z "$svc" ]] && continue
       if [[ "$loopback" == "1" ]]; then
         ok "${svc}: host port ${published} bound to ${host_ip} (loopback-only)"
+      elif [[ "$svc" == wizard ]]; then
+        # Allowed (WIZARD_BIND_ADDRESS in .env), but it holds the Docker
+        # socket and Docker's published ports bypass host firewalls.
+        warn "wizard: host port ${published} bound to ${host_ip:-all interfaces} (WIZARD_BIND_ADDRESS) - it holds the Docker socket, and Docker-published ports bypass host firewalls such as ufw. Keep it on 127.0.0.1 and use an SSH tunnel unless this network is trusted (documentation/03-01-starting-the-wizard.md)"
       elif [[ -n "${PORT_ALLOWLIST_NONLOOPBACK[$svc]:-}" ]]; then
         ok "${svc}: host port ${published} bound to all interfaces (allow-listed: ${PORT_ALLOWLIST_NONLOOPBACK[$svc]})"
       else
@@ -339,11 +372,54 @@ if [[ -n "$host" ]]; then
     bad "nginx server_name does not match '${host}'"
   fi
 
-  if grep -q "\"KEYCLOAK_URL\": \"https://${host}/auth\"" "${repo_root}/config/constants.json" 2>/dev/null || \
-     python3 -c "import json; d=json.load(open('${repo_root}/config/constants.json')); exit(0 if d.get('KEYCLOAK_URL')=='https://${host}/auth' else 1)" 2>/dev/null; then
-    ok "constants.json KEYCLOAK_URL matches"
-  else
-    bad "constants.json KEYCLOAK_URL does not match 'https://${host}/auth'"
+  # The three Keycloak URLs of constants.json are either set to this host or
+  # left out: a ps-client that reads no hard-coded host (the
+  # client-origin-defaults capability in release/capabilities.json) then uses
+  # the origin of the page, which is the same address. Both shapes are
+  # accepted; a missing key on a client without that default is not, because
+  # it starts Keycloak with undefined URLs.
+  client_tag="$(sed -nE 's|.*mihailsgordijenko/ps-client:([0-9]+\.[0-9]+(\.[0-9]+)?).*|\1|p' "${repo_root}/docker-compose.yml" 2>/dev/null | head -1 || true)"
+  host_lc="${host,,}"
+  keycloak_keys="$(python3 - "${repo_root}/config/constants.json" "$host_lc" <<'PY' 2>/dev/null | tr -d '\r' || true
+import json, sys
+path, host = sys.argv[1], sys.argv[2]
+try:
+    data = json.load(open(path, encoding="utf-8"))
+except Exception:
+    sys.exit(0)
+expected = {
+    "KEYCLOAK_URL": f"https://{host}/auth",
+    "KEYCLOAK_REDIRECT_URI": f"https://{host}/portal/",
+    "KEYCLOAK_POST_LOGOUT_REDIRECT_URI": f"https://{host}/portal/",
+}
+for key, want in expected.items():
+    have = data.get(key)
+    state = "absent" if key not in data else ("match" if have == want else "mismatch")
+    print(f"{key}\t{state}\t{want}\t{have if have is not None else ''}")
+PY
+)"
+  absent_keys=()
+  while IFS=$'\t' read -r kc_key kc_state kc_want kc_have; do
+    [[ -z "$kc_key" ]] && continue
+    case "$kc_state" in
+      match) ok "constants.json ${kc_key} matches" ;;
+      absent) absent_keys+=("$kc_key") ;;
+      mismatch)
+        if [[ "$kc_key" == KEYCLOAK_URL ]]; then
+          bad "constants.json KEYCLOAK_URL does not match '${kc_want}'"
+        else
+          warn "constants.json ${kc_key} is '${kc_have}', not '${kc_want}' - Keycloak sends users there after login or logout"
+        fi ;;
+    esac
+  done <<< "$keycloak_keys"
+  if [[ ${#absent_keys[@]} -gt 0 ]]; then
+    kc_have_rc=0
+    capability_tag_has client-origin-defaults ps-client "${client_tag:-0}" 2>/dev/null || kc_have_rc=$?
+    case "$kc_have_rc" in
+      0) ok "constants.json leaves out ${absent_keys[*]}: ps-client ${client_tag} uses this page's origin (https://${host_lc}/...)" ;;
+      1) bad "constants.json has no ${absent_keys[*]}, and ps-client ${client_tag} has no default for it - login breaks. Add the key(s) (documentation/07-03-client-constants-json.md) or run a ps-client with the client-origin-defaults capability (release/capabilities.json)" ;;
+      *) warn "constants.json has no ${absent_keys[*]} and this check could not tell whether ps-client ${client_tag:-?} defaults them (release/capabilities.json, client-origin-defaults)" ;;
+    esac
   fi
 
   if grep -q "https://${host}/auth" "${repo_root}/config/config.js"; then
@@ -377,6 +453,78 @@ if [[ -n "$host" ]]; then
   fi
 fi
 
+# --- DMSS service addresses ---
+# ps-server reaches the archive and container-signature services at five
+# addresses (lib/dmss_urls.py). Both forms are accepted, and they may be mixed:
+# the in-network one (http://dmss-archive-services:8090/api/..., what the
+# release ships) and the public one (https://<host>/archive/api/..., through
+# nginx, what hosts installed earlier keep until they run
+# `upgrade.sh --use-internal-dmss-urls`). What is checked is that each key
+# names the right service, that a public address names this host, and what
+# each form implies for the nginx routes and for webhook payloads.
+echo ""
+echo "DMSS service addresses (config/config.js):"
+dmss_status="$(python3 "${repo_root}/installation-scripts/lib/dmss_urls.py" status "${repo_root}/config/config.js" 2>/dev/null | tr -d '\r' || true)"
+if [[ -z "$dmss_status" ]]; then
+  warn "could not read the DMSS addresses from config/config.js"
+else
+  served_host="${host,,}"
+  [[ -z "$served_host" ]] && served_host="$(nginx_server_name "${repo_root}/nginx/nginx.conf" 2>/dev/null | tr -d '\r' | tr 'A-Z' 'a-z' || true)"
+  addr_host() {  # https://Host:443/path -> host
+    local v="${1#*://}"; v="${v%%/*}"; v="${v%%:*}"; printf '%s' "${v,,}"
+  }
+  n_internal=0 n_public=0 n_other=0
+  pub_state=missing pub_value=""
+  while IFS=$'\t' read -r key state value expects target; do
+    [[ -z "$key" ]] && continue
+    if [[ "$key" == ARCHIVE_PUBLIC_BASE_URL ]]; then pub_state="$state"; pub_value="$value"; continue; fi
+    case "$state" in
+      internal|public)
+        if [[ "$target" != "$expects" ]]; then
+          bad "config.js ${key} is '${value}', the ${target} service's address, but this key needs the ${expects} service's"
+        elif [[ "$state" == internal ]]; then
+          n_internal=$((n_internal + 1))
+        elif [[ -n "$served_host" && "$(addr_host "$value")" != "$served_host" ]]; then
+          bad "config.js ${key} names $(addr_host "$value"), not '${served_host}' - ps-server calls that host. Fix: ./installation-scripts/configure-host.sh --host ${served_host}, or ./installation-scripts/upgrade.sh --use-internal-dmss-urls"
+        else
+          n_public=$((n_public + 1))
+        fi ;;
+      other) n_other=$((n_other + 1)); warn "config.js ${key} is not the in-network or the public DMSS address (value not checked); ps-server uses it as written" ;;
+      missing) warn "config.js ${key} is not set" ;;
+    esac
+  done <<< "$dmss_status"
+
+  if [[ "$n_internal" -gt 0 && "$n_public" -eq 0 && "$n_other" -eq 0 ]]; then
+    ok "ps-server reaches the DMSS services by their in-network addresses: nginx's /archive/api/ and /container/api/ can be closed without breaking it (documentation/06-01-route-protection.md)"
+  elif [[ "$n_public" -gt 0 && "$n_internal" -eq 0 ]]; then
+    ok "ps-server reaches the DMSS services through nginx at https://${served_host:-<host>}/: /archive/api/ and /container/api/ must stay reachable from the Docker network. To use the in-network addresses instead: ./installation-scripts/upgrade.sh --use-internal-dmss-urls (documentation/07-04-server-config-js.md)"
+  elif [[ "$n_public" -gt 0 && "$n_internal" -gt 0 ]]; then
+    warn "${n_internal} DMSS address(es) are in-network and ${n_public} go through nginx: that works, but closing /archive/api/ or /container/api/ at nginx breaks the ${n_public} that do. ./installation-scripts/upgrade.sh --use-internal-dmss-urls (or --use-public-dmss-urls) makes them uniform"
+  fi
+
+  # Webhook payloads carry archiveUrl: ARCHIVE_PUBLIC_BASE_URL if set, else
+  # ARCHIVE_API_BASE_URL - which, in-network, a receiver cannot open.
+  webhook_on=false
+  if perl -0777 -ne 'exit(/type:\s*["\x27]webhook["\x27]\s*,\s*enabled:\s*true/ ? 0 : 1)' "${repo_root}/config/config.js" 2>/dev/null; then
+    webhook_on=true
+  fi
+  if [[ "$pub_state" == public && -n "$served_host" && "$(addr_host "$pub_value")" != "$served_host" ]]; then
+    warn "config.js ARCHIVE_PUBLIC_BASE_URL names $(addr_host "$pub_value"), not '${served_host}' - webhook receivers are sent there for the signed PDF. Fix: ./installation-scripts/configure-host.sh --host ${served_host}"
+  fi
+  if [[ "$n_internal" -gt 0 && "$webhook_on" == true ]]; then
+    if [[ "$pub_state" == missing ]]; then
+      warn "a webhook strategy is enabled and the DMSS addresses are in-network, but config.js has no ARCHIVE_PUBLIC_BASE_URL: webhook payloads carry an in-network archiveUrl that receivers cannot open. Set it to https://${served_host:-<host>}/archive/api/"
+    else
+      server_tag_now="$(sed -nE 's|.*mihailsgordijenko/ps-server:([0-9]+\.[0-9]+(\.[0-9]+)?).*|\1|p' "${repo_root}/docker-compose.yml" 2>/dev/null | head -1 || true)"
+      dmss_cap_rc=0
+      capability_tag_has dmss-internal-urls ps-server "${server_tag_now:-0}" 2>/dev/null || dmss_cap_rc=$?
+      if [[ "$dmss_cap_rc" == 1 ]]; then
+        warn "ps-server ${server_tag_now} ignores ARCHIVE_PUBLIC_BASE_URL (capability dmss-internal-urls in release/capabilities.json), so the enabled webhook sends the in-network archiveUrl. Upgrade ps-server, or use --use-public-dmss-urls"
+      fi
+    fi
+  fi
+fi
+
 # --- Image tag consistency ---
 echo ""
 echo "Image tags:"
@@ -385,7 +533,9 @@ client_tag="$(grep -oP 'mihailsgordijenko/ps-client:\K[0-9.]+' "${repo_root}/doc
 ok "ps-server: ${server_tag}"
 ok "ps-client: ${client_tag}"
 
-# Check that the release snapshot doc matches (if present). A pin rollback.sh
+# Check that the tags match the release this checkout ships: the ps-server /
+# ps-client tag release/approved-digests.json approves (the file
+# documentation/14-03-release-snapshot.md describes). A pin rollback.sh
 # restored and verified (.rollback-applied.json) differs from the release on
 # purpose: a WARN here, and the digest gate below decides whether that pin
 # was ever approved.
@@ -400,16 +550,17 @@ snapshot_tag_mismatch() {  # <component> <release snapshot tag> <docker-compose 
     bad "Release snapshot $1 ($2) != docker-compose ($3)"
   fi
 }
-snapshot_doc="${repo_root}/documentation/01-release-snapshot.md"
-if [[ -f "$snapshot_doc" ]]; then
-  snap_server="$(grep -oPm1 'mihailsgordijenko/ps-server:\K[0-9.]+' "$snapshot_doc" 2>/dev/null || echo "")"
-  if [[ -n "$snap_server" && "$snap_server" != "$server_tag" ]]; then
-    snapshot_tag_mismatch ps-server "$snap_server" "$server_tag"
-  fi
-  snap_client="$(grep -oPm1 'mihailsgordijenko/ps-client:\K[0-9.]+' "$snapshot_doc" 2>/dev/null || echo "")"
-  if [[ -n "$snap_client" && "$snap_client" != "$client_tag" ]]; then
-    snapshot_tag_mismatch ps-client "$snap_client" "$client_tag"
-  fi
+release_tag() {  # <component>: the tag release/approved-digests.json approves, or nothing
+  python3 -c 'import json, sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["images"].get(sys.argv[2], {}).get("tag", ""))' \
+    "${repo_root}/release/approved-digests.json" "$1" 2>/dev/null | tr -d '\r'
+}
+snap_server="$(release_tag ps-server)"
+if [[ -n "$snap_server" && "$snap_server" != "$server_tag" ]]; then
+  snapshot_tag_mismatch ps-server "$snap_server" "$server_tag"
+fi
+snap_client="$(release_tag ps-client)"
+if [[ -n "$snap_client" && "$snap_client" != "$client_tag" ]]; then
+  snapshot_tag_mismatch ps-client "$snap_client" "$client_tag"
 fi
 
 # --- Image digest pinning ---
@@ -417,10 +568,10 @@ fi
 # COMPOSE_FILE overlay, every profile enabled - must be pinned by immutable
 # sha256 digest, and that digest must be approved: by
 # release/approved-digests.json, or on an overlay host by the overlay's own
-# approved-digests.json (documentation/42-03). A tag-only pin, an unreviewed
+# approved-digests.json (documentation/09-11-start-at-boot-backups-and-customized-hosts.md). A tag-only pin, an unreviewed
 # digest and an image nobody approved all fail here. The checks live in
 # lib/digest_gate.py so check-digest-drift.sh applies the identical rules.
-# See documentation/39-release-procedure.md.
+# See documentation/14-06-image-approval-and-digest-pinning.md.
 echo ""
 echo "Image digest pinning:"
 # shellcheck source=lib/digests.sh

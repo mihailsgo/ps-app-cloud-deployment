@@ -1,0 +1,17 @@
+<%
+  // Header of an onboarding section card. Expects: id (of the h2, which the
+  // <section aria-labelledby> points at), title, icon; optional sub, edit
+  // ({ href, label }: a ghost "Edit" link on the right).
+  const subText = typeof sub !== 'undefined' ? sub : '';
+  const editLink = typeof edit !== 'undefined' ? edit : null;
+-%>
+<div class="card__head">
+  <span class="icon-tile"><%- include('icon', { name: icon }) %></span>
+  <div class="card__titles">
+    <h2 class="card__title" id="<%= id %>"><%= title %></h2>
+    <% if (subText) { %><p class="card__sub"><%= subText %></p><% } %>
+  </div>
+  <% if (editLink) { %>
+    <a href="<%= editLink.href %>" class="btn btn-text btn-sm card__action" aria-label="<%= editLink.label %>">Edit</a>
+  <% } %>
+</div>

@@ -30,7 +30,7 @@ router.get('/settings', async (req, res, next) => {
     // servedCert is the over-the-wire counterpart to cert: checkLiveCert()
     // reads the FILE at nginx/certs/, checkServedCert() asks nginx what it is
     // actually presenting. They can legitimately disagree, and that
-    // disagreement is the whole point — see documentation/11-02.
+    // disagreement is the whole point — see documentation/09-03-monitoring-the-served-certificate.md.
     const [topbar, cert, servedCert] = await Promise.all([
       getTopbarContext(wizard),
       host ? checkLiveCert(host) : Promise.resolve(null),

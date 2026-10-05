@@ -9,7 +9,7 @@ realm="padsign"
 host="${KC_HOSTNAME:-}"
 company_role=""
 admin_user="${KEYCLOAK_ADMIN:-admin}"
-admin_pass="${KEYCLOAK_ADMIN_PASSWORD:-admin}"
+admin_pass="${KEYCLOAK_ADMIN_PASSWORD:-}"
 
 usage() {
   cat <<'EOF'
@@ -24,6 +24,9 @@ Verifies (fails non-zero on mismatch):
   - padsign-client access tokens carry padsign-backend in their audience
   - padsign-backend settings (confidential + service accounts enabled)
   - the shared test user, if still present, has ONLY the company role (absent = OK)
+
+Admin password: KEYCLOAK_ADMIN_PASSWORD or --admin-pass if given, otherwise
+the one the keycloak container was started with (as upgrade.sh does).
 EOF
 }
 
@@ -72,6 +75,13 @@ docker compose up -d keycloak >/dev/null
 # postdeploy-check.sh runs this right after a (re)start; without the wait the
 # login races Keycloak's boot and the whole check aborts with no output.
 kc_wait_ready || exit 1
+# No password given: use the one the keycloak container was started with,
+# like upgrade.sh does. bootstrap.sh always sets a real one (in .env), so the
+# demo default "admin" is only the last resort.
+if [[ -z "$admin_pass" ]]; then
+  admin_pass="$(kc_exec 'printenv KEYCLOAK_ADMIN_PASSWORD || printenv KC_BOOTSTRAP_ADMIN_PASSWORD' 2>/dev/null | tr -d '\r' | head -n 1 || true)"
+  admin_pass="${admin_pass:-admin}"
+fi
 kc_login "${admin_user}" "${admin_pass}"
 trap kc_logout EXIT
 
@@ -158,7 +168,7 @@ PY
   if kc_backend_audience_present "$realm" "$front_cid" padsign-backend; then
     ok "padsign-client access tokens carry padsign-backend in aud (token introspection)"
   else
-    bad "padsign-client has no audience mapper for padsign-backend - token introspection fails on Keycloak 26.4.12+/26.6.2+ (fix: upgrade.sh, or documentation/14-08-token-audience-for-introspection.md)"
+    bad "padsign-client has no audience mapper for padsign-backend - token introspection fails on Keycloak 26.4.12+/26.6.2+ (fix: upgrade.sh, or documentation/08-02-token-audience.md)"
   fi
 else
   bad "client '${client_front}' missing"
@@ -199,14 +209,14 @@ fi
 #
 # The shared 'test' account is optional: production deployments are told to
 # delete it (keycloak-bootstrap.sh prints exactly that) and to use
-# smoke-user.sh's disposable logins instead (psapp-saas#6). Its absence is the
+# smoke-user.sh's disposable logins instead. Its absence is the
 # recommended state, not a failure.
 unset exit_code
-test_uid="$(kc_exec "/opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username=test --fields id --format csv | tail -n 1" | tr -d '\r')"
+test_uid="$(kc_exec "/opt/keycloak/bin/kcadm.sh get users -r ${realm} -q username=test -q exact=true --fields id --format csv | tail -n 1" | tr -d '\r')"
 if [[ -z "$test_uid" || "$test_uid" == "id" ]]; then
   ok "no shared 'test' user (recommended for production - use smoke-user.sh for smoke tests)"
 else
-  ok "user 'test' exists (shared long-lived login - delete it in production, see documentation/42-02)"
+  ok "user 'test' exists (shared long-lived login - delete it in production, see documentation/06-production-hardening.md)"
   roles_json="$(kc_exec "/opt/keycloak/bin/kcadm.sh get users/${test_uid}/role-mappings/realm -r ${realm}")"
   python3 -c "$(cat <<'PY'
 import json, sys

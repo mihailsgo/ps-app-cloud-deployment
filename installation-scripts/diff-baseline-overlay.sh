@@ -167,6 +167,14 @@ LINE_ALLOWLISTS = {
         r"https://[^/\"']+/auth",
         r"https://[^/\"']+/archive/api/",
         r"https://[^/\"']+/container/api/",
+        # The DMSS addresses are either of these (upgrade.sh
+        # --use-internal-dmss-urls / --use-public-dmss-urls switches a host
+        # between them), and the optional public archive address for webhook
+        # payloads, with the two comment lines the switch writes above it.
+        r"https?://dmss-(archive|container-and-signature)-services:[0-9]+/api/",
+        r"^\s*ARCHIVE_PUBLIC_BASE_URL\s*:",
+        r"Public address of the archive: the archiveUrl in webhook payloads",
+        r"added by upgrade\.sh --use-internal-dmss-urls",
         r"'https://[^']+'",
         r'"secret"\s*:\s*"',
         # configure-host.sh --generate-secrets (bootstrap.sh, v1.0.42+)
@@ -194,7 +202,9 @@ LINE_ALLOWLISTS = {
 # blocks in config.js, the local-eseal service in docker-compose.yml) rather
 # than something line-diffable field by field.
 HUNK_BLOCK_MARKERS = {
-    "config/config.js": ["DOCUMENT_ROUTING", "STAMP_LOCAL"],
+    # ARCHIVE_PUBLIC_BASE_URL and the comment lines above it: a host on the
+    # public DMSS addresses has no use for the key and drops it.
+    "config/config.js": ["DOCUMENT_ROUTING", "STAMP_LOCAL", "ARCHIVE_PUBLIC_BASE_URL"],
     "docker-compose.yml": ["dmss-digital-stamping-service"],
 }
 

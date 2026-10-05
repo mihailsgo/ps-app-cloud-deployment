@@ -1,0 +1,3 @@
+OK   Realm padsign exists
+FAIL Client padsign-backend secret mismatch
+RESULT: 1 check failed

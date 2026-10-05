@@ -6,6 +6,7 @@ const session = require('express-session');
 
 const defaults = require('./config/defaults');
 const { requireAuth } = require('./lib/auth');
+const { refuseCrossSite } = require('./lib/sameOrigin');
 const authRoutes = require('./routes/auth');
 const wizardStepsRoutes = require('./routes/wizardSteps');
 const certRoutes = require('./routes/certRoutes');
@@ -13,6 +14,7 @@ const deployRoutes = require('./routes/deploy');
 const dashboardRoutes = require('./routes/dashboard');
 const upgradeRoutes = require('./routes/upgradeRoutes');
 const settingsRoutes = require('./routes/settingsRoutes');
+const monitoringRoutes = require('./routes/monitoringRoutes');
 
 function createApp() {
   const app = express();
@@ -47,6 +49,12 @@ function createApp() {
     return requireAuth(req, res, next);
   });
 
+  // Refuse browser-labelled cross-origin POSTs (the session cookie is only
+  // SameSite=Strict, and the portal and Keycloak are same-site with this
+  // port). After the gate so an unauthenticated visitor still sees 401/redirect
+  // first; before every router, including the login POST.
+  app.use(refuseCrossSite);
+
   // Which topbar section is current, derived from the path so no route has
   // to remember to pass it. Consumed by views/partials/topbar.ejs to render
   // aria-current="page" — previously Dashboard and Settings were two
@@ -56,8 +64,9 @@ function createApp() {
     res.locals.activeNav =
       p === '/dashboard' || p.startsWith('/upgrade') ? 'dashboard'
         : p.startsWith('/settings') ? 'settings'
-          : p === '/' || p.startsWith('/wizard') ? 'setup'
-            : '';
+          : p.startsWith('/monitoring') ? 'monitoring'
+            : p === '/' || p.startsWith('/wizard') ? 'setup'
+              : '';
     next();
   });
 
@@ -67,6 +76,7 @@ function createApp() {
   app.use(dashboardRoutes);
   app.use(upgradeRoutes);
   app.use(settingsRoutes);
+  app.use(monitoringRoutes);
   app.use(wizardStepsRoutes);
 
   app.use((err, req, res, next) => {

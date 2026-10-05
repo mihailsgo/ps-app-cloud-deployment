@@ -1,0 +1,36 @@
+<%- include('partials/head', { title: 'Restarting ' + service + ' — Monitoring — PadSign Deployment Wizard' }) %>
+<%- include('partials/topbar', { hostname, version, hasCompletedSetup, runActive: true }) %>
+<%- include('partials/collapsed-progress', { sessionNote: 'Restarting ' + service }) %>
+<main id="main" class="wizard-shell">
+  <div class="card">
+    <h1>Restarting <%= service %></h1>
+    <p class="subtitle">Restarting the service and waiting for it to report healthy.</p>
+
+    <ul class="checklist" id="deploySteps" aria-live="polite" aria-relevant="additions text"
+        aria-label="Restart steps"></ul>
+
+    <p id="overallStatus" class="subtitle" role="status" style="margin-top:1rem;"></p>
+
+    <div id="runActions" class="run-actions" hidden></div>
+
+    <details class="raw-output" style="margin-top:1rem;">
+      <summary>Raw output</summary>
+      <pre id="rawLog" class="log" tabindex="0"></pre>
+    </details>
+
+    <hr class="divider">
+    <a href="/monitoring" class="btn btn-secondary">Back to Monitoring</a>
+  </div>
+</main>
+<script src="/run-progress.js"></script>
+<script>
+  initRunProgress({
+    runId: <%- JSON.stringify(runId).replace(/</g, '\\u003c') %>,
+    successText: 'Service restarted and healthy.',
+    failText: 'The service did not come back healthy.',
+    backHref: '/monitoring',
+    backLabel: 'Back to Monitoring',
+    retryRedirect: '/monitoring/restart-progress'
+  });
+</script>
+<%- include('partials/foot') %>

@@ -2,8 +2,8 @@
 set -euo pipefail
 
 # ============================================================================
-# Tests for upgrade.sh's rollback snapshot and rollback.sh (psapp-saas#12,
-# #14): the snapshot records the ps-server / ps-client image that is RUNNING,
+# Tests for upgrade.sh's rollback snapshot and rollback.sh:
+# the snapshot records the ps-server / ps-client image that is RUNNING,
 # rollback.sh restores exactly that and fails loudly when the result runs
 # anything else, and the digest gate reports a verified rollback to an
 # earlier approved release as a WARN.

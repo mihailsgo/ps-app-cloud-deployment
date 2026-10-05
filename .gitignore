@@ -13,6 +13,7 @@ log/
 # Env
 .env
 .env.*
+!.env.example
 *.local
 # Deployment-wizard test fixtures are fake project roots, not deployments:
 # readConfiguredFeatures() reads COMPOSE_PROFILES from <project>/.env, so a
@@ -31,9 +32,12 @@ dmss-container-and-signature-services/*.pfx
 dmss-container-and-signature-services/*.jks
 dmss-container-and-signature-services/*truststore*
 dmss-container-and-signature-services/*keystore*
-!dmss-container-and-signature-services/*.p12
-!dmss-container-and-signature-services/*truststore*.p12
-!dmss-container-and-signature-services/*keystore*.p12
+# Only the two keystores the release ships, by name: a blanket *.p12
+# exception once let a CA private key into this public repository.
+# dmssrootca.p12 is a labelled demo CA that bootstrap.sh replaces
+# (lib/visual-pdf-ca.sh); the truststore holds public certificates only.
+!dmss-container-and-signature-services/dmssrootca.p12
+!dmss-container-and-signature-services/ssl_tsl_truststore.p12
 
 # Generated/temporary
 tmp/
@@ -54,18 +58,27 @@ PSDOCS/**
 .monitor-state/
 deployment-evidence.json
 deployment-evidence.json.previous
+# Written by support-bundle.sh: logs and redacted config for TrustLynx support
+support-bundles/
 
 # Large or local-only data - both hold real signed customer documents, never
 # release content
 docs/**
 signed-output/**
 
-# Claude Code
+# Local AI-assistant and design scratch state, never release content
 CLAUDE.md
 .superpowers/
+.claude/settings.local.json
+.claude/worktrees/
+no-git-assets/
 
 # Written by overlay.sh apply: which overlay was applied to this checkout
 .overlay-applied.json
+
+# The Deployment Wizard's Save & Exit progress (may hold the hostname and
+# options chosen for a half-finished install)
+.wizard-saved-progress.json
 
 # Python bytecode from installation-scripts/lib/*.py
 __pycache__/

@@ -1,0 +1,27 @@
+<%
+  // Deployment summary panel (steps 2-4). Expects:
+  //   rows  [{ id, label, value, fallback, half? }] ; `half` rows sit side by
+  //         side. An empty value shows `fallback` in the muted style
+  //         (.is-empty); the step's inline script updates rows by id.
+  //   next  { n, label, note? }
+  // Never pass the Keycloak admin password here.
+-%>
+<aside class="summary" aria-label="Deployment summary">
+  <div class="summary__card">
+    <span class="eyebrow eyebrow-muted" aria-hidden="true">Deployment summary</span>
+    <dl class="summary__list" aria-live="polite">
+      <% rows.forEach((r) => { const empty = !r.value; %>
+        <div class="summary__item<%= r.half ? ' summary__item--half' : '' %>">
+          <dt><%= r.label %></dt>
+          <dd id="<%= r.id %>"<%- empty ? ' class="is-empty"' : '' %>><%= empty ? (r.fallback || '') : r.value %></dd>
+        </div>
+      <% }) %>
+    </dl>
+    <div class="summary__divider"></div>
+    <div class="summary__next">
+      <span class="summary__next-label">Next up</span>
+      <span class="summary__next-title"><%= next.n %> · <%= next.label %></span>
+      <% if (next.note) { %><span class="summary__next-text"><%= next.note %></span><% } %>
+    </div>
+  </div>
+</aside>

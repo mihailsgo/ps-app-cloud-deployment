@@ -4,7 +4,7 @@ set -euo pipefail
 # ============================================================================
 # PadSign Toggle Features — flip document routing / demo mode / local
 # e-sealing on an ALREADY-LIVE stack, any combination in one restart
-# (deployment-wizard Settings feature, see documentation/37-*).
+# (deployment-wizard Settings feature, see documentation/09-operations.md).
 #
 # Usage:
 #   ./installation-scripts/toggle-features.sh \

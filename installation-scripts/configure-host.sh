@@ -21,6 +21,7 @@ disable_routing="false"
 disable_demo="false"
 disable_local_eseal="false"
 generate_secrets="false"
+generate_ca="false"
 
 usage() {
   cat <<'EOF'
@@ -34,12 +35,16 @@ Usage:
     [--enable-routing | --disable-routing] \
     [--enable-demo | --disable-demo] \
     [--enable-local-eseal | --disable-local-eseal] \
-    [--generate-secrets]
+    [--generate-secrets] [--generate-ca]
 
 Edits in-place (with .bak backup):
   - nginx/nginx.conf: server_name, cert filenames, root→/portal/ redirect
-  - config/constants.json: Keycloak URLs, redirect URIs, download URLs
-  - config/config.js: Keycloak URLs, service URLs, ALLOWED_ORIGINS, DEMO_COMPANY_ROLE
+  - config/constants.json: Keycloak URLs, redirect URIs, download URLs. A
+    key the file leaves out (the Keycloak ones may be, for a ps-client that
+    defaults them to its own origin) is not added, and a relative value
+    (PS_DOWNLOAD_API, PDF_TEST_PATH) stays relative
+  - config/config.js: Keycloak URLs, public service URLs (in-network DMSS
+    addresses have no host and stay as they are), ALLOWED_ORIGINS, DEMO_COMPANY_ROLE
   - docker-compose.yml: ensures signed-output volume mount exists; sets the
     keycloak service's KC_HOSTNAME and the nginx service's first network
     alias to --host; --admin-user syncs the keycloak service's
@@ -62,8 +67,16 @@ Edits in-place (with .bak backup):
 --generate-secrets: replace REGISTER_PDF_API_KEY and SESSION_SECRET in
   config/config.js with random values if they still hold the values shipped
   in this public repository. A value already changed is never touched, so
-  re-running is safe. Values are never printed; documentation/18-05 shows
+  re-running is safe. Values are never printed; documentation/07-05-register-pdf-api.md shows
   how to read the API key for the Virtual Printer. bootstrap.sh passes this.
+
+--generate-ca: replace the visual-PDF signing CA
+  (dmss-container-and-signature-services/dmssrootca.p12) with one generated
+  for this deployment, if it is still a CA this public repository shipped
+  (its private key is public). Sets cakeystorepassword to a random value to
+  match. Signatures made afterwards chain to the new CA; documents already
+  signed are unchanged. Restart dmss-container-and-signature-services to
+  load it. bootstrap.sh passes this. lib/visual-pdf-ca.sh.
 
 --disable-routing/--disable-demo/--disable-local-eseal: symmetric complements
   to the --enable-* flags, for turning a feature back off on an
@@ -94,6 +107,7 @@ while [[ $# -gt 0 ]]; do
     --disable-demo) disable_demo="true"; shift 1;;
     --disable-local-eseal) disable_local_eseal="true"; shift 1;;
     --generate-secrets) generate_secrets="true"; shift 1;;
+    --generate-ca) generate_ca="true"; shift 1;;
     -h|--help) usage; exit 0;;
     *) echo "ERROR: Unknown arg: $1" >&2; usage; exit 2;;
   esac
@@ -158,8 +172,10 @@ dest_key="${nginx_certs_dir}/${host}.key"
 
 mkdir -p "$nginx_certs_dir"
 if [[ -f "$cert_crt" && -f "$cert_key" ]]; then
-  cp -f "$cert_crt" "$dest_crt"
-  cp -f "$cert_key" "$dest_key"
+  # Passing the deployed files themselves (nginx/certs/<host>.*) is allowed:
+  # cp refuses to copy a file onto itself and, under set -e, would stop here.
+  [[ "$cert_crt" -ef "$dest_crt" ]] || cp -f "$cert_crt" "$dest_crt"
+  [[ "$cert_key" -ef "$dest_key" ]] || cp -f "$cert_key" "$dest_key"
   chmod 600 "$dest_key" 2>/dev/null || true
   echo "  Copied certs to nginx/certs/"
 
@@ -222,11 +238,30 @@ path, host, enable_demo, disable_demo = sys.argv[1], sys.argv[2], sys.argv[3], s
 with open(path, "r", encoding="utf-8") as f:
     data = json.load(f)
 
-data["KEYCLOAK_URL"] = f"https://{host}/auth"
-data["KEYCLOAK_REDIRECT_URI"] = f"https://{host}/portal/"
-data["KEYCLOAK_POST_LOGOUT_REDIRECT_URI"] = f"https://{host}/portal/"
-data["PS_DOWNLOAD_API"] = f"https://{host}/archive/api/document/"
-data["PDF_TEST_PATH"] = f"https://{host}/template"
+# The Keycloak URLs are written only where the file has them. A constants.json
+# without them relies on ps-client's same-origin defaults (the
+# client-origin-defaults capability in release/capabilities.json), and adding
+# them back would pin the file to this host for no reason. A ps-client without
+# those defaults needs the keys, and validate-config.sh says so.
+for key, value in (
+    ("KEYCLOAK_URL", f"https://{host}/auth"),
+    ("KEYCLOAK_REDIRECT_URI", f"https://{host}/portal/"),
+    ("KEYCLOAK_POST_LOGOUT_REDIRECT_URI", f"https://{host}/portal/"),
+):
+    if key in data:
+        data[key] = value
+
+# These two are always set, except that a deployment's own relative value
+# ("/archive/api/document/", "/portal/template") already follows the host and
+# is kept.
+for key, value in (
+    ("PS_DOWNLOAD_API", f"https://{host}/archive/api/document/"),
+    ("PDF_TEST_PATH", f"https://{host}/template"),
+):
+    current = data.get(key)
+    if isinstance(current, str) and current.startswith("/"):
+        continue
+    data[key] = value
 
 if enable_demo == "true":
     data["DEMO_MODE"] = "ENABLE"
@@ -273,11 +308,27 @@ if [[ "$generate_secrets" == "true" ]]; then
       echo "  Generated a random ${field} in config/config.js (the shipped one is public; value not shown)"
     done <<< "$generated"
     if grep -qx 'REGISTER_PDF_API_KEY' <<< "$generated"; then
-      echo "    Virtual Printer / API clients need it - read it with the command in documentation/18-05"
+      echo "    Virtual Printer / API clients need it - read it with the command in documentation/07-05-register-pdf-api.md"
     fi
   else
     echo "  REGISTER_PDF_API_KEY / SESSION_SECRET already changed from the shipped values - kept"
   fi
+fi
+
+# The visual-PDF signing CA this public repository ships has a public private
+# key. Replaced only while it is still a shipped one (lib/visual-pdf-ca.sh).
+if [[ "$generate_ca" == "true" ]]; then
+  # shellcheck source=lib/visual-pdf-ca.sh
+  source "${repo_root}/installation-scripts/lib/visual-pdf-ca.sh"
+  csig_dir="${repo_root}/dmss-container-and-signature-services"
+  backup "${csig_dir}/application.yml"
+  vpca_rc=0
+  vpca_generate "$repo_root" "$host" || vpca_rc=$?
+  case "$vpca_rc" in
+    0) echo "  Generated this deployment's visual-PDF signing CA (dmssrootca.p12; password not shown)";;
+    1) echo "  Visual-PDF signing CA is already this deployment's own - kept";;
+    *) echo "ERROR: could not generate the visual-PDF signing CA" >&2; exit 1;;
+  esac
 fi
 
 if [[ -n "$company_role" ]]; then
@@ -435,18 +486,25 @@ if [[ "$enable_local_eseal" == "true" ]]; then
   cp -n "$assets_src/seal/README.md"    "$stamping_dst/seal/README.md"    2>/dev/null || true
   echo "  Staged dmss-digital-stamping-service/ demo artefacts"
 
-  # Append the compose service block if absent.
+  # Append the compose service block if absent (only a customised compose
+  # file lacks it: the release's own docker-compose.yml ships it). Its image
+  # is the release's approved, digest-pinned one, never a tag typed here.
   if ! grep -q 'dmss-digital-stamping-service' "$compose_yml"; then
+    stamping_image="$(python3 -c 'import json, sys; e = json.load(open(sys.argv[1], encoding="utf-8"))["images"]["dmss-digital-stamping-service"]; print("%s:%s@%s" % (e["repository"], e["tag"], e["digest"]))' "${repo_root}/release/approved-digests.json" 2>/dev/null | tr -d '\r')"
+    if [[ -z "$stamping_image" ]]; then
+      echo "ERROR: --enable-local-eseal: no approved dmss-digital-stamping-service image in release/approved-digests.json" >&2
+      exit 3
+    fi
     if grep -q '^networks:' "$compose_yml"; then
-      perl -i -pe 'if (/^networks:/ && !$done) { print "  dmss-digital-stamping-service:\n    container_name: dmss-digital-stamping-service\n    profiles: [\"local-eseal\"]\n    restart: always\n    image: \"trustlynx/digital-stamping-service:24.0.3.0\"\n    environment:\n      - SPRING_CONFIG_ADDITIONAL_LOCATION=file:/conf/\n    volumes:\n      - \"./dmss-digital-stamping-service:/conf:ro\"\n      - \"./dmss-digital-stamping-service/seal:/seal:ro\"\n    extra_hosts:\n      - \"host.docker.internal:host-gateway\"\n\n"; $done=1; }' "$compose_yml"
+      STAMPING_IMAGE="$stamping_image" perl -i -pe 'if (/^networks:/ && !$done) { print "  dmss-digital-stamping-service:\n    container_name: dmss-digital-stamping-service\n    profiles: [\"local-eseal\"]\n    restart: unless-stopped\n    image: \"$ENV{STAMPING_IMAGE}\"\n    environment:\n      - SPRING_CONFIG_ADDITIONAL_LOCATION=file:/conf/\n    volumes:\n      - \"./dmss-digital-stamping-service:/conf:ro\"\n      - \"./dmss-digital-stamping-service/seal:/seal:ro\"\n    extra_hosts:\n      - \"host.docker.internal:host-gateway\"\n\n"; $done=1; }' "$compose_yml"
     else
-      cat >>"$compose_yml" <<'COMPOSE_BLOCK'
+      cat >>"$compose_yml" <<COMPOSE_BLOCK
 
   dmss-digital-stamping-service:
     container_name: dmss-digital-stamping-service
     profiles: ["local-eseal"]
-    restart: always
-    image: "trustlynx/digital-stamping-service:24.0.3.0"
+    restart: unless-stopped
+    image: "${stamping_image}"
     environment:
       - SPRING_CONFIG_ADDITIONAL_LOCATION=file:/conf/
     volumes:

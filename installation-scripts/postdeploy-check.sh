@@ -31,10 +31,10 @@ host=""
 company_role=""
 realm="padsign"
 admin_user="${KEYCLOAK_ADMIN:-admin}"
-admin_pass="${KEYCLOAK_ADMIN_PASSWORD:-admin}"
+admin_pass="${KEYCLOAK_ADMIN_PASSWORD:-}"   # empty: each check uses the keycloak container's own
 signing_smoke=false
 signing_smoke_seal=false
-# psapp's dev-stack Playwright spec (psapp-saas#9) runs only when its path is
+# psapp's dev-stack Playwright spec runs only when its path is
 # given explicitly - it is for a dev/staging stack, not a customer host.
 smoke_spec_path="${PADSIGN_SIGNING_SMOKE_SPEC:-}"
 
@@ -51,6 +51,7 @@ Runs, in order:
   2. verify-keycloak.sh --host <host> --company-role <role>   (only if --company-role given)
   3. Redirect check:            https://<host>/ -> 301 -> /portal/
   4. Portal/runtime config:     served /portal/constants.json matches config/constants.json
+                                (a key left out of both counts as a match)
   5. Keycloak discovery:        /auth/realms/<realm>/.well-known/openid-configuration
   6. Protected API behavior:    unauthenticated /api/health is rejected, not 200
   7. Authorized signing smoke test (opt-in: --signing-smoke): runs
@@ -60,9 +61,9 @@ Runs, in order:
      interactive terminal and the Keycloak admin password (the --admin-pass
      value or KEYCLOAK_ADMIN_PASSWORD, handed over via the environment). The
      deployment's e-seal is applied only with --signing-smoke-with-seal. See
-     documentation/40-05-production-safe-signing-smoke-test.md.
+     documentation/05-04-signing-smoke-test.md.
      Dev/staging only: PADSIGN_SIGNING_SMOKE_SPEC=<psapp spec path> instead
-     runs psapp's authenticated-sign-flow Playwright spec (psapp-saas#9).
+     runs psapp's authenticated-sign-flow Playwright spec.
      SKIPPED otherwise.
   8. TLS:                       verify-served-cert.sh
   9. Deployment evidence written (deployment-evidence.json)
@@ -175,6 +176,11 @@ for field in fields:
     if lv != sv:
         print(f"  FAIL served constants.json field {field!r}: local={lv!r} served={sv!r}")
         failed = True
+    elif sv is None:
+        # Left out of both: valid for the Keycloak URLs, which a ps-client
+        # that reads no hard-coded host defaults to the origin of the page
+        # (validate-config.sh checks the client is one).
+        print(f"  OK   served constants.json field {field!r} is not set, here or on disk")
     else:
         print(f"  OK   served constants.json field {field!r} matches ({sv!r})")
 
@@ -225,7 +231,7 @@ if [[ "$signing_smoke" == true ]]; then
     bad "production-safe signing smoke test FAILED (see above)"
   fi
 elif [[ -n "$smoke_spec_path" ]]; then
-  # Dev/staging only (documentation/40-02): the spec is excluded from psapp's
+  # Dev/staging only (documentation/05-03-post-deploy-checks.md): the spec is excluded from psapp's
   # default playwright.config.js (testIgnore) and only runs under
   # client/playwright.auth.config.js, which reads the target from
   # PADSIGN_STACK_URL - so both have to be passed, from the client/ dir.

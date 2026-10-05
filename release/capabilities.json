@@ -1,5 +1,5 @@
 {
-  "//": "Minimum image tags for capabilities that a deployment decision depends on. This file is the single source of truth for those minimums: installation-scripts/upgrade.sh and installation-scripts/toggle-features.sh read it at run time, and documentation cites it rather than restating the numbers. Adding a capability: add an entry here, do not hardcode a tag in a script. Never lower an existing minimum - tags are immutable, so a lower minimum means the fact was wrong, not that it changed.",
+  "//": "Minimum image tags for capabilities that a deployment decision depends on. This file is the single source of truth for those minimums: installation-scripts/upgrade.sh and installation-scripts/toggle-features.sh read it at run time, and documentation cites it rather than restating the numbers. Adding a capability: add an entry here, do not hardcode a tag in a script. A capability whose code is merged but not yet in any released image has an empty \"min\" and an \"unreleased\" entry naming, per component, the newest released tag that does NOT have it (a fact, not a guess); once the release is cut, move the new tag into \"min\" and delete \"unreleased\". Never lower an existing minimum - tags are immutable, so a lower minimum means the fact was wrong, not that it changed.",
   "capabilities": {
     "local-eseal": {
       "min": { "ps-server": "3.26" },
@@ -15,11 +15,27 @@
     },
     "per-company-api-keys": {
       "min": { "ps-server": "3.30" },
-      "why": "REGISTER_PDF_API_KEYS in config/config.js: per-company API keys that scope the receive-back endpoints to the key's company (psapp-saas#18). An older ps-server ignores the field, so only the legacy shared REGISTER_PDF_API_KEY authenticates, the new per-company keys are rejected, and any Manager already switched to one gets 401 on every call."
+      "why": "REGISTER_PDF_API_KEYS in config/config.js: per-company API keys that scope the receive-back endpoints to the key's company. An older ps-server ignores the field, so only the legacy shared REGISTER_PDF_API_KEY authenticates, the new per-company keys are rejected, and any Manager already switched to one gets 401 on every call."
     },
     "durable-routing-archive": {
       "min": { "ps-server": "3.32" },
-      "why": "Filesystem routing keeps the archived signed PDF under signed-output/{company}/{email}/... after the Manager acks it, and feeds receive-back from a separate copy under .padsign-buffer/ (psapp-saas#17). An older ps-server registers the archive file itself as the buffer entry and deletes it on ack, and ignores a strategy's bufferOnly flag, so signed-output/ is not a durable archive on a deployment that uses receive-back. 3.30 and 3.31 still deleted the archived file on ack for a document that was already pending (buffered by 3.28 or older) when the host upgraded; 3.32 keeps it (psapp-saas#58)."
+      "why": "Filesystem routing keeps the archived signed PDF under signed-output/{company}/{email}/... after the Manager acks it, and feeds receive-back from a separate copy under .padsign-buffer/. An older ps-server registers the archive file itself as the buffer entry and deletes it on ack, and ignores a strategy's bufferOnly flag, so signed-output/ is not a durable archive on a deployment that uses receive-back. 3.30 and 3.31 still deleted the archived file on ack for a document that was already pending (buffered by 3.28 or older) when the host upgraded; 3.32 keeps it."
+    },
+    "signing-audit": {
+      "min": { "ps-server": "3.34" },
+      "why": "Signing audit events (AUDIT_LOG in config/config.js): one JSON line per registered, signed, sealed or failed document in signed-output/.padsign-audit/audit-YYYY-MM.jsonl. An older ps-server ignores AUDIT_LOG and writes nothing, so the Deployment Wizard's Signing activity page stays empty. 3.33 was tagged before the feature merged and writes nothing either; 3.34 is the first image that does."
+    },
+    "dmss-internal-urls": {
+      "min": {},
+      "unreleased": { "ps-server": "3.34" },
+      "todo": "Set min.ps-server to the first ps-server tag cut after 3.34 (it contains ARCHIVE_PUBLIC_BASE_URL) when that release is made, and delete the unreleased entry. Until then a gate treats any ps-server tag newer than the one named in unreleased as having it.",
+      "why": "ARCHIVE_PUBLIC_BASE_URL in config/config.js: the address webhook receivers get as archiveUrl when ps-server itself reaches the archive over an in-network URL (http://dmss-archive-services:8090/api/). An older ps-server ignores the key and puts the in-network address into every webhook payload, which a receiver outside the Docker network cannot open. The in-network URLs themselves work with any ps-server, so a deployment that sends no webhooks loses nothing; the switch is gated on this capability so a deployment that does is never left with unusable archiveUrl values."
+    },
+    "client-origin-defaults": {
+      "min": {},
+      "unreleased": { "ps-client": "8.41" },
+      "todo": "Set min.ps-client to the first ps-client tag cut after 8.41 (it reads no hard-coded host) when that release is made, and delete the unreleased entry. Until then a check treats any ps-client tag newer than the one named in unreleased as having it.",
+      "why": "config/constants.json may leave out KEYCLOAK_URL, KEYCLOAK_REDIRECT_URI and KEYCLOAK_POST_LOGOUT_REDIRECT_URI: the client then uses this page's own origin (https://<host>/auth and https://<host>/portal/). An older ps-client has no such defaults and starts Keycloak with undefined URLs, so a constants.json without these keys breaks every login. A constants.json that sets them works with every ps-client."
     }
   }
 }

@@ -1,0 +1,78 @@
+[
+  {
+    "Id": "e8d78bba48ddded4f67c5c132db7bf3f9d7006df87075dcaac558adcdda5b942",
+    "Name": "/padsign-nginx-1",
+    "RestartCount": 0,
+    "State": {
+      "Status": "running",
+      "Running": true,
+      "StartedAt": "2026-09-29T05:00:00.000Z",
+      "Health": {
+        "Status": "healthy",
+        "Log": [
+          {
+            "Start": "2026-09-29T07:59:50.000Z",
+            "End": "2026-09-29T07:59:50.120Z",
+            "ExitCode": 0,
+            "Output": "nginx healthy\n"
+          }
+        ]
+      }
+    },
+    "Config": {
+      "Image": "nginx:1.27-alpine",
+      "Labels": {
+        "com.docker.compose.service": "nginx"
+      }
+    }
+  },
+  {
+    "Id": "dd667f3a8a3a785cc9070e296e7709b2decfd301fac1d12d39f0536fb8913b4b",
+    "Name": "/padsign-ps-server-1",
+    "RestartCount": 2,
+    "State": {
+      "Status": "running",
+      "Running": true,
+      "StartedAt": "2026-09-29T06:30:00.000Z"
+    },
+    "Config": {
+      "Image": "mihailsgordijenko/ps-server:3.32@sha256:dd667f3a8a3a785cc9070e296e7709b2decfd301fac1d12d39f0536fb8913b4b",
+      "Labels": {
+        "com.docker.compose.service": "ps-server"
+      }
+    }
+  },
+  {
+    "Id": "7f937edc96c03716ae910c3bcffa7c60c86c48043111c7b5dd2601f58e5f738a",
+    "Name": "/padsign-ps-client-1",
+    "RestartCount": 5,
+    "State": {
+      "Status": "exited",
+      "Running": false,
+      "StartedAt": "2026-09-29T07:00:00.000Z",
+      "Health": {
+        "Status": "unhealthy",
+        "Log": [
+          {
+            "Start": "2026-09-29T07:54:00.000Z",
+            "End": "2026-09-29T07:54:05.000Z",
+            "ExitCode": 1,
+            "Output": "timeout waiting for /api/health\n"
+          },
+          {
+            "Start": "2026-09-29T07:59:00.000Z",
+            "End": "2026-09-29T07:59:05.000Z",
+            "ExitCode": 1,
+            "Output": "  connection refused\n"
+          }
+        ]
+      }
+    },
+    "Config": {
+      "Image": "mihailsgordijenko/ps-client:8.39@sha256:7f937edc96c03716ae910c3bcffa7c60c86c48043111c7b5dd2601f58e5f738a",
+      "Labels": {
+        "com.docker.compose.service": "ps-client"
+      }
+    }
+  }
+]

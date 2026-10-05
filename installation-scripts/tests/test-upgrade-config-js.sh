@@ -2,7 +2,7 @@
 set -uo pipefail
 
 # ============================================================================
-# Tests for upgrade.sh's handling of config/config.js (psapp-saas#7, #12):
+# Tests for upgrade.sh's handling of config/config.js:
 #
 #   - pre-flight: the ps-server image the upgrade ends on must be able to read
 #     config.js. Otherwise it refuses before the snapshot, any edit or any
@@ -10,7 +10,11 @@ set -uo pipefail
 #   - Step 4e re-applies the ownership model (group = image gid, mode 640)
 #     after the run's own perl -i rewrite of config.js, which drops a group
 #     the user running it may not set;
-#   - the *.bak copies upgrade.sh and update-hostname.sh write are 0600.
+#   - the *.bak copies upgrade.sh and update-hostname.sh write are 0600;
+#   - the signing-audit migration: --plan-only reports it for a config.js
+#     without AUDIT_LOG and not for the shipped one, a real run adds exactly
+#     the block the plan showed, and release/capabilities.json names the
+#     ps-server that writes the audit log.
 #
 # Usage:
 #   ./installation-scripts/tests/test-upgrade-config-js.sh
@@ -20,7 +24,9 @@ set -uo pipefail
 # docker when there is one; `run` fakes the image uid:gid and the in-image
 # read probe; everything else fails, so every upgrade stops at its image
 # pull). `cosign` is a stub that verifies. The file-mode cases need real
-# POSIX modes: Linux only (Git Bash on NTFS has none).
+# POSIX modes: Linux only (Git Bash on NTFS has none). The signing-audit
+# cases run everywhere; they load config.js with node when it is installed
+# and fall back to a grep of the block when it is not.
 #
 # Exit codes: 0 all passed, 1 a case failed, 2 missing dependency,
 # 124 the watchdog (lib/watchdog.sh) stopped it.
@@ -170,6 +176,73 @@ echo ""
 echo "*.bak copies:"
 bare="$(grep -nE 'cp -f? *"[^"]*" *"[^"]*\.bak"' "${src_root}/installation-scripts/upgrade.sh" "${src_root}/installation-scripts/update-hostname.sh" || true)"
 check "upgrade.sh / update-hostname.sh make no bare cp ... .bak copy" test -z "$bare"
+
+# ── signing-audit migration: AUDIT_LOG in config.js ─────────────────────────
+# No file modes involved, so these run under Git Bash too.
+echo ""
+echo "signing-audit migration (AUDIT_LOG in config/config.js):"
+node_bin="$(command -v node || true)"
+plan_item() {  # <machine plan> <id> -> "status|body" of that migration
+  awk -v id="$2" '
+    $0 == "id=" id { on = 1; next }
+    on && /^status=/ { st = substr($0, 8) }
+    on && $0 == "###PLAN-BODY-BEGIN" { inbody = 1; next }
+    on && $0 == "###PLAN-BODY-END" { printf "%s|%s", st, body; exit }
+    inbody { body = body $0 "\n" }
+  ' <<< "$1"
+}
+machine_plan() {  # <repo>: upgrade.sh --plan-only --plan-format machine
+  upgrade "$1" --server-tag "$srv_ok" --plan-only --plan-format machine </dev/null
+}
+strip_audit_log() {  # <config.js>: as on a host from before AUDIT_LOG shipped
+  perl -0777 -i -pe 's/\r?\n\r?\n[^\n]*Signing audit log.*?AUDIT_LOG: \{.*?\},(?=\r?\n\};)//s' "$1"
+}
+audit_log_loads() {  # <config.js>: loads, with AUDIT_LOG enabled for 12 months
+  if [[ -n "$node_bin" ]]; then
+    MSYS2_ARG_CONV_EXCL='*' "$node_bin" -e '
+      const a = require(process.argv[1]).AUDIT_LOG || {};
+      process.exit(a.enabled === true && a.retentionMonths === 12
+        && a.dir === "/signed-output/.padsign-audit" ? 0 : 1);' "$(native "$1")"
+  else
+    grep -q 'enabled: true' < <(grep -A4 'AUDIT_LOG: {' "$1")
+  fi
+}
+[[ -n "$node_bin" ]] || echo "  (node not installed: config.js is checked with grep, not loaded)"
+
+check "shipped config.js: AUDIT_LOG.enabled === true (and it loads)" audit_log_loads "${pristine}/config/config.js"
+got="$(plan_item "$(machine_plan "$pristine")" signing-audit)"
+check "shipped config.js: --plan-only reports signing-audit already applied" test "${got%%|*}" = already-applied
+
+d="$(fresh audit)"
+external_storage "$d"
+strip_audit_log "$d/config/config.js"
+check "(setup) the copy has no AUDIT_LOG and still ends with '};'" \
+  bash -c '! grep -q AUDIT_LOG "$1" && [[ "$(tail -n 1 "$1")" == "};" ]]' _ "$d/config/config.js"
+got="$(plan_item "$(machine_plan "$d")" signing-audit)"
+check "config.js without AUDIT_LOG: signing-audit will apply" test "${got%%|*}" = will-apply
+check "... its body is the AUDIT_LOG block (retentionMonths: 12)" \
+  bash -c 'grep -q "AUDIT_LOG: {" <<< "$1" && grep -q "retentionMonths: 12" <<< "$1"' _ "${got#*|}"
+printf '%s' "${got#*|}" > "${work}/audit-body"
+
+out="$(upgrade "$d" --client-tag "$cli_ok" </dev/null)"; rc=$?
+check "real run: Step 3b adds AUDIT_LOG (the stub pull then fails the run, rc=${rc})" \
+  bash -c 'grep -q "^Step 3b/6: Ensuring AUDIT_LOG config" <<< "$1" && grep -qx "  Added AUDIT_LOG" <<< "$1"' _ "$out"
+check "... exactly one AUDIT_LOG block" \
+  bash -c '[[ "$(grep -c "AUDIT_LOG: {" "$1")" == 1 ]]' _ "$d/config/config.js"
+check "... config.js still loads: AUDIT_LOG enabled, 12 months, under /signed-output" audit_log_loads "$d/config/config.js"
+check "... what it wrote is byte for byte the body the plan showed" \
+  python3 -c 'import sys; b = open(sys.argv[1], newline="").read(); sys.exit(not b.strip() or b not in open(sys.argv[2], newline="").read())' \
+  "$(native "${work}/audit-body")" "$(native "$d/config/config.js")"
+got="$(plan_item "$(machine_plan "$d")" signing-audit)"
+check "... and --plan-only afterwards reports it already applied" test "${got%%|*}" = already-applied
+
+capability_min() {  # <repo> <capability> <component>: through lib/capabilities.sh
+  (repo_root="$(native "$1")"; . "$1/installation-scripts/lib/capabilities.sh"; capability_read "$2" "min:$3")
+}
+check "release/capabilities.json has a signing-audit entry" \
+  python3 -c 'import json, sys; json.load(open(sys.argv[1]))["capabilities"]["signing-audit"]' \
+  "$(native "${pristine}/release/capabilities.json")"
+check "... which lib/capabilities.sh reads as ps-server 3.34" test "$(capability_min "$pristine" signing-audit ps-server)" = 3.34
 
 if [[ "$linux" != true ]]; then
   echo ""

@@ -10,7 +10,16 @@
 // line or the next prefixed line.
 const HELPER_CHECK_RE = /^\s{2,4}(OK|FAIL|WARN)\b\s+(.*)$/;
 
-function parseHelperCheckOutput(stdout) {
+//
+// Options (both default to the behaviour above, so existing callers are
+// unaffected):
+//   re   - the line regex, for scripts with a different indent convention
+//          (verify-keycloak.sh prints its OK/FAIL with no indent at all).
+//   skip - predicate for lines that are neither a check nor a continuation
+//          (e.g. a closing "RESULT: ..." summary). A skipped line ends the
+//          current check, exactly like a blank line, so any text printed
+//          after it is not folded into the last check's message.
+function parseHelperCheckOutput(stdout, { re = HELPER_CHECK_RE, skip } = {}) {
   const lines = String(stdout || '').split(/\r?\n/);
   const checks = [];
   let current = null;
@@ -24,7 +33,11 @@ function parseHelperCheckOutput(stdout) {
 
   for (const rawLine of lines) {
     const line = rawLine.replace(/\r$/, '');
-    const m = HELPER_CHECK_RE.exec(line);
+    if (skip && skip(line)) {
+      flush();
+      continue;
+    }
+    const m = re.exec(line);
     if (m) {
       flush();
       current = { status: m[1].toLowerCase(), message: m[2].trim() };

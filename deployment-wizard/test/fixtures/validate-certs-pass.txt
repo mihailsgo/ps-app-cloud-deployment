@@ -1,7 +1,7 @@
 PadSign TLS Certificate Validator
   Host:     padsign.test.local
-  Cert:     /opt/psapp/installation-scripts/certs/test.crt
-  Key:      /opt/psapp/installation-scripts/certs/test.key
+  Cert:     /opt/padsign/installation-scripts/certs/test.crt
+  Key:      /opt/padsign/installation-scripts/certs/test.key
   Mode:     --allow-self-signed (chain check skipped)
 ================================================
 

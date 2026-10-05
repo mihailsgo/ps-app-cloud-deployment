@@ -2,12 +2,12 @@
 set -euo pipefail
 
 # ============================================================================
-# PadSign production-safe signing smoke test (psapp-saas#12).
+# PadSign production-safe signing smoke test.
 #
 # Signs ONE synthetic document on a live deployment as a real Keycloak user,
 # checks the result, proves nothing was routed, and cleans up. Design, the
 # options that were rejected, and what it deliberately does not do:
-# documentation/40-05-production-safe-signing-smoke-test.md.
+# documentation/05-04-signing-smoke-test.md.
 #
 # The smoke user's password is never handed to this script (same rule as
 # smoke-user.sh): the operator logs in on Keycloak's own device-verification
@@ -299,7 +299,7 @@ cleanup() {
 # Deletes the smoke document from the archive ps-server writes to
 # (ARCHIVE_API_BASE_URL). The call runs inside the ps-server container, like
 # ps-server's own archive calls: a hardened host restricts /archive/api at
-# nginx to the Docker subnet plus Basic auth (documentation/22), which this
+# nginx to the Docker subnet plus Basic auth (documentation/06-01-route-protection.md), which this
 # script has no credential for, by design. The archive's
 # DELETE /api/document/{id} needs no credential of its own on the pinned
 # image; if it refuses, the leftover is reported, not hidden.
@@ -671,7 +671,7 @@ echo ""
 
 echo "== 9. Download and verify the signed document =="
 # With the user's token, as the pad does: a hardened host only lets the
-# download route through with it (documentation/22).
+# download route through with it (documentation/06-01-route-protection.md).
 dl_code="$(api GET "/archive/api/document/${docid}/download" "${work}/signed.pdf")"
 if [[ "$dl_code" != "200" ]]; then
   bad "GET /archive/api/document/${docid}/download -> ${dl_code}"

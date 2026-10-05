@@ -4,15 +4,17 @@ set -euo pipefail
 # ============================================================================
 # PadSign Upgrade — update image tags and apply latest config patterns
 #
-# Usage (current release tags — see documentation/01-release-snapshot.md):
-#   ./installation-scripts/upgrade.sh --server-tag 3.27 --client-tag 8.37
-#   ./installation-scripts/upgrade.sh --server-tag 3.27   # server only
-#   ./installation-scripts/upgrade.sh --client-tag 8.37   # client only
+# Usage (current release tags — see documentation/14-03-release-snapshot.md):
+#   ./installation-scripts/upgrade.sh --server-tag <tag> --client-tag <tag>
+#   ./installation-scripts/upgrade.sh --server-tag <tag>   # server only
+#   ./installation-scripts/upgrade.sh --client-tag <tag>   # client only
 # ============================================================================
 
 server_tag=""
 client_tag=""
 enable_local_eseal=false
+use_internal_dmss_urls=false
+use_public_dmss_urls=false
 plan_only=false
 plan_format="text"
 require_capabilities=()
@@ -28,6 +30,8 @@ usage() {
   cat <<'EOF'
 Usage:
   ./installation-scripts/upgrade.sh [--server-tag X.XX] [--client-tag X.XX] [--enable-local-eseal]
+  ./installation-scripts/upgrade.sh --use-internal-dmss-urls     # switch ps-server to in-network DMSS URLs
+  ./installation-scripts/upgrade.sh --use-public-dmss-urls       # ... and back to the public ones
   ./installation-scripts/upgrade.sh [same args] --require-capability NAME
   ./installation-scripts/upgrade.sh [same args] --plan-only [--plan-format text|machine]
   ./installation-scripts/upgrade.sh [same args] [--health-timeout 480] [--rollback-on-failure]
@@ -41,7 +45,7 @@ Approved tags only:
                        with a loud warning. The tag is pulled without a
                        digest pin, so validate-config.sh / postdeploy-check.sh
                        keep failing until the tag is approved and pinned
-                       (documentation/39-release-procedure.md). The override
+                       (documentation/14-06-image-approval-and-digest-pinning.md). The override
                        is recorded in deployment-evidence.json as
                        "unapproved_override".
 
@@ -66,10 +70,13 @@ Asserting a capability:
                         authentication at nginx, which only works against a
                         ps-client that sends the Keycloak Bearer token:
 
-                          ./installation-scripts/upgrade.sh --client-tag 8.38 \
+                          ./installation-scripts/upgrade.sh --client-tag <tag> \
                             --require-capability closable-download-route
 
-                        Combine with --plan-only to check without changing anything.
+                        On its own (no tag, no other flag) it only checks the
+                        images deployed now: nothing is planned, written or
+                        restarted, and it exits 0 or 2. Add --plan-only to a tag
+                        bump to check it without changing anything.
 
 Previewing before you commit:
   --plan-only    Evaluate every configuration migration and print exactly what
@@ -94,6 +101,8 @@ What it does:
   1) Backs up docker-compose.yml and config.js (owner-only *.bak copies)
   2) Updates image tags in docker-compose.yml
   3) Ensures DOCUMENT_ROUTING config exists (disabled by default)
+  3b) Ensures AUDIT_LOG config exists (the signing activity log the
+      deployment wizard reads; see the signing-audit capability)
   4) Ensures signed-output volume mount and directory exist (the stores the
      effective compose model mounts; one mounted from outside the checkout,
      e.g. by an environment overlay, is left as it is)
@@ -112,14 +121,40 @@ What it does:
       alias at the hostname nginx/nginx.conf serves, if they name another
       one (then recreates keycloak/nginx in step 5)
   4e) Re-applies config/config.js's ownership model (group of the ps-server
-      image, mode 640, checked from inside that image) after steps 3/4b
+      image, mode 640, checked from inside that image) after steps 3/3b/4b
   5) Pulls new images and recreates changed containers
   6) Waits for the restarted services to be healthy; fails (exit 1) if not
+
+DMSS addresses (opt-in, never part of a plain upgrade):
+  config/config.js tells ps-server where the archive and container-signature
+  services are. The shipped config.js has the in-network addresses
+  (http://dmss-archive-services:8090/api/ and
+  http://dmss-container-and-signature-services:8092/api/); a host installed
+  earlier keeps the public ones (https://<host>/archive/api/ ...) until you
+  decide otherwise:
+  --use-internal-dmss-urls  Rewrite the five DMSS keys of config/config.js
+                            (ARCHIVE_API_BASE_URL, CREATE_DOCUMENT_API_URL,
+                            DOCUMENT_DOWNLOAD_API_URL, VISUAL_SIGNATURE_API_TEMPLATE,
+                            FORM_FILL_API_URL) to the in-network form, add
+                            ARCHIVE_PUBLIC_BASE_URL (the public archive address
+                            webhook payloads keep) when absent, and recreate
+                            ps-server. Requires the ps-server named by the
+                            dmss-internal-urls capability in
+                            release/capabilities.json. A key that holds a
+                            value of your own is left as it is.
+  --use-public-dmss-urls    The reverse: back to https://<host>/archive/api/
+                            and /container/api/, taking <host> from
+                            ARCHIVE_PUBLIC_BASE_URL or nginx/nginx.conf, and
+                            removing an ARCHIVE_PUBLIC_BASE_URL this script
+                            added. Needs those two nginx routes open to ps-server.
+  Both are idempotent and combine with --plan-only. They are not combined with
+  each other. Closing the public routes afterwards is a separate nginx change:
+  documentation/06-01-route-protection.md.
 
 The --enable-local-eseal flag is idempotent: re-running is safe and only
 touches files that haven't already been migrated. To revert, edit
 config/config.js (STAMP_MODE: "external"), clear COMPOSE_PROFILES in .env,
-and `docker compose up -d ps-server`. See documentation/04-enabling-local-e-sealing.md
+and `docker compose up -d ps-server`. See documentation/10-local-e-sealing.md
 for full recipe.
 EOF
 }
@@ -129,6 +164,8 @@ while [[ $# -gt 0 ]]; do
     --server-tag) server_tag="${2:-}"; shift 2;;
     --client-tag) client_tag="${2:-}"; shift 2;;
     --enable-local-eseal) enable_local_eseal=true; shift;;
+    --use-internal-dmss-urls) use_internal_dmss_urls=true; shift;;
+    --use-public-dmss-urls) use_public_dmss_urls=true; shift;;
     --require-capability) require_capabilities+=("${2:-}"); shift 2;;
     --require-capability=*) require_capabilities+=("${1#*=}"); shift;;
     --plan-only) plan_only=true; shift;;
@@ -147,8 +184,17 @@ case "$plan_format" in
   *) echo "ERROR: --plan-format must be 'text' or 'machine' (got '${plan_format}')" >&2; exit 2;;
 esac
 
-if [[ -z "$server_tag" && -z "$client_tag" && "$enable_local_eseal" != true ]]; then
-  echo "ERROR: Provide at least one of --server-tag, --client-tag, or --enable-local-eseal" >&2
+if [[ "$use_internal_dmss_urls" == true && "$use_public_dmss_urls" == true ]]; then
+  echo "ERROR: --use-internal-dmss-urls and --use-public-dmss-urls are opposites; pass one." >&2
+  exit 2
+fi
+dmss_flag=false
+dmss_direction=""
+if [[ "$use_internal_dmss_urls" == true ]]; then dmss_flag=true; dmss_direction=internal; fi
+if [[ "$use_public_dmss_urls" == true ]]; then dmss_flag=true; dmss_direction=public; fi
+
+if [[ -z "$server_tag" && -z "$client_tag" && "$enable_local_eseal" != true && "$dmss_flag" != true && ${#require_capabilities[@]} -eq 0 ]]; then
+  echo "ERROR: Provide at least one of --server-tag, --client-tag, --enable-local-eseal, --use-internal-dmss-urls, --use-public-dmss-urls or --require-capability" >&2
   usage
   exit 2
 fi
@@ -168,6 +214,7 @@ config_js="${repo_root}/config/config.js"
 assets_src="${scripts_dir}/assets/dmss-digital-stamping-service"
 stamping_dst="${repo_root}/dmss-digital-stamping-service"
 csig_yml="${repo_root}/dmss-container-and-signature-services/application.yml"
+dmss_urls_py="${scripts_dir}/lib/dmss_urls.py"
 env_file="${repo_root}/.env"
 # NB: upgrade.sh deliberately never touches nginx/nginx.conf — a hostname
 # change is configure-host.sh's job, not an upgrade's. It only READS the
@@ -190,7 +237,7 @@ current_tag() {
 
 # What is RUNNING, as opposed to what docker-compose.yml pins (current_tag).
 # The two differ after the documented `git pull` ahead of this script
-# (documentation/04-04 Phase 1): the pull already pins the new release while
+# (documentation/09-05-upgrading.md, Local changes to tracked files): the pull already pins the new release while
 # the old containers keep running. The "old → new" lines, the plan and the
 # rollback snapshot (lib/rollback-snapshot.sh) use the running tag, and a
 # mismatch is said out loud. Read-only (docker compose ps / docker inspect),
@@ -230,7 +277,7 @@ load_running_state() {
 # lets the identical gate cover the client-side route-protection case.
 require_capability() {  # <capability> <what-requested-it> <example-flags>
   local cap="$1" reason="$2" example="${3:-}"
-  local components component min effective flag
+  local components component min unreleased effective flag
 
   if ! command -v python3 >/dev/null 2>&1; then
     echo "ERROR: python3 is required to read ${capabilities_json}," >&2
@@ -247,13 +294,37 @@ require_capability() {  # <capability> <what-requested-it> <example-flags>
   while IFS= read -r component; do
     [[ -z "$component" ]] && continue
     min="$(capability_read "$cap" "min:${component}")" || exit 2
-    [[ -z "$min" ]] && continue
+    unreleased="$(capability_read "$cap" "unreleased:${component}")" || exit 2
+    [[ -z "$min" && -z "$unreleased" ]] && continue
 
     case "$component" in
       ps-server) effective="${server_tag:-$(current_tag ps-server)}"; flag="--server-tag";;
       ps-client) effective="${client_tag:-$(current_tag ps-client)}"; flag="--client-tag";;
       *) echo "ERROR: capability '${cap}' names unknown component '${component}'." >&2; exit 2;;
     esac
+
+    if [[ -z "$min" ]]; then
+      # Merged, but in no release yet: the registry knows the newest tag that
+      # lacks it, not the first one that has it (release/capabilities.json).
+      if [[ -z "$effective" ]]; then
+        echo "ERROR: Cannot determine the ${component} image tag from docker-compose.yml." >&2
+        echo "       ${reason} requires a ${component} newer than ${unreleased}." >&2
+        echo "       Pass ${flag} <tag> explicitly." >&2
+        exit 2
+      fi
+      if ! capability_tag_has "$cap" "$component" "$effective"; then
+        echo "ERROR: ${reason} requires a mihailsgordijenko/${component} image newer than :${unreleased}." >&2
+        echo "       The current effective ${component} tag is :${effective}, and no released" >&2
+        echo "       ${component} has the capability yet: it is merged but not yet in a release." >&2
+        echo "" >&2
+        capability_explain "$cap" >&2
+        echo "" >&2
+        echo "       Re-run once a ${component} release that includes it is approved in" >&2
+        echo "       release/approved-digests.json, passing that tag with ${flag}." >&2
+        exit 2
+      fi
+      continue
+    fi
 
     if [[ -z "$effective" ]]; then
       echo "ERROR: Cannot determine the ${component} image tag from docker-compose.yml." >&2
@@ -278,11 +349,21 @@ require_capability() {  # <capability> <what-requested-it> <example-flags>
 if [[ "$enable_local_eseal" == true ]]; then
   require_capability local-eseal "--enable-local-eseal" "--enable-local-eseal"
 fi
+if [[ "$use_internal_dmss_urls" == true ]]; then
+  require_capability dmss-internal-urls "--use-internal-dmss-urls" "--use-internal-dmss-urls"
+fi
 
 for cap in ${require_capabilities[@]+"${require_capabilities[@]}"}; do
   [[ -z "$cap" ]] && { echo "ERROR: --require-capability needs a value." >&2; exit 2; }
   require_capability "$cap" "--require-capability ${cap}" "--require-capability ${cap}"
 done
+
+# --require-capability on its own is a check of the images already deployed:
+# nothing is requested, so nothing is planned, written or restarted.
+if [[ -z "$server_tag" && -z "$client_tag" && "$enable_local_eseal" != true && "$dmss_flag" != true ]]; then
+  echo "Capability check passed: ${require_capabilities[*]} (nothing was changed)."
+  exit 0
+fi
 
 # ── Approved-tag gate ───────────────────────────────────────────────────────
 #
@@ -335,7 +416,7 @@ if [[ ${#unapproved_requests[@]} -gt 0 && "$allow_unapproved" != true ]]; then
   fi
   echo "       Upgrade to the approved tag, or approve the new tag first: cut the" >&2
   echo "       release and record its digest in release/approved-digests.json" >&2
-  echo "       (documentation/39-release-procedure.md)." >&2
+  echo "       (documentation/14-06-image-approval-and-digest-pinning.md)." >&2
   echo "" >&2
   echo "       Emergency hotfix only: re-run with --allow-unapproved. The tag is then" >&2
   echo "       pulled without a digest pin, validate-config.sh keeps failing until it" >&2
@@ -364,7 +445,7 @@ print_unapproved_banner() {
   done
   echo "!! Not reviewed and not digest-pinned. validate-config.sh and" >&2
   echo "!! postdeploy-check.sh FAIL until the tag is approved and pinned" >&2
-  echo "!! (documentation/39-release-procedure.md). Recorded in" >&2
+  echo "!! (documentation/14-06-image-approval-and-digest-pinning.md). Recorded in" >&2
   echo "!! deployment-evidence.json as \"unapproved_override\"." >&2
   echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" >&2
 }
@@ -389,13 +470,14 @@ print_unapproved_banner() {
 # assets). Splitting them is how you get a stack that boots and then 401s on
 # every seal, so they are reported and applied as one.
 
-MIGRATION_IDS=(document-routing signed-output compose-hostname local-eseal keycloak-backend-audience)
+MIGRATION_IDS=(document-routing signed-output signing-audit compose-hostname local-eseal dmss-urls keycloak-backend-audience)
 
 # ---- per-edit predicates (shared by _needed and _apply) ----
 need_document_routing()  { ! grep -q 'DOCUMENT_ROUTING' "$config_js"; }
+need_signing_audit()     { ! grep -q 'AUDIT_LOG' "$config_js"; }
 # signed-output: where the two stores live is decided by the EFFECTIVE compose
 # model (docker-compose.yml plus any COMPOSE_FILE overlay or override), not by
-# the checkout's layout. On an overlay host (documentation/42) both are
+# the checkout's layout. On an overlay host (documentation/09-11-start-at-boot-backups-and-customized-hosts.md) both are
 # mounted from where the documents already are, outside the checkout, so
 # ${repo_root}/signed-output never exists there, and checking it made every
 # such host's --plan-only report [WILL APPLY] signed-output. See
@@ -450,7 +532,7 @@ need_kc_backend_audience() { kc_probe_backend_audience; [[ "$kc_aud_state" != pr
 # environment if set, otherwise the running keycloak container's own env -
 # which is what docker-compose.yml sets and configure-host.sh keeps in sync.
 # An operator who later changed the admin password in the admin console
-# (documentation/37-05) passes it via the environment.
+# (documentation/08-03-admin-password-and-break-glass.md) passes it via the environment.
 kc_realm="padsign"
 kc_aud_state=""
 kc_aud_reason=""
@@ -528,6 +610,19 @@ DOCUMENT_ROUTING_BLOCK=$(cat <<'BLOCK'
 BLOCK
 )
 
+SIGNING_AUDIT_BLOCK=$(cat <<'BLOCK'
+
+    // Signing audit log (ps-server 3.34+): one JSON line per signing event in
+    // <dir>/audit-YYYY-MM.jsonl, read by the wizard's Signing activity page.
+    // See documentation/09-13-signing-activity-log.md.
+    AUDIT_LOG: {
+      enabled: true,
+      dir: "/signed-output/.padsign-audit",
+      retentionMonths: 12
+    },
+BLOCK
+)
+
 STAMP_LOCAL_BLOCK=$(cat <<'BLOCK'
 STAMP_MODE: "local",
     STAMP_LOCAL: {
@@ -543,8 +638,8 @@ STAMPING_COMPOSE_BLOCK=$(cat <<'BLOCK'
   dmss-digital-stamping-service:
     container_name: dmss-digital-stamping-service
     profiles: ["local-eseal"]
-    restart: always
-    image: "trustlynx/digital-stamping-service:24.0.3.0"
+    restart: unless-stopped
+    image: "__STAMPING_IMAGE__"
     environment:
       - SPRING_CONFIG_ADDITIONAL_LOCATION=file:/conf/
     volumes:
@@ -554,6 +649,12 @@ STAMPING_COMPOSE_BLOCK=$(cat <<'BLOCK'
       - "host.docker.internal:host-gateway"
 BLOCK
 )
+# Only inserted into a customised compose file that lacks the service (the
+# release's own docker-compose.yml ships it). Its image is the release's
+# approved, digest-pinned one, never a tag typed here.
+stamping_image="$(digest_registry_table 2>/dev/null | tr -d '\r' \
+  | awk -F'\t' '$1 == "dmss-digital-stamping-service" && $4 ~ /^sha256:/ { print $2 ":" $3 "@" $4; exit }')"
+STAMPING_COMPOSE_BLOCK="${STAMPING_COMPOSE_BLOCK/__STAMPING_IMAGE__/${stamping_image:-trustlynx/digital-stamping-service}}"
 
 SIGNED_OUTPUT_VOLUME_LINE='      - "./signed-output:/signed-output"'
 SPRING_SECURITY_LINES=$'      - SPRING_SECURITY_USER_NAME=user\n      - SPRING_SECURITY_USER_PASSWORD=changeit'
@@ -582,6 +683,34 @@ mig_document_routing_apply() {
     fi
   else
     echo "  DOCUMENT_ROUTING already present"
+  fi
+}
+
+# ---- signing-audit ----
+# Turns the signing activity log on for a deployment whose config.js predates
+# it. An older ps-server ignores the block; the signing-audit capability in
+# release/capabilities.json names the one that writes it.
+mig_signing_audit_title() { echo 'Add AUDIT_LOG block (signing activity log, read by the wizard)'; }
+mig_signing_audit_files() { echo 'config/config.js'; }
+mig_signing_audit_needed() { need_signing_audit; }
+mig_signing_audit_body()  { printf '%s\n' "$SIGNING_AUDIT_BLOCK"; }
+mig_signing_audit_apply() {
+  if need_signing_audit; then
+    # The same insertion as document-routing: before the closing '};', in the
+    # file's own line endings, the literal passed through the environment.
+    SA_BLOCK="$SIGNING_AUDIT_BLOCK" perl -0777 -i -pe '
+      BEGIN { $b = $ENV{SA_BLOCK} }
+      $n = /\r\n/ ? "\r\n" : "\n";
+      ($t = $b) =~ s/\n/$n/g;
+      s/\r?\n\};\r?\n?\z/$n$t$n};$n/;
+    ' "$config_js"
+    if need_signing_audit; then
+      echo "  WARNING: could not locate the closing '};' in config/config.js — AUDIT_LOG not added" >&2
+    else
+      echo "  Added AUDIT_LOG"
+    fi
+  else
+    echo "  AUDIT_LOG already present"
   fi
 }
 
@@ -799,7 +928,7 @@ mig_local_eseal_apply() {
     # carriage return and produced "COMPOSE_PROFILES=wizard\r,local-eseal" —
     # a profile name with an embedded CR that then matches nothing.
     # (Not reproducible under MSYS sed, which strips CR on read; see
-    # documentation/05-02.)  The `t` branches out after filling an empty
+    # documentation/09-05-upgrading.md.)  The `t` branches out after filling an empty
     # value so it can't then also get a comma appended.
     sed -i '/^COMPOSE_PROFILES=/ {
       s/\r$//
@@ -811,6 +940,65 @@ mig_local_eseal_apply() {
   else
     echo "  .env already activates local-eseal profile"
   fi
+}
+
+# ---- dmss-urls ----
+# The five DMSS addresses in config/config.js, in one direction (internal or
+# public), only when requested with --use-internal-dmss-urls /
+# --use-public-dmss-urls. Never part of a plain upgrade: a host that runs on
+# the public addresses keeps them. The edit itself, and what counts as
+# "already in that form", live in lib/dmss_urls.py, which plan and apply both
+# call, so they cannot disagree. ps-server reads config.js at start, so a
+# change recreates it in Step 5 (dmss_urls_changed).
+#
+#   dmss_out  = the tool's change lines (KEY<TAB>action<TAB>old<TAB>new)
+#   dmss_rc   = its exit code (3: the direction cannot be carried out)
+#   dmss_err  = why
+dmss_out="" dmss_rc=0 dmss_err="" dmss_urls_changed=false
+dmss_urls_run() {  # <plan|apply>
+  local host_args=() errf
+  [[ -n "$deploy_host" ]] && host_args=(--host "$deploy_host")
+  errf="$(mktemp)"
+  dmss_rc=0
+  dmss_out="$(python3 "$dmss_urls_py" "$1" "$config_js" "$dmss_direction" ${host_args[@]+"${host_args[@]}"} 2>"$errf" </dev/null | tr -d '\r')" || dmss_rc=$?
+  dmss_err="$(tr -d '\r' < "$errf")"
+  rm -f "$errf"
+}
+need_dmss_urls() { dmss_urls_run plan; [[ "$dmss_rc" != 0 || -n "$dmss_out" ]]; }
+mig_dmss_urls_title() {
+  if [[ "$dmss_direction" == public ]]; then echo 'Point ps-server at the public DMSS addresses (through nginx)'
+  else echo 'Point ps-server at the in-network DMSS addresses (not through nginx)'; fi
+}
+mig_dmss_urls_files() { echo 'config/config.js'; }
+mig_dmss_urls_needed() { need_dmss_urls; }
+mig_dmss_urls_body() {
+  dmss_urls_run plan
+  if [[ "$dmss_rc" != 0 ]]; then
+    printf 'Cannot be done: %s\n' "${dmss_err#ERROR: }"
+    return 0
+  fi
+  printf 'config/config.js:\n'
+  awk -F'\t' '
+    $2 == "set"    { printf "  %s\n    was: %s\n    now: %s\n", $1, $3, $4 }
+    $2 == "add"    { printf "  %s (new): %s\n", $1, $4 }
+    $2 == "remove" { printf "  %s removed (was: %s)\n", $1, $3 }' <<< "$dmss_out"
+  printf '\nRecreates the ps-server container so it re-reads config.js.\n'
+}
+mig_dmss_urls_apply() {
+  dmss_urls_run apply
+  if [[ "$dmss_rc" != 0 ]]; then
+    echo "ERROR: could not switch the DMSS addresses in config/config.js: ${dmss_err#ERROR: }" >&2
+    exit 3
+  fi
+  if [[ -z "$dmss_out" ]]; then
+    echo "  DMSS addresses already in the requested (${dmss_direction}) form - nothing changed"
+    return 0
+  fi
+  dmss_urls_changed=true
+  awk -F'\t' '
+    $2 == "set"    { printf "  %s: %s -> %s\n", $1, $3, $4 }
+    $2 == "add"    { printf "  %s added: %s\n", $1, $4 }
+    $2 == "remove" { printf "  %s removed (it was %s)\n", $1, $3 }' <<< "$dmss_out"
 }
 
 # ---- keycloak-backend-audience ----
@@ -856,7 +1044,7 @@ mig_keycloak_backend_audience_apply() {
     echo "           On Keycloak 26.4.12/26.6.2/26.7.0 or newer every authenticated portal"
     echo "           API call returns 401 until this is fixed. Re-run this upgrade with"
     echo "           KEYCLOAK_ADMIN_PASSWORD='<current admin password>' once Keycloak is up,"
-    echo "           or add the mapper by hand: documentation/14-08-token-audience-for-introspection.md"
+    echo "           or add the mapper by hand: documentation/08-02-token-audience.md"
   } >&2
 }
 
@@ -864,13 +1052,14 @@ mig_keycloak_backend_audience_apply() {
 # a public contract in the plan output); bash function names use underscores.
 mig_call() { "mig_${1//-/_}_$2"; }
 
-# Migrations in scope for THIS invocation. local-eseal is only ever applied
-# when explicitly requested, so it is only ever reported when requested too —
+# Migrations in scope for THIS invocation. local-eseal and dmss-urls are only
+# ever applied when explicitly requested, so it is only ever reported when requested too —
 # a plan must not advertise work the same arguments wouldn't actually do.
 plan_scope() {
   local id
   for id in "${MIGRATION_IDS[@]}"; do
     [[ "$id" == "local-eseal" && "$enable_local_eseal" != true ]] && continue
+    [[ "$id" == "dmss-urls" && "$dmss_flag" != true ]] && continue
     echo "$id"
   done
 }
@@ -1009,7 +1198,7 @@ fi
 # pulls. A signature that does not verify aborts here, before anything is
 # written. No cosign on the host only
 # warns (fails under CI=true or PADSIGN_REQUIRE_SIGNATURES=1); see
-# lib/signatures.sh and documentation/40-02-post-deploy-validation.md.
+# lib/signatures.sh and documentation/05-03-post-deploy-checks.md.
 # shellcheck source=lib/signatures.sh
 . "${scripts_dir}/lib/signatures.sh"
 preflight_signature() {  # <image key> <tag>
@@ -1060,7 +1249,7 @@ fi
 # inside that image (config_js_preflight, lib/dir-permissions.sh), and
 # refused here with the exact fix, before the snapshot, any edit or any
 # pull. Step 4e re-applies the ownership model after this run's own edits.
-if [[ -n "$server_tag" || "$enable_local_eseal" == true ]]; then
+if [[ -n "$server_tag" || "$enable_local_eseal" == true || "$dmss_flag" == true ]]; then
   if [[ -n "$server_tag" ]]; then
     target_ps_ref="mihailsgordijenko/ps-server:${server_tag}$(approved_pin ps-server "$server_tag")"
   else
@@ -1104,7 +1293,7 @@ echo "  Backups created (*.bak, owner-only)"
 # the upgrade ends digest-pinned and passes validate-config.sh. Only a tag
 # let through by --allow-unapproved is left unpinned - resolving and
 # approving a new tag's digest is a separate, deliberate step
-# (documentation/39-release-procedure.md).
+# (documentation/14-06-image-approval-and-digest-pinning.md).
 echo "Step 2/6: Updating image tags..."
 unpinned_tags=false
 if [[ -n "$server_tag" ]]; then
@@ -1133,7 +1322,7 @@ if [[ "$unpinned_tags" == true ]]; then
   echo "  NOTE: the new tag(s) above were let through by --allow-unapproved and"
   echo "        are not digest-pinned. Approve and pin the digest before this"
   echo "        deployment is considered complete: see"
-  echo "        documentation/39-release-procedure.md and"
+  echo "        documentation/14-06-image-approval-and-digest-pinning.md and"
   echo "        installation-scripts/check-digest-drift.sh. validate-config.sh"
   echo "        will fail until release/approved-digests.json and"
   echo "        docker-compose.yml agree again."
@@ -1143,9 +1332,19 @@ fi
 echo "Step 3/6: Ensuring DOCUMENT_ROUTING config..."
 mig_call document-routing apply
 
+# ── Step 3b: Ensure AUDIT_LOG ──
+echo "Step 3b/6: Ensuring AUDIT_LOG config..."
+mig_call signing-audit apply
+
 # ── Step 4: Ensure signed-output volume + directory ──
 echo "Step 4/6: Ensuring signed-output volume..."
 mig_call signed-output apply
+
+# ── Step 4a (optional): DMSS addresses ──
+if [[ "$dmss_flag" == true ]]; then
+  echo "Step 4a/6: Switching the DMSS addresses in config.js (${dmss_direction})..."
+  mig_call dmss-urls apply
+fi
 
 # ── Step 4b (optional): Enable local e-sealing ──
 if [[ "$enable_local_eseal" == true ]]; then
@@ -1162,7 +1361,7 @@ echo "Step 4d/6: Ensuring KC_HOSTNAME and nginx alias match the served hostname.
 mig_call compose-hostname apply
 
 # ── Step 4e: config.js ownership model, after this run's own edits ──
-# Steps 3 and 4b rewrite config/config.js with perl -i / sed -i. Those write a
+# Steps 3, 3b and 4b rewrite config/config.js with perl -i / sed -i. Those write a
 # NEW file as the user running this script and keep its group only if that
 # user may set it, so a user who is neither root nor in the ps-server image's
 # group turns a 640 file ps-server 3.30 reads through its group into one it
@@ -1179,8 +1378,16 @@ cd "$repo_root"
 services=""
 [[ -n "$server_tag" ]] && services="$services ps-server"
 [[ -n "$client_tag" ]] && services="$services ps-client"
-if [[ "$enable_local_eseal" == true ]]; then
-  # Pull / start the stamping service alongside any tagged images.
+if [[ "$dmss_flag" == true && "$services" != *ps-server* ]]; then
+  # `docker compose pull` / `up -d` with no service name would act on the
+  # whole stack; name the one this flag touches.
+  services="$services ps-server"
+fi
+if [[ "$enable_local_eseal" == true ]]    || grep -qx dmss-digital-stamping-service < <(docker compose ps --services --status running 2>/dev/null </dev/null | tr -d '\r'); then
+  # Pull / start the stamping service alongside any tagged images - and
+  # whenever it already runs, so a release's change to its compose
+  # definition (restart policy, logging, image) reaches it. `up -d` leaves
+  # it alone when nothing changed.
   services="$services dmss-digital-stamping-service"
 fi
 # A failed upgrade is recorded as evidence, reported with the exact rollback
@@ -1197,7 +1404,7 @@ upgrade_failed() {  # <reason>
     if "${scripts_dir}/rollback.sh" --to "$(basename "$snapshot_dir")" --yes; then
       echo "Rolled back to the pre-upgrade state. The upgrade itself still FAILED." >&2
     else
-      echo "ROLLBACK ALSO FAILED - intervene manually (see documentation/40-04-rollback.md)." >&2
+      echo "ROLLBACK ALSO FAILED - intervene manually (see documentation/09-08-rollback.md)." >&2
     fi
   else
     echo "" >&2
@@ -1215,7 +1422,16 @@ if [[ "$enable_local_eseal" == true ]]; then
   # container-signature needs to be restarted to pick up the new
   # SPRING_SECURITY_USER_* env vars and the patched baseUrl, and ps-server to
   # re-read config.js. These restarts are cheap and intentional.
-  docker compose up -d dmss-container-and-signature-services ps-server || upgrade_failed "could not restart container-signature/ps-server"
+  # --force-recreate: a plain `up -d` leaves a container alone when its
+  # compose definition did not change (no tag bump), and neither service
+  # re-reads a bind-mounted file (config.js, application.yml) while running.
+  docker compose up -d --no-deps --force-recreate dmss-container-and-signature-services ps-server || upgrade_failed "could not restart container-signature/ps-server"
+fi
+
+if [[ "$dmss_urls_changed" == true && "$enable_local_eseal" != true ]]; then
+  # ps-server reads config.js once, at start; a plain `up -d` leaves it
+  # running when the compose definition did not change.
+  docker compose up -d --no-deps --force-recreate ps-server || upgrade_failed "could not restart ps-server"
 fi
 
 if [[ "$compose_hostname_recreate_keycloak" == true ]]; then
@@ -1224,13 +1440,11 @@ if [[ "$compose_hostname_recreate_keycloak" == true ]]; then
   kc_wait_ready || echo "  WARNING: Keycloak not ready yet after recreate. Check: docker compose logs keycloak" >&2
 fi
 
-# Also restart nginx to pick up any config changes — recreated instead when
-# its network alias changed, since a restart keeps the old definition.
-if [[ "$compose_hostname_recreate_nginx" == true ]]; then
-  docker compose up -d --no-deps --force-recreate nginx || upgrade_failed "could not recreate nginx"
-else
-  docker compose restart nginx 2>/dev/null || true
-fi
+# Recreate nginx, never just restart it: a restart keeps the container's old
+# definition, so a release's change to it (network alias, logging, restart
+# policy) would not apply. Recreating takes seconds and also reloads
+# nginx.conf and the certificates.
+docker compose up -d --no-deps --force-recreate nginx </dev/null || upgrade_failed "could not recreate nginx"
 
 # ── Step 6: Verify ──
 echo "Step 6/6: Waiting for restarted services to be healthy (up to ${health_timeout}s)..."

@@ -113,7 +113,7 @@ async function checkLiveCert(host) {
 // checkLiveCert() above reads the FILE on disk, which is necessary but not
 // sufficient — nginx reads its certificate files only at startup and on
 // reload, so a renewed file can sit unserved indefinitely while every
-// file-level check passes. See documentation/11-02.
+// file-level check passes. See documentation/09-03-monitoring-the-served-certificate.md.
 //
 // Two deliberate differences from runValidateCerts():
 //

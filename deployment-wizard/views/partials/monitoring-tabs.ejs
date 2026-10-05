@@ -1,0 +1,16 @@
+<%
+  // Tab bar shared by the four Monitoring pages. Expects: tab ('overview' |
+  // 'logs' | 'activity' | 'diagnostics'). Real links (each tab is its own
+  // page), so aria-current marks the open one instead of a tablist role.
+  const TABS = [
+    { key: 'overview', href: '/monitoring', label: 'Overview', icon: 'activity' },
+    { key: 'logs', href: '/monitoring/logs', label: 'Logs', icon: 'scroll-text' },
+    { key: 'activity', href: '/monitoring/activity', label: 'Signing activity', icon: 'pen-line' },
+    { key: 'diagnostics', href: '/monitoring/diagnostics', label: 'Diagnostics', icon: 'stethoscope' }
+  ];
+-%>
+<nav class="mon-tabs" aria-label="Monitoring">
+  <% TABS.forEach((t) => { %>
+    <a href="<%= t.href %>"<% if (t.key === tab) { %> aria-current="page"<% } %>><%- include('icon', { name: t.icon, size: 16 }) %><%= t.label %></a>
+  <% }) %>
+</nav>
