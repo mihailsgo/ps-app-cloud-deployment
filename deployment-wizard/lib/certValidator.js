@@ -85,11 +85,15 @@ function deployedCertPathsFor(host) {
 
 // Read-only status check for the Settings page: re-runs validate-certs.sh
 // against whatever cert is CURRENTLY deployed, with no upload — powers the
-// "current cert expiry/status" display on page load. allowSelfSigned
-// defaults true here (unlike validateCert()) because this is purely
-// informational: an already-live self-signed cert isn't something the
-// operator can "fix" by re-uploading right now, so surfacing a hard FAIL
-// for the one check they can't act on would just be noise.
+// "current cert expiry/status" display on page load.
+//
+// It deliberately does NOT pass --allow-self-signed (only validateCert()'s
+// upload staging honours the operator's checkbox). With the flag,
+// validate-certs.sh skips chain verification and prints a permanent
+// "chain verification skipped" WARN even for a valid CA-issued certificate,
+// which reads like a real problem on every deployment. Without it, a good
+// chain passes cleanly and a genuinely self-signed certificate still gets an
+// honest WARN from the script itself.
 async function checkLiveCert(host) {
   if (!host) throw new Error('host is required');
   const { crtPath, keyPath } = deployedCertPathsFor(host);
@@ -105,7 +109,7 @@ async function checkLiveCert(host) {
     };
   }
 
-  const parsed = await runValidateCerts({ host, crtPath, keyPath, allowSelfSigned: true });
+  const parsed = await runValidateCerts({ host, crtPath, keyPath });
   return { ...parsed, host, crtPath, keyPath };
 }
 
