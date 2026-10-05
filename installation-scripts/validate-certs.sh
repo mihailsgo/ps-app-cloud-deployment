@@ -250,6 +250,7 @@ elif [[ "$block_count" -eq 1 ]]; then
   # Case (a): single block. Treat as fullchain ONLY if it's a self-signed root.
   if openssl verify -CAfile "$cert_crt" "$cert_crt" >/dev/null 2>&1; then
     ok "cert is self-signed root (single block verifies against itself) — unusual but valid for some private CAs"
+    warn "cert is self-signed: clients and Keycloak only trust it if it is installed as a trusted root"
   else
     bad "$cert_crt contains only the leaf certificate (1 PEM block) and is not a self-signed root.
        nginx will serve it as-is, but clients — including Keycloak's own backchannel JWKS fetch —
