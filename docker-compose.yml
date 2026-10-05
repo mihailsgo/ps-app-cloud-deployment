@@ -293,7 +293,7 @@ services:
   # `docker logs` on every start — see documentation/03-03-how-the-wizard-works.md.
   # ─────────────────────────────────────────────────────────────────────────
   wizard:
-    image: mihailsgordijenko/padsign-wizard:0.2.0@sha256:83dc831dd53e7e667c8f9b77f319111f079207d85070eee920437d4b5a92dc3b
+    image: mihailsgordijenko/padsign-wizard:0.2.1@sha256:fe7478517ba1727cabc64088106ec6640d7b6aca1c7ac7e8ee2549ca7e558dd1
     container_name: padsign-wizard
     profiles: ["wizard"]
     restart: unless-stopped

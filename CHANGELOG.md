@@ -2,6 +2,22 @@
 
 Release notes for the PadSign deployment package, newest first; versions follow this repository's git tags (`vX.Y.Z`).
 
+## v1.0.52 - 2026-10-05
+
+### Fixed
+
+- The Deployment Wizard works on a host managed through an overlay. When `.env` names a compose file outside the checkout (`COMPOSE_FILE`), `overlay.sh apply` now also writes `.overlay-wizard.yml`, which mounts the overlay directory read-only, at the same path, into the wizard only. Before, the wizard could not run `docker compose` there: Monitoring showed no services, Logs had an empty picker, the receive-back buffer could not be read and the Dashboard reported `docker-compose.yml has errors`. When `docker compose` fails for any reason, Monitoring and Logs now show the first line of its error instead of an empty list. See [9.12](documentation/09-12-monitoring-from-the-wizard.md).
+- The signed-output and docs checks (`validate-config.sh`, `monitor-status.sh`, the wizard's Dashboard, Disk card and Signing activity page) read the storage location from the rendered compose model. A store the caller cannot see is reported as `INFO ... cannot inspect`, no longer as `FAIL` with an `upgrade.sh` or `mkdir` fix. A store mounted from outside the checkout that is missing on the host still fails, and says to restore the mount. See [9.11](documentation/09-11-start-at-boot-backups-and-customized-hosts.md).
+- `validate-config.sh` no longer warns that `SESSION_SECRET` is still the shipped value: `ps-server` 3.33 and later do not read it. The key stays in `config/config.js` so a rollback to 3.32 still works.
+- Settings > TLS Certificate no longer shows `chain verification skipped (--allow-self-signed)` for the deployed certificate. The live certificate is checked with chain verification; only an uploaded certificate honours the self-signed checkbox. A self-signed certificate gets an honest `WARN` from `validate-certs.sh`.
+
+### Changed
+
+- The Deployment Wizard is read-only on an overlay-managed checkout (one with `.overlay-applied.json`). Deploy, upgrade and every Settings change are refused with HTTP 409 and a banner points to [9.11](documentation/09-11-start-at-boot-backups-and-customized-hosts.md); the Dashboard health checklist, Monitoring and Diagnostics keep working. Nothing changes on a host without an overlay.
+- The release pins `padsign-wizard` 0.2.1 (from 0.2.0). `ps-server` 3.35, `ps-client` 8.42 and every other image are unchanged from v1.0.51.
+
+**Upgrade impact (overlay hosts):** run `overlay.sh apply --force` from this release, then `docker compose --profile wizard up -d wizard` to recreate the wizard container; a `docker compose restart` does not pick up the new mount.
+
 ## v1.0.51 - 2026-10-05
 
 ### Added
