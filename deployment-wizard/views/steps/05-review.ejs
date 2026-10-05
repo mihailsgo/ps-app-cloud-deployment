@@ -7,6 +7,7 @@
       <p class="page-lead">Everything below is what a direct <code>bootstrap.sh</code> run would be given, in the same shape.</p>
     </div>
 
+    <%- include('../partials/overlay-banner') %>
     <p id="deployError" class="error-text" role="alert"></p>
 
     <section class="card" aria-labelledby="sec-host">
@@ -47,9 +48,10 @@
       <pre class="cmd"><code>KEYCLOAK_ADMIN_PASSWORD=**** bootstrap.sh --host <%= wizard.host %> --company-role "<%= wizard.companyRole %>"<% features.forEach((f) => { if (wizard.features[f.key]) { %> --<%= f.key.replace(/_/g, '-') %><% } }) %><% if (wizard.allowSelfSigned) { %> --allow-self-signed<% } %></code></pre>
     </section>
   </div>
+<%# Deploy is refused server-side on an overlay-managed checkout (lib/overlayGuard.js). %>
 <%- include('../partials/wizard-layout-end', { actionbar: {
   back: { href: '/wizard/step/4', label: 'Back' },
-  next: { kind: 'button', id: 'deployBtn', label: 'Confirm & Deploy' }
+  next: { kind: 'button', id: 'deployBtn', label: 'Confirm & Deploy', disabled: typeof overlay !== 'undefined' && Boolean(overlay) }
 } }) %>
 <script>
   document.getElementById('deployBtn').addEventListener('click', async function () {

@@ -74,6 +74,14 @@ the stack is installed but not running; start it with `docker compose up -d` fro
 run the install again from the Welcome screen if a previous attempt failed partway. If you meant to
 install on a clean host, check you started the wizard in the right directory.
 
+## Settings and Upgrade are disabled, with an "overlay-managed" banner
+
+The deployment directory contains `.overlay-applied.json`: the host runs from an environment
+overlay, and the wizard does not change it ([3.3, Overlay-managed hosts](03-03-how-the-wizard-works.md#overlay-managed-hosts)).
+A request made anyway is answered with *This host is overlay-managed* and HTTP 409. Make the change
+on the host through a new overlay version
+([9.11](09-11-start-at-boot-backups-and-customized-hosts.md#living-with-an-overlay)).
+
 ## A run seems stuck
 
 - In an install, **step 5 (Keycloak)** prints nothing for up to a minute or two, and **step 7**

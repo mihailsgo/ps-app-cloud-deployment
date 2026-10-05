@@ -36,6 +36,11 @@ the old name.
    for this run only and never stored.
 5. Click **Update Hostname**, confirm, and watch the progress.
 
+On an overlay-managed host these controls are disabled
+([3.3, Overlay-managed hosts](03-03-how-the-wizard-works.md#overlay-managed-hosts));
+use the command line and re-capture the overlay afterwards
+([9.11](09-11-start-at-boot-backups-and-customized-hosts.md#certificate-renewal-on-a-customized-host)).
+
 ## Using the command line
 
 ```bash

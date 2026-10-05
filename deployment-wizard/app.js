@@ -7,6 +7,7 @@ const session = require('express-session');
 const defaults = require('./config/defaults');
 const { requireAuth } = require('./lib/auth');
 const { refuseCrossSite } = require('./lib/sameOrigin');
+const { createOverlayGuard } = require('./lib/overlayGuard');
 const authRoutes = require('./routes/auth');
 const wizardStepsRoutes = require('./routes/wizardSteps');
 const certRoutes = require('./routes/certRoutes');
@@ -69,6 +70,12 @@ function createApp() {
               : '';
     next();
   });
+
+  // On an overlay-managed checkout (.overlay-applied.json) every route that
+  // rewrites the checkout answers 409 here, before its handler; the views get
+  // res.locals.overlay for the banner and disabled controls. See
+  // lib/overlayGuard.js.
+  app.use(createOverlayGuard());
 
   app.use(authRoutes);
   app.use(certRoutes);

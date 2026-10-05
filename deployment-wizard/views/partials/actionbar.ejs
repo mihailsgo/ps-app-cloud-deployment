@@ -3,7 +3,7 @@
   //   back   optional { href, label }                    secondary, left
   //   next   { kind: 'submit' | 'button' | 'link',       accent, right
   //            label, id?, form?, href?, disabled? }
-  //          A disabled link is rendered WITHOUT an href (and with
+  //          A disabled button gets the disabled attribute. A disabled link is rendered WITHOUT an href (and with
   //          .is-disabled / aria-disabled): pointer-events:none alone stops
   //          the mouse but not Tab + Enter. The page's own script adds the
   //          href once its condition is met.
@@ -23,7 +23,7 @@
     <% if (next.kind === 'submit') { %>
       <button type="submit"<%- idAttr %> class="btn btn-primary"<% if (next.form) { %> form="<%= next.form %>"<% } %>><%= next.label %></button>
     <% } else if (next.kind === 'button') { %>
-      <button type="button"<%- idAttr %> class="btn btn-primary"><%= next.label %></button>
+      <button type="button"<%- idAttr %> class="btn btn-primary"<%= next.disabled ? ' disabled' : '' %>><%= next.label %></button>
     <% } else if (next.disabled) { %>
       <a<%- idAttr %> class="btn btn-primary is-disabled" aria-disabled="true"><%= next.label %></a>
     <% } else { %>

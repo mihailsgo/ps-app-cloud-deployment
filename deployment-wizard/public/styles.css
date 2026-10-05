@@ -603,6 +603,11 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
 .alert-success { background: var(--success-bg); border-color: var(--tlx-success); color: var(--success); }
 .alert-warning { background: var(--warn-bg); border-color: var(--tlx-warning); color: #6b4a0c; }
 
+/* Settings groups each card's controls in a fieldset so an overlay-managed
+   host (lib/overlayGuard.js) can disable them all at once; it adds no box. */
+.settings-actions { border: 0; margin: 0; padding: 0; min-width: 0; }
+.settings-actions:disabled { opacity: 0.6; }
+
 /* Empty placeholders (error lines, live regions waiting for a result) take
    no space. They are clipped, not display:none: a live region has to be in
    the accessibility tree before its content changes, or the change may

@@ -375,6 +375,10 @@ run offers **Retry**, **Back to Dashboard** and **Copy log**. The wizard
 has no rollback button: use `rollback.sh` on the host
 ([9.8](09-08-rollback.md)).
 
+On an overlay-managed host the panel offers no upgrade and the server
+refuses one: upgrade it as in
+[9.11, Upgrading an overlay host](09-11-start-at-boot-backups-and-customized-hosts.md#upgrading-an-overlay-host).
+
 ## Options
 
 | Option | Use |
