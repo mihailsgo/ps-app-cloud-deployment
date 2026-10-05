@@ -26,15 +26,11 @@
       "why": "Signing audit events (AUDIT_LOG in config/config.js): one JSON line per registered, signed, sealed or failed document in signed-output/.padsign-audit/audit-YYYY-MM.jsonl. An older ps-server ignores AUDIT_LOG and writes nothing, so the Deployment Wizard's Signing activity page stays empty. 3.33 was tagged before the feature merged and writes nothing either; 3.34 is the first image that does."
     },
     "dmss-internal-urls": {
-      "min": {},
-      "unreleased": { "ps-server": "3.34" },
-      "todo": "Set min.ps-server to the first ps-server tag cut after 3.34 (it contains ARCHIVE_PUBLIC_BASE_URL) when that release is made, and delete the unreleased entry. Until then a gate treats any ps-server tag newer than the one named in unreleased as having it.",
+      "min": { "ps-server": "3.35" },
       "why": "ARCHIVE_PUBLIC_BASE_URL in config/config.js: the address webhook receivers get as archiveUrl when ps-server itself reaches the archive over an in-network URL (http://dmss-archive-services:8090/api/). An older ps-server ignores the key and puts the in-network address into every webhook payload, which a receiver outside the Docker network cannot open. The in-network URLs themselves work with any ps-server, so a deployment that sends no webhooks loses nothing; the switch is gated on this capability so a deployment that does is never left with unusable archiveUrl values."
     },
     "client-origin-defaults": {
-      "min": {},
-      "unreleased": { "ps-client": "8.41" },
-      "todo": "Set min.ps-client to the first ps-client tag cut after 8.41 (it reads no hard-coded host) when that release is made, and delete the unreleased entry. Until then a check treats any ps-client tag newer than the one named in unreleased as having it.",
+      "min": { "ps-client": "8.42" },
       "why": "config/constants.json may leave out KEYCLOAK_URL, KEYCLOAK_REDIRECT_URI and KEYCLOAK_POST_LOGOUT_REDIRECT_URI: the client then uses this page's own origin (https://<host>/auth and https://<host>/portal/). An older ps-client has no such defaults and starts Keycloak with undefined URLs, so a constants.json without these keys breaks every login. A constants.json that sets them works with every ps-client."
     }
   }
