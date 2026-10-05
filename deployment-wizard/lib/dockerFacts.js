@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('fs');
+const path = require('path');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 const execFileP = promisify(execFile);
@@ -192,8 +193,36 @@ function readConfiguredCompanyRole() {
   }
 }
 
+function readDotenvValue(key) {
+  try {
+    const env = fs.readFileSync(projectPath('.env'), 'utf8');
+    const m = env.match(new RegExp(`^${key}=(.*)$`, 'm'));
+    return m ? m[1].trim().replace(/^(["'])(.*)\1$/, '$2') : '';
+  } catch (err) {
+    return '';
+  }
+}
+
+// The compose files COMPOSE_FILE names (the environment first, then .env,
+// as docker compose reads it) that this process cannot see. On an
+// overlay-managed checkout .env names <overlay dir>/compose.overlay.yml,
+// outside the project directory: unless that directory is mounted into the
+// wizard container at the same path, every `docker compose` call made here
+// fails (documentation/09-12-monitoring-from-the-wizard.md). Read only to
+// explain such a failure; never throws, [] when COMPOSE_FILE is unset.
+function unreadableComposeFiles() {
+  const raw = process.env.COMPOSE_FILE || readDotenvValue('COMPOSE_FILE');
+  if (!raw) return [];
+  const sep = process.env.COMPOSE_PATH_SEPARATOR || readDotenvValue('COMPOSE_PATH_SEPARATOR') || path.delimiter;
+  return raw.split(sep)
+    .map((f) => f.trim())
+    .filter(Boolean)
+    .filter((f) => !fs.existsSync(path.isAbsolute(f) ? f : projectPath(f)));
+}
+
 module.exports = {
   listComposeServices,
+  unreadableComposeFiles,
   parseComposePsOutput,
   dockerAvailable,
   readImageTags,

@@ -46,4 +46,31 @@ function describeExecFailure(err) {
   return redact(messageLines[0] || 'failed to run');
 }
 
-module.exports = { describeExecFailure };
+// Lines compose prints ahead of the error that stopped it (an unset
+// variable, an obsolete `version:` key). They are not the reason it failed.
+const COMPOSE_WARNING_RE = /^(WARN\[\d+\]|time="[^"]*" level=warning\b)/;
+
+// A value after a secret-named key, as installation-scripts/lib/redact.py
+// names them. Compose quotes the offending value in some errors (an
+// interpolation error names the variable and its value), so this runs on
+// every line shown. Best effort, like redact.py.
+const SECRET_VALUE_RE = /([\w.-]*(?:secret|passw(?:or)?d|pwd|passphrase|api[_-]?key|apikey|token|credential|private[_-]?key|authorization|cookie)[\w.-]*["']?\s*[:=]\s*)("[^"]*"|'[^']*'|\S+)/gi;
+
+function redactSecrets(line) {
+  return line.replace(SECRET_VALUE_RE, '$1<redacted>');
+}
+
+// One operator-facing line saying why a `docker compose` call failed: the
+// first line of its stderr that is not a warning (compose prints the reason
+// first, e.g. "stat /srv/overlay/compose.overlay.yml: no such file or
+// directory"), with the project path and secret values redacted. Without
+// stderr, what Node knows (timeout, exit code, a missing docker binary).
+function composeErrorLine(err, max = 300) {
+  const e = err || {};
+  const stderrLines = lines(e.stderr);
+  const reason = stderrLines.find((l) => !COMPOSE_WARNING_RE.test(l)) || stderrLines[0];
+  const line = redactSecrets(reason ? redact(reason) : describeExecFailure(e));
+  return line.length > max ? `${line.slice(0, max)}…` : line;
+}
+
+module.exports = { describeExecFailure, composeErrorLine, redactSecrets };

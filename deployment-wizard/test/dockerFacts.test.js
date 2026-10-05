@@ -87,3 +87,40 @@ test('readConfiguredCompanyRole(): returns null (not throw) when absent or file 
   const fresh = loadDockerFactsAgainst('state-fresh');
   assert.equal(fresh.readConfiguredCompanyRole(), null);
 });
+
+// ---- unreadableComposeFiles ----
+
+test('unreadableComposeFiles(): the COMPOSE_FILE entries that do not exist here, none when unset', (t) => {
+  const os = require('os');
+  const fs = require('fs');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wizard-compose-file-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const saved = { COMPOSE_FILE: process.env.COMPOSE_FILE, COMPOSE_PATH_SEPARATOR: process.env.COMPOSE_PATH_SEPARATOR };
+  delete process.env.COMPOSE_FILE;
+  delete process.env.COMPOSE_PATH_SEPARATOR;
+  t.after(() => {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  });
+  fs.writeFileSync(path.join(dir, 'docker-compose.yml'), 'services: {}\n');
+  const present = path.join(dir, 'present.yml');
+  fs.writeFileSync(present, 'services: {}\n');
+  const gone = path.join(dir, 'overlay', 'compose.overlay.yml');
+
+  process.env.HOST_PROJECT_DIR = dir;
+  delete require.cache[require.resolve('../lib/paths')];
+  delete require.cache[require.resolve('../lib/dockerFacts')];
+  const { unreadableComposeFiles } = require('../lib/dockerFacts');
+
+  assert.deepEqual(unreadableComposeFiles(), [], 'no .env');
+  fs.writeFileSync(path.join(dir, '.env'), `COMPOSE_PROJECT_NAME=padsign\nCOMPOSE_FILE="docker-compose.yml${path.delimiter}${present}${path.delimiter}${gone}"\n`);
+  assert.deepEqual(unreadableComposeFiles(), [gone], 'relative entries resolve against the project directory');
+
+  fs.writeFileSync(path.join(dir, '.env'), `COMPOSE_PATH_SEPARATOR=,\nCOMPOSE_FILE=docker-compose.yml,missing.yml\n`);
+  assert.deepEqual(unreadableComposeFiles(), ['missing.yml'], 'COMPOSE_PATH_SEPARATOR is honoured');
+
+  process.env.COMPOSE_FILE = 'docker-compose.yml';
+  assert.deepEqual(unreadableComposeFiles(), [], 'the environment wins over .env, as in docker compose');
+});

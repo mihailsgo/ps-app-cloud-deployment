@@ -75,6 +75,9 @@ no-git-assets/
 
 # Written by overlay.sh apply: which overlay was applied to this checkout
 .overlay-applied.json
+# Written by overlay.sh apply: mounts the overlay directory into the
+# Deployment Wizard container (COMPOSE_FILE names a file there)
+.overlay-wizard.yml
 
 # The Deployment Wizard's Save & Exit progress (may hold the hostname and
 # options chosen for a half-finished install)

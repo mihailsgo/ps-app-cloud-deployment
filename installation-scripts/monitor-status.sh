@@ -52,7 +52,8 @@ set -euo pipefail
 #   buffer       {state, count, oldestAgeHours, error}; state "ok",
 #                "not-in-use" (no filesystem strategy), "not-running"
 #                (ps-server down) or "error"; count and oldestAgeHours are
-#                null unless "ok"
+#                null unless "ok"; error (null unless "error") says why, with
+#                compose's own reason (redacted) when compose itself failed
 #   alerts       [{key, message, samples}], as --alert posts them
 #
 # A number that is not an integer where one is expected is null.
@@ -556,8 +557,21 @@ console.log("oldest_age_hours="+(oldest===null?"":Math.floor((Date.now()-oldest)
 buffer_state="not-running"; buffer_error=""; buffer_count=""; buffer_age=""
 if [[ -n "$ps_server_cid" ]]; then
   # MSYS_NO_PATHCONV stops Git Bash (Windows dev hosts) from rewriting the
-  # script's /usr/... literals; it is ignored everywhere else.
-  buffer_out="$(MSYS_NO_PATHCONV=1 docker compose exec -T ps-server node -e "$buffer_js" 2>/dev/null </dev/null || echo "error=docker compose exec into ps-server failed")"
+  # script's /usr/... literals; it is ignored everywhere else. stderr is kept
+  # apart: when compose itself fails (a compose file COMPOSE_FILE names is not
+  # readable here, the daemon is gone) the error says why, with the first line
+  # that is not a compose warning, redacted (lib/redact.py; without python3
+  # the reason is left out rather than shown unredacted).
+  buffer_errfile="$(mktemp)"
+  if ! buffer_out="$(MSYS_NO_PATHCONV=1 docker compose exec -T ps-server node -e "$buffer_js" 2>"$buffer_errfile" </dev/null)"; then
+    buffer_reason="$(tr -d '\r' < "$buffer_errfile" | grep -v -E '^(WARN\[[0-9]+\]|time="[^"]*" level=warning)' | sed -n '/[^[:space:]]/{p;q;}' || true)"
+    buffer_out="error=docker compose exec into ps-server failed"
+    if [[ -n "$buffer_reason" ]] && command -v python3 >/dev/null 2>&1; then
+      buffer_reason="$(printf '%s\n' "${buffer_reason:0:300}" | python3 "${scripts_dir}/lib/redact.py" --filter --log 2>/dev/null | tr -d '\r' || true)"
+      [[ -n "$buffer_reason" ]] && buffer_out+=": ${buffer_reason}"
+    fi
+  fi
+  rm -f "$buffer_errfile"
   buffer_error="$(printf '%s\n' "$buffer_out" | sed -n 's/^error=//p')"
   if [[ -n "$buffer_error" ]]; then
     echo "  Could not read buffer: ${buffer_error}"

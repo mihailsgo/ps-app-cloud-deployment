@@ -308,6 +308,77 @@ check "drop without a path: usage error, exit 2" test "$rc" = 2
 out="$(ovl_sh drop --overlay "$(native "${work}/no-such-overlay")" config/config.js)"; rc=$?
 check "drop on a directory that is not an overlay: exit 2" bash -c '[[ "$1" == 2 ]] && grep -q "MANIFEST.json not found" <<< "$2"' _ "$rc" "$out"
 
+# ── apply/verify: the Deployment Wizard reads the overlay's compose file ──
+# The wizard container mounts only the checkout, and COMPOSE_FILE names
+# <overlay>/compose.overlay.yml outside it: every `docker compose` call the
+# wizard made failed there. apply writes .overlay-wizard.yml, which mounts
+# the overlay directory read-only at the same path into the profile-gated
+# wizard service, and lists it last in COMPOSE_FILE.
+echo ""
+echo "apply/verify: the Deployment Wizard mount:"
+cat > "$ovl/compose.overlay.yml" <<EOF
+services:
+  ps-server:
+    volumes:
+      - "$(native "$storage")/signed-output:/signed-output"
+EOF
+pyq() { MSYS_NO_PATHCONV=1 python3 -c "$1" "${@:2}" 2>&1 | tr -d '\r'; }
+ovl_real="$(pyq 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$(native "$ovl")")"
+new5="${work}/new5"
+g clone -q "$rel" "$new5"
+out="$(cd "$new5" && bash installation-scripts/overlay.sh apply --overlay "$(native "$ovl")" 2>&1)"
+wiz="$new5/.overlay-wizard.yml"
+check "apply: writes .overlay-wizard.yml and says what it mounts" \
+  bash -c '[[ -f "$1" ]] && grep -q "OK   .overlay-wizard.yml (the Deployment Wizard container mounts .* read-only" <<< "$2"' _ "$wiz" "$out"
+got="$(pyq 'import json, re, sys
+t = open(sys.argv[1], encoding="utf-8").read()
+src = [json.loads(m) for m in re.findall(r"^\s+source:\s*(\".*\")\s*$", t, re.M)]
+tgt = [json.loads(m) for m in re.findall(r"^\s+target:\s*(\".*\")\s*$", t, re.M)]
+print(src == tgt == [sys.argv[2]], "read_only: true" in t, re.search(r"^services:\n  wizard:\n    volumes:\n", t, re.M) is not None)' \
+  "$(native "$wiz")" "$ovl_real")"
+check "... it mounts exactly the overlay directory, read-only, at the same path, into the wizard service only" test "$got" = "True True True"
+got="$(pyq 'import os, sys
+for l in open(sys.argv[1], encoding="utf-8"):
+    if l.startswith("COMPOSE_FILE="):
+        f = l.strip().split("=", 1)[1].split(os.pathsep)
+        print(f[0] == "docker-compose.yml", os.path.realpath(f[1]) == os.path.join(sys.argv[2], "compose.overlay.yml"), f[2:] == [".overlay-wizard.yml"])' \
+  "$(native "$new5/.env")" "$ovl_real")"
+check "... .env COMPOSE_FILE: docker-compose.yml, the overlay's compose file, then .overlay-wizard.yml" test "$got" = "True True True"
+check "... git ignores it (verify accounts for it, git status stays clean)" \
+  test -z "$(git -C "$new5" status --porcelain --untracked-files=all -- .overlay-wizard.yml)"
+got="$(PADSIGN_DIGEST_GATE_NO_DOCKER=1 pyq 'import sys; sys.path.insert(0, sys.argv[1]); import digest_gate; digest_gate.main(["mounts", sys.argv[2]])' \
+  "$(native "$new5/installation-scripts/lib")" "$(native "$new5")")"
+check "... the digest gate's file fallback reads it (the wizard's mount, the overlay's storage mount)" \
+  bash -c 'grep -q "^wizard" <<< "$1" && grep -q "^ps-server.*/signed-output" <<< "$1" && ! grep -qi traceback <<< "$1"' _ "$got"
+if [[ -n "$real_docker" ]]; then
+  got="$(cd "$new5" && "$real_docker" compose --profile wizard config --format json 2>&1 | pyq 'import json, sys
+d = json.load(sys.stdin)
+vols = d["services"]["wizard"]["volumes"]
+ovl = [v for v in vols if v.get("target") == sys.argv[1]]
+print(len(ovl) == 1 and ovl[0].get("read_only") is True and ovl[0].get("type") == "bind",
+      any(v.get("target") == "/var/run/docker.sock" for v in vols), len(vols) == 3)' "$ovl_real")"
+  check "docker compose --profile wizard config: the wizard keeps its own mounts and gains the overlay directory, read-only" test "$got" = "True True True"
+  got="$(cd "$new5" && "$real_docker" compose config --services 2>&1 | tr -d '\r')"
+  check "... without the wizard profile the wizard service stays off" bash -c '! grep -qx wizard <<< "$1" && grep -qx ps-server <<< "$1"' _ "$got"
+fi
+out="$(cd "$new5" && bash installation-scripts/overlay.sh verify --overlay "$(native "$ovl")" 2>&1)"
+check "verify: OK, the overlay directory is mounted into the wizard; the file is not reported as unaccounted for" \
+  bash -c 'grep -q "OK   .overlay-wizard.yml mounts .* into the Deployment Wizard container (read-only)" <<< "$1" && ! grep -q "overlay-wizard.yml: \(untracked\|ignored\)" <<< "$1"' _ "$out"
+mv "$wiz" "${work}/wizard.away"
+out="$(cd "$new5" && bash installation-scripts/overlay.sh verify --overlay "$(native "$ovl")" 2>&1)"
+check "verify: without it, a WARN naming the directory and the fix" \
+  bash -c 'grep -q "WARN the Deployment Wizard container would not see .*overlay.sh apply --force" <<< "$1"' _ "$out"
+mv "${work}/wizard.away" "$wiz"
+got="$(pyq 'import sys; sys.path.insert(0, sys.argv[1]); import overlay
+print(overlay.existing_compose_overlay(sys.argv[2]) == sys.argv[3], ".overlay-wizard.yml" in set(overlay.walk_files(sys.argv[2])))' \
+  "$(native "$new5/installation-scripts/lib")" "$(native "$new5")" "$(pyq 'import os, sys; print(os.path.join(sys.argv[1], "compose.overlay.yml"))' "$ovl_real")")"
+check "re-capture of this checkout: carries the overlay's compose file, never .overlay-wizard.yml" test "$got" = "True False"
+mv "$ovl/compose.overlay.yml" "${work}/compose.overlay.away"
+out="$(cd "$new5" && bash installation-scripts/overlay.sh apply --force --overlay "$(native "$ovl")" 2>&1)"
+check "re-apply of an overlay without a compose file: .overlay-wizard.yml removed, no COMPOSE_FILE" \
+  bash -c '[[ ! -e "$1" ]] && ! grep -q "^COMPOSE_FILE=" "$2"' _ "$wiz" "$new5/.env"
+mv "${work}/compose.overlay.away" "$ovl/compose.overlay.yml"
+
 # ── apply/verify: DMSS application.yml and htpasswd modes ──────────────────
 # overlay.sh apply used to copy them with the captured host mode (0775 on
 # the demo host) and htpasswd with 0644, readable by every local user

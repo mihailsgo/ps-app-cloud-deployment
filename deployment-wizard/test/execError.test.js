@@ -61,3 +61,48 @@ test('describeExecFailure(): tolerates a missing or non-Error argument', () => {
   assert.ok(describeExecFailure(undefined).length > 0);
   assert.equal(describeExecFailure({ stderr: Buffer.from('boom\n') }), 'boom');
 });
+
+// ---- composeErrorLine ----
+
+const { composeErrorLine, redactSecrets } = require('../lib/execError');
+
+test('composeErrorLine(): the first stderr line that is not a compose warning', () => {
+  const err = Object.assign(new Error('Command failed: docker compose config --services'), {
+    code: 1,
+    stderr: 'WARN[0000] The "X" variable is not set. Defaulting to a blank string.\n' +
+      'time="2026-10-05T10:00:00Z" level=warning msg="version is obsolete"\n' +
+      'stat /srv/padsign-overlay/compose.overlay.yml: no such file or directory\n' +
+      'second line\n'
+  });
+  assert.equal(composeErrorLine(err), 'stat /srv/padsign-overlay/compose.overlay.yml: no such file or directory');
+});
+
+test('composeErrorLine(): only warnings -> the first of them; no stderr -> what Node knows', () => {
+  assert.equal(composeErrorLine({ stderr: 'WARN[0000] only a warning\n' }), 'WARN[0000] only a warning');
+  assert.equal(composeErrorLine(Object.assign(new Error('x'), { killed: true })), 'timed out');
+  assert.equal(composeErrorLine(new Error('spawn docker ENOENT')), 'spawn docker ENOENT');
+  assert.equal(typeof composeErrorLine(undefined), 'string');
+});
+
+test('composeErrorLine(): strips the project root and redacts secret values', () => {
+  const file = path.join(process.env.HOST_PROJECT_DIR, 'docker-compose.yml');
+  const err = {
+    stderr: `invalid interpolation format for ${file} services.keycloak.environment.KEYCLOAK_ADMIN_PASSWORD: "s3cr$t{". You may need to escape any $ with another $.\n`
+  };
+  const out = composeErrorLine(err);
+  assert.ok(!out.includes(process.env.HOST_PROJECT_DIR), out);
+  assert.ok(!out.includes('s3cr'), out);
+  assert.match(out, /KEYCLOAK_ADMIN_PASSWORD: <redacted>/);
+});
+
+test('composeErrorLine(): a very long line is cut', () => {
+  const out = composeErrorLine({ stderr: `${'x'.repeat(1000)}\n` });
+  assert.equal(out.length, 301);
+  assert.ok(out.endsWith('…'));
+});
+
+test('redactSecrets(): key=value and key: value, quoted or not; other words untouched', () => {
+  assert.equal(redactSecrets('SPRING_SECURITY_USER_PASSWORD=hunter2 next'), 'SPRING_SECURITY_USER_PASSWORD=<redacted> next');
+  assert.equal(redactSecrets("api_key: 'abc def'"), 'api_key: <redacted>');
+  assert.equal(redactSecrets('no such service: ps-server'), 'no such service: ps-server');
+});

@@ -19,8 +19,10 @@
   <section class="card" aria-labelledby="logs-title">
     <%- include('partials/card-head', { id: 'logs-title', title: 'Service logs', icon: 'scroll-text', sub: 'Live output of one service, newest at the bottom' }) %>
 
-    <% if (!services.length) { %>
-      <div class="alert alert-warning" id="logNoServices">No services were found. Docker may not be reachable from the wizard, or the project directory is not mounted.</div>
+    <% if (locals.servicesError) { %>
+      <div class="alert alert-warning" id="logComposeError" role="alert"><%= servicesError %></div>
+    <% } else if (!services.length) { %>
+      <div class="alert alert-warning" id="logNoServices">No services were found in the compose project.</div>
     <% } %>
 
     <div class="mon-toolbar mon-toolbar--section">

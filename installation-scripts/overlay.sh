@@ -19,7 +19,10 @@ set -euo pipefail
 #   apply    Put an overlay onto a CLEAN checkout of the release: copies the
 #            overlay files in (refusing if the release changed a file the
 #            overlay replaces wholesale), installs certificates, writes .env
-#            (COMPOSE_PROJECT_NAME + COMPOSE_FILE=docker-compose.yml:<overlay>).
+#            (COMPOSE_PROJECT_NAME + COMPOSE_FILE=docker-compose.yml:<overlay>
+#            :.overlay-wizard.yml) and .overlay-wizard.yml, which mounts the
+#            overlay directory read-only into the Deployment Wizard container
+#            so its docker compose calls can read COMPOSE_FILE.
 #            Never starts or stops anything.
 #   verify   Check a checkout against its overlay: every git-visible change is
 #            declared, secret files are not world-readable, the compose project

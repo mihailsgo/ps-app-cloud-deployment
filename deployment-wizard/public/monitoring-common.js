@@ -106,6 +106,17 @@ function restartImpact(service) {
   return Object.prototype.hasOwnProperty.call(MON_RESTART_IMPACT, service) ? MON_RESTART_IMPACT[service] : MON_RESTART_DEFAULT;
 }
 
+// The sentence for an /api/monitoring/services payload whose `docker compose`
+// call failed (its error is compose's own reason, already redacted by the
+// server, plus a hint when COMPOSE_FILE names a file the wizard cannot
+// read), or '' when compose answered.
+function composeFailedText(payload) {
+  if (!payload || typeof payload.error !== 'string' || !payload.error) return '';
+  var text = 'docker compose failed: ' + payload.error;
+  if (typeof payload.hint === 'string' && payload.hint) text += ' ' + payload.hint;
+  return text;
+}
+
 // ---------------------------------------------------------------------------
 // In-place table refresh
 // ---------------------------------------------------------------------------
@@ -465,6 +476,7 @@ if (typeof module !== 'undefined' && module.exports) {
     healthPill: healthPill,
     alertSeverity: alertSeverity,
     restartImpact: restartImpact,
+    composeFailedText: composeFailedText,
     classifyLogLine: classifyLogLine,
     logQuery: logQuery,
     logStreamUrl: logStreamUrl,

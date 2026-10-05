@@ -147,6 +147,15 @@ test('monitoring view logs: with no services it explains why and disables the pi
   assert.doesNotMatch(html, /undefined/);
 });
 
+test('monitoring view logs: a compose failure shows its message (escaped) instead of "no services"', async () => {
+  const html = await render(PAGES.logs.view, {
+    ...PAGES.logs.locals, services: [], selected: null, servicesError: 'docker compose failed: <stat> /srv/x: no such file'
+  });
+  assert.match(html, /id="logComposeError" role="alert">docker compose failed: &lt;stat&gt; \/srv\/x: no such file</);
+  assert.doesNotMatch(html, /id="logNoServices"/);
+  assert.doesNotMatch(html, /undefined/);
+});
+
 test('monitoring view diagnostics: one card per check and a linked list of existing bundles', async () => {
   const html = await render(PAGES.diagnostics.view, PAGES.diagnostics.locals);
   assert.match(html, /data-check-run="config"/);
