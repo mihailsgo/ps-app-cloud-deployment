@@ -339,11 +339,16 @@ Overlays are versioned: every change writes a **new** overlay directory,
 and the previous one stays a complete rollback target.
 
 Do not run these on an overlay-managed checkout, because they rewrite
-tracked files in place: `upgrade.sh` (except `--plan-only`), `rollback.sh`,
-and the wizard's **Upgrade**. `toggle-features.sh`, `update-hostname.sh`
-and `renew-cert.sh` work, but re-capture afterwards as in
+tracked files in place: `upgrade.sh` (except `--plan-only`) and
+`rollback.sh`. `toggle-features.sh`, `update-hostname.sh` and
+`renew-cert.sh` work from the shell, but re-capture afterwards as in
 [Certificate renewal on a customized host](#certificate-renewal-on-a-customized-host),
 or the next `apply` undoes them.
+
+The Deployment Wizard is read-only on such a checkout: it keeps the
+Dashboard's health checklist and Monitoring, but refuses deploy, upgrade
+and every Settings change, with a banner in the pages and an HTTP 409 from
+the server ([3.3, Overlay-managed hosts](03-03-how-the-wizard-works.md#overlay-managed-hosts)).
 
 ### Upgrading an overlay host
 

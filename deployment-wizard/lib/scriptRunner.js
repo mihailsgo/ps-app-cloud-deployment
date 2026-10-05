@@ -4,6 +4,7 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const { parseLine } = require('./outputParser');
 const { HOST_PROJECT_DIR, projectPath } = require('./paths');
+const { isOverlayManaged, isWriteScript, overlayManagedError } = require('./overlayGuard');
 
 // The only module allowed to spawn bootstrap.sh/upgrade.sh (decision #5:
 // wrap, never reimplement). Everything else about "what's deployed" comes
@@ -69,6 +70,11 @@ function pushEvent(state, event, data) {
 // /proc exposes only to the same uid and root, and kept on the run state
 // next to args so a retry can reuse them.
 function startRun({ scriptName, args, env, onEvent }) {
+  // Last line of the overlay rule (lib/overlayGuard.js): the routes refuse
+  // first, with a proper answer; this catches a route that forgot to.
+  if (isWriteScript(scriptName) && isOverlayManaged()) {
+    throw overlayManagedError(scriptName);
+  }
   if (isRunActive()) {
     const err = new Error('A deploy/upgrade run is already in progress.');
     err.code = 'RUN_IN_PROGRESS';

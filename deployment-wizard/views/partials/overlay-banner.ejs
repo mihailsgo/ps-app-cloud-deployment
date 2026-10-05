@@ -1,0 +1,16 @@
+<%
+  // Shown when res.locals.overlay is set (lib/overlayGuard.js: the checkout
+  // has .overlay-applied.json). The server refuses the write actions on its
+  // own; this explains why the page's controls are disabled.
+  const ovl = typeof overlay !== 'undefined' ? overlay : null;
+-%>
+<% if (ovl) { %>
+  <div class="alert alert-warning overlay-banner" role="note" aria-labelledby="overlay-banner-title">
+    <strong id="overlay-banner-title">This host is overlay-managed.</strong>
+    It runs a release checkout with an environment overlay
+    (<code>.overlay-applied.json</code><% if (ovl.overlayDir) { %>, overlay <code><%= ovl.overlayDir %></code><% } %>).
+    The wizard shows its state, monitoring and diagnostics, but does not change it:
+    deploy, upgrade, hostname, certificate and feature changes go through a new overlay version on the host,
+    see <code>documentation/09-11-start-at-boot-backups-and-customized-hosts.md</code>, “Living with an overlay”.
+  </div>
+<% } %>

@@ -45,6 +45,26 @@ the advice to stop the wizard after use still applies ([9.12](09-12-monitoring-f
 
 One wizard serves one deployment: the one in the directory it was started from.
 
+## Overlay-managed hosts
+
+A checkout that runs from an environment overlay (`overlay.sh apply` wrote
+`.overlay-applied.json` into it) is never edited in place: every change goes through a new overlay
+version ([9.11, Customized hosts](09-11-start-at-boot-backups-and-customized-hosts.md#customized-hosts-overlay)).
+The wizard checks for that file on every request, and when it is there the wizard is read-only:
+
+| Still available | Not available |
+|---|---|
+| Dashboard: version, health checklist | Deploy (step 5 **Confirm & Deploy**) and the step 3 certificate check |
+| Settings: current hostname, certificate status, feature state | Settings: **Update Hostname**, **Validate certificate**, **Renew Certificate**, **Apply changes** |
+| Monitoring: every tab, support bundles, **Restart** (`docker compose restart` changes no file) | Upgrade, including its preview, and **Retry** of a failed deploy, upgrade or Settings run |
+
+Dashboard, Settings and the install screens show a banner that names the overlay in effect, and the
+controls listed as not available are disabled. The server enforces the same rule: those requests
+are answered with HTTP 409, a message pointing to 9.11 and the code `OVERLAY_MANAGED`, before any
+certificate is staged or any script starts. Make the change on the host as 9.11 describes, for
+example [Upgrading an overlay host](09-11-start-at-boot-backups-and-customized-hosts.md#upgrading-an-overlay-host)
+or [Certificate renewal on a customized host](09-11-start-at-boot-backups-and-customized-hosts.md#certificate-renewal-on-a-customized-host).
+
 ## Two certificates
 
 The wizard needs HTTPS before your PadSign certificate is installed, so it generates its own
