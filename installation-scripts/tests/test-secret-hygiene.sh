@@ -128,10 +128,10 @@ echo ""
 echo "Shipped values:"
 out="$(python3 "${pristine}/${hygiene}" shipped "${pristine}/config/config.js")"
 n="$(grep -c '^WARN' <<< "$out")"
-if [[ "$n" == 6 ]] && grep -q 'REGISTER_PDF_API_KEY' <<< "$out" && grep -q 'SESSION_SECRET' <<< "$out" \
+if [[ "$n" == 5 ]] && grep -q 'REGISTER_PDF_API_KEY' <<< "$out" \
    && grep -q 'backend client secret' <<< "$out" && grep -q 'STAMP_API_KEY' <<< "$out" \
    && grep -q 'STAMP_COMPANY_ID' <<< "$out" && grep -q 'STAMP_COMPANY_SECRET' <<< "$out"; then
-  ok_case "every credential the checkout ships is a placeholder or in secret_hygiene.py's published list (6)"
+  ok_case "every credential the checkout ships is a placeholder or in secret_hygiene.py's published list (5)"
 else
   fail_case "secret_hygiene.py's published sha256 list does not cover the committed config.js (update FIELDS)" "$out"
 fi
@@ -153,7 +153,7 @@ reg="$(field "$repo/config/config.js" REGISTER_PDF_API_KEY)"
 ses="$(field "$repo/config/config.js" SESSION_SECRET)"
 check "exits 0" test "$rc" = 0
 check "REGISTER_PDF_API_KEY replaced by tlx_pdf_ + 64 hex" grep -Eqx 'tlx_pdf_[0-9a-f]{64}' <<< "$reg"
-check "SESSION_SECRET replaced by 64 hex" grep -Eqx '[0-9a-f]{64}' <<< "$ses"
+check "SESSION_SECRET kept as shipped value (not generated, ps-server 3.33+ ignores it)" test "$(field "$repo/config/config.js" SESSION_SECRET)" = "$(field "$pristine/config/config.js" SESSION_SECRET)"
 check "STAMP_API_KEY left alone (the provider's credential)" test "$(field "$repo/config/config.js" STAMP_API_KEY)" = "$(field "$pristine/config/config.js" STAMP_API_KEY)"
 check "no generated value and no admin password in the output" \
   bash -c '! grep -qF -- "$1" <<< "$4" && ! grep -qF -- "$2" <<< "$4" && ! grep -qF -- "$3" <<< "$4"' _ "$PW" "$reg" "$ses" "$out"
@@ -178,8 +178,9 @@ if [[ "$linux" == true ]]; then
 fi
 
 out="$(STUB_IDS="$me_ids" run_configure --generate-secrets)"
-check "re-run keeps both generated values (idempotent)" test "$(field "$repo/config/config.js" REGISTER_PDF_API_KEY)|$(field "$repo/config/config.js" SESSION_SECRET)" = "${reg}|${ses}"
-check "re-run says they were kept" grep -q 'already changed from the shipped values - kept' <<< "$out"
+check "re-run keeps the generated REGISTER_PDF_API_KEY (idempotent)" test "$(field "$repo/config/config.js" REGISTER_PDF_API_KEY)" = "${reg}"
+check "re-run keeps SESSION_SECRET unchanged" test "$(field "$repo/config/config.js" SESSION_SECRET)" = "${ses}"
+check "re-run says the API key was kept" grep -q 'already changed from the shipped values - kept' <<< "$out"
 check "re-run leaves one .env line" test "$(grep -c '^KEYCLOAK_FIRST_BOOT_ADMIN_PASSWORD=' "$repo/.env")" = 1
 
 perl -i -pe 's/(REGISTER_PDF_API_KEY:\s*")[^"]*/${1}my-own-integration-key/' "$repo/config/config.js"
@@ -216,7 +217,6 @@ v="${work}/validate"
 copy_tree "$v"
 sec="$(STUB_IDS=1000:1000 secret_section "$v")"
 for pat in 'WARN REGISTER_PDF_API_KEY is still the value shipped.*--generate-secrets' \
-           'WARN SESSION_SECRET is still the value shipped' \
            'WARN backend client secret' \
            'WARN STAMP_API_KEY is not set \(placeholder CHANGE_ME\)' \
            'WARN the visual-PDF signing CA .* is the one shipped in the public repository.*--generate-ca' \
@@ -227,8 +227,8 @@ done
 check "fresh checkout: the old root-only hint is gone" bash -c '! grep -q "ps-server runs as root and still reads it" <<< "$1"' _ "$sec"
 
 sec="$(STUB_IDS="$me_ids" secret_section "$repo")"
-check "after configure-host.sh: no shipped-value WARN for REGISTER_PDF_API_KEY / SESSION_SECRET" \
-  bash -c '! grep -Eq "WARN (REGISTER_PDF_API_KEY|SESSION_SECRET)" <<< "$1"' _ "$sec"
+check "after configure-host.sh: no shipped-value WARN for REGISTER_PDF_API_KEY" \
+  bash -c '! grep -Eq "WARN REGISTER_PDF_API_KEY is still the value shipped" <<< "$1"' _ "$sec"
 check "after configure-host.sh: admin password read from .env" grep -q 'OK   Keycloak.s first-boot admin password is read from KEYCLOAK_FIRST_BOOT_ADMIN_PASSWORD' <<< "$sec"
 
 cp "$repo/docker-compose.yml" "$v/docker-compose.yml"
@@ -275,8 +275,8 @@ check "no overlay: the release's ps-server pin" grep -q '^mihailsgordijenko/ps-s
 echo ""
 echo "diff-baseline-overlay.sh:"
 out="$(bash "$repo/installation-scripts/diff-baseline-overlay.sh" --baseline "$pristine" --live "$repo" 2>&1)"
-check "generated REGISTER_PDF_API_KEY / SESSION_SECRET are expected overlay, not drift" \
-  bash -c '! grep -Eq "DRIFT: .*(REGISTER_PDF_API_KEY|SESSION_SECRET)" <<< "$1"' _ "$out"
+check "generated REGISTER_PDF_API_KEY is expected overlay, not drift" \
+  bash -c '! grep -Eq "DRIFT: .*REGISTER_PDF_API_KEY" <<< "$1"' _ "$out"
 
 # ── overlay.sh apply / verify ───────────────────────────────────────────────
 if [[ "$linux" == true && -n "$real_docker" ]]; then

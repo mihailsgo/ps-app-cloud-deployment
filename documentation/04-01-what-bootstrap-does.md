@@ -40,9 +40,10 @@ Runs `configure-host.sh`, which edits the deployment for your hostname:
 - **`config/config.js`** (ps-server): service URLs, `ALLOWED_ORIGINS`, the Keycloak server URL and
   `DEMO_COMPANY_ROLE`. The shipped file already has a `DOCUMENT_ROUTING` block with routing on,
   which is left as it is. Only a `config.js` without that block gets one added, switched off.
-- **Secrets**: replaces `REGISTER_PDF_API_KEY` and `SESSION_SECRET` with random values if they
-  still hold the values shipped in this public package. Values you already changed are kept.
-  Neither is printed; read the API key as shown in [7.5 Register PDF API](07-05-register-pdf-api.md).
+- **Secrets**: replaces `REGISTER_PDF_API_KEY` with a random value if it still holds the value
+  shipped in this public package. A value you already changed is kept. The key is not printed;
+  read it as shown in [7.5 Register PDF API](07-05-register-pdf-api.md). (`SESSION_SECRET` in
+  `config.js` is kept as-is; ps-server 3.33+ does not read it.)
 - **Visual-signature CA**: replaces the shipped demo CA
   (`dmss-container-and-signature-services/dmssrootca.p12`) with one generated for this deployment,
   with a random keystore password. A CA that is already your own is kept.
