@@ -304,6 +304,14 @@ hooks that name `$OLD` or run `docker compose`.
    at the existing documents, that the effective compose model matches the
    running host, and that no boot or cron hook still starts the stack from
    `$OLD`.
+
+   `apply` writes `.env` with `COMPOSE_FILE` naming `docker-compose.yml`,
+   `$OVERLAY/compose.overlay.yml` and `.overlay-wizard.yml`. The last one
+   mounts `$OVERLAY` read-only, at the same path, into the Deployment Wizard
+   container, so the wizard's Monitoring pages can run `docker compose`
+   ([9.12](09-12-monitoring-from-the-wizard.md#on-an-overlay-managed-checkout)).
+   It changes only the wizard service, and `verify` reports whether it is in
+   place.
 5. **Cut over** in a maintenance window, after a backup:
 
    ```bash

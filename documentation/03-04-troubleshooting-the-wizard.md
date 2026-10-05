@@ -67,6 +67,14 @@ The wizard cannot reach the Docker daemon. The container was started without its
 `docker compose --profile wizard up -d wizard`, using the unmodified `wizard` service from
 `docker-compose.yml`.
 
+## Monitoring shows "docker compose failed"
+
+A `docker compose` call inside the wizard container failed, and the message after the colon is
+compose's own reason. When it names a compose file that does not exist, `COMPOSE_FILE` in `.env`
+points outside `/opt/padsign`, as it does on an overlay-managed checkout:
+[9.12](09-12-monitoring-from-the-wizard.md#when-docker-compose-fails) explains the mount the wizard
+needs there.
+
 ## The Welcome screen shows DEPLOYED_STOPPED or the Dashboard instead of a fresh install
 
 The directory has been installed before (`docker-compose.yml.bak` exists). **DEPLOYED_STOPPED** means

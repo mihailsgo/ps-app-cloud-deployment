@@ -15,6 +15,8 @@ set -uo pipefail
 #   - every branch is valid JSON: ps-server without a container, host
 #     unknown, certificate missing, a named-volume store, the buffer
 #     unreadable or not in use;
+#   - compose itself failing: the buffer error carries its first stderr line
+#     that is not a warning, redacted;
 #   - --format text, and no --format, still print the text report.
 #
 # Usage:
@@ -86,7 +88,9 @@ export STUB_LOG="${work}/docker-argv.log" CURL_LOG="${work}/curl.log"
 
 # ps-server (cid1) running, healthy, 3 restarts; nginx (cid2) running,
 # unhealthy. STUB_NO_PS_SERVER: ps-server has no container at all.
-# STUB_EXEC: ok (default) | none (no filesystem strategy) | fail.
+# STUB_EXEC: ok (default) | none (no filesystem strategy) | fail (no output)
+# | composefail (compose itself fails, its reason on stderr after a warning;
+# STUB_EXEC_REASON overrides the reason).
 cat > "${bin}/docker" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$STUB_LOG"
@@ -107,6 +111,10 @@ if [[ "${1:-}" == compose ]]; then
         ok)   printf 'roots=/signed-output\ncount=2\noldest_age_hours=5\n' ;;
         none) printf 'roots=\ncount=0\noldest_age_hours=\n' ;;
         fail) exit 1 ;;
+        composefail)
+          printf '%s\n' 'WARN[0000] The "X" variable is not set. Defaulting to a blank string.' \
+            "${STUB_EXEC_REASON:-stat /srv/padsign-overlay/compose.overlay.yml: no such file or directory}" 'second line' >&2
+          exit 1 ;;
       esac ;;
   esac
   exit 0
@@ -271,6 +279,19 @@ jeq "... docs does not exist: exists false, size null" "$jv" \
   '["docs",false,null,false,true]'
 jeq "... buffer error with the reason" "$jv" 'd["buffer"]' \
   '{"count":null,"error":"docker compose exec into ps-server failed","oldestAgeHours":null,"state":"error"}'
+
+# Compose itself failing (on an overlay host, a compose file COMPOSE_FILE
+# names that the caller cannot read): the error carries compose's reason,
+# its first line that is not a warning, redacted.
+jc="${work}/compose-fail.json"
+STUB_EXEC=composefail monitor "$jc" "$e" --format json
+jeq "compose fails: buffer error carries the first non-warning stderr line" "$jc" 'd["buffer"]' \
+  '{"count":null,"error":"docker compose exec into ps-server failed: stat /srv/padsign-overlay/compose.overlay.yml: no such file or directory","oldestAgeHours":null,"state":"error"}'
+STUB_EXEC=composefail STUB_EXEC_REASON='invalid interpolation format for services.ps-server.environment.STAMP_API_KEY: "s3cr3t${x". You may need to escape any $ with another $.' \
+  monitor "$jc" "$e" --format json
+jeq "... a secret value in compose's reason is redacted" "$jc" \
+  '["s3cr3t" not in d["buffer"]["error"], "STAMP_API_KEY: \"<redacted>\"" in d["buffer"]["error"], d["buffer"]["state"]]' \
+  '[true,true,"error"]'
 
 jm="${work}/missing-cert.json"
 STUB_EXEC=none monitor "$jm" "$e" --format json --host other.example.com

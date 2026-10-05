@@ -94,6 +94,14 @@ test('alertSeverity(): only down/unhealthy are failures, like lib/monitorStatus.
   }
 });
 
+test('composeFailedText(): the compose reason and the hint, empty when compose answered', () => {
+  assert.equal(c.composeFailedText({ dockerAvailable: true, services: [], error: null }), '');
+  assert.equal(c.composeFailedText(null), '');
+  assert.equal(c.composeFailedText({ error: 'stat /srv/o/compose.overlay.yml: no such file or directory', hint: null }),
+    'docker compose failed: stat /srv/o/compose.overlay.yml: no such file or directory');
+  assert.equal(c.composeFailedText({ error: 'boom', hint: 'Mount it.' }), 'docker compose failed: boom Mount it.');
+});
+
 test('restartImpact(): specific wording for ps-server, keycloak and nginx, a general one otherwise', () => {
   assert.match(c.restartImpact('ps-server'), /interrupts any document being signed/);
   assert.match(c.restartImpact('keycloak'), /sign in again/);

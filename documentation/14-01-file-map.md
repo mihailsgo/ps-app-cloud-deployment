@@ -67,6 +67,7 @@ All git-ignored.
 | `deployment-evidence.json`, `deployment-evidence.json.previous` | `bootstrap.sh`, `upgrade.sh`, `postdeploy-check.sh` | Record of what is deployed: git revision, image tags and digests, config checksums, service state and restart counts. |
 | `.monitor-state/` | `monitor-status.sh` | State kept between monitoring runs ([9.10](09-10-monitoring-and-alerting.md)). |
 | `support-bundles/` | `support-bundle.sh`, the wizard's Support bundle | The `padsign-support-<host>-<UTC time>.tar.gz` archives. Directory mode 700, archives mode 600 ([9.12](09-12-monitoring-from-the-wizard.md#support-bundles)). Delete them after use. |
+| `.overlay-applied.json`, `.overlay-wizard.yml` | `overlay.sh apply` | Only on an overlay-managed checkout: which overlay was applied, and the read-only mount of the overlay directory into the Deployment Wizard ([9.11](09-11-start-at-boot-backups-and-customized-hosts.md#customized-hosts-overlay), [9.12](09-12-monitoring-from-the-wizard.md#on-an-overlay-managed-checkout)). |
 | `.wizard-saved-progress.json` | Deployment Wizard | Answers saved with **Save & Exit** (no password), mode 600. |
 
 ## Release metadata
