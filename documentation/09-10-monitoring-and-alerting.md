@@ -161,7 +161,11 @@ they are fixed.
 The disk figures cover the two signed-document stores (ps-server's
 `/signed-output` and the fallback archive's `/docs`) wherever the effective
 compose model mounts them from, so an overlay's storage on its own volume
-is covered.
+is covered. A store the run cannot look at (run by the wizard, with the
+storage not mounted into it, or unreadable by the user running the script)
+is reported as "cannot inspect", not as missing, and contributes no
+filesystem figure
+([9.11](09-11-start-at-boot-backups-and-customized-hosts.md#storage-outside-the-checkout)).
 
 Container logs do not fill the disk: every service in `docker-compose.yml`
 uses Docker's `json-file` log driver with rotation (`max-size: 20m`,
@@ -227,7 +231,7 @@ The document (`"schema": 1`) has these keys:
 | `services` | `service`, `state` (`missing` when no container exists), `health`, `restarts` per service |
 | `certificate` | `host`, `path`, `found`, `notAfter`, `daysLeft`; `null` when the host is unknown |
 | `failures` | `window` and per-category `counts` (`key`, `label`, `count`); `null` when ps-server is not running |
-| `disk` | `stores` (`name`, `path`, `exists`, `size`, `inTree`, `volume`) and `filesystems` (`mount`, `path`, `usedPct`) |
+| `disk` | `stores` (`name`, `path`, `exists`, `size`, `inTree`, `volume`, `inspectable`) and `filesystems` (`mount`, `path`, `usedPct`). `inspectable` is `false` for a store this run cannot look at, and then `exists` and `size` are `null` |
 | `buffer` | `state` (`ok`, `not-in-use`, `not-running` or `error`), `count`, `oldestAgeHours`, `error` |
 | `alerts` | `key`, `message`, `samples`, as in the webhook message |
 

@@ -265,12 +265,53 @@ else
 fi
 jeq "... host null, certificate null" "$jv" '[d["host"], d["certificate"]]' '[null,null]'
 jeq "... signed-output a named volume: path, exists and size null" "$jv" 'd["disk"]["stores"][0]' \
-  '{"exists":null,"inTree":false,"name":"signed-output","path":null,"size":null,"volume":true}'
+  '{"exists":null,"inTree":false,"inspectable":false,"name":"signed-output","path":null,"size":null,"volume":true}'
 jeq "... docs does not exist: exists false, size null" "$jv" \
   '[d["disk"]["stores"][1][k] for k in ("name", "exists", "size", "volume")] + [d["disk"]["stores"][1]["path"].endswith("/docs")]' \
   '["docs",false,null,false,true]'
 jeq "... buffer error with the reason" "$jv" 'd["buffer"]' \
   '{"count":null,"error":"docker compose exec into ps-server failed","oldestAgeHours":null,"state":"error"}'
+
+# Stores mounted from absolute paths outside the checkout (overlay storage).
+# The paths are read from the rendered compose model, not guessed from the
+# checkout. Where the caller cannot see them, they are "cannot inspect",
+# never "does not exist".
+absd="${work}/abs"
+store="${work}/abs-storage"
+mkdir -p "$absd" "$store/signed-output"
+cat > "${absd}/docker-compose.yml" <<COMPOSE
+services:
+  ps-server:
+    image: busybox:1.36
+    volumes:
+      - "$(native "$store")/signed-output:/signed-output"
+  dmss-archive-services-fallback:
+    image: busybox:1.36
+    volumes:
+      - "$(native "$store")/docs:/docs"
+COMPOSE
+# /proc/self/mountinfo stand-ins: a container whose only mount is its root,
+# and one with the storage mounted in at the same path as on the host.
+printf '1 0 0:1 / / rw - overlay overlay rw\n' > "${work}/mountinfo-root"
+printf '1 0 0:1 / / rw - overlay overlay rw\n99 1 0:50 / %s rw - ext4 /dev/sda1 rw\n' "$store" > "${work}/mountinfo-store"
+ja="${work}/abs.json"
+STUB_EXEC=none monitor "$ja" "$e" --format json --compose-dir "$absd"
+check "absolute mounts, on the host: exit 0 (rc=${rc})" test "$rc" = 0
+jeq "... paths come from the compose model; both inspectable (signed-output exists, docs does not)" "$ja" \
+  '[[s["name"], s["path"].endswith("/abs-storage/" + s["name"]), s["inTree"], s["inspectable"], s["exists"]] for s in d["disk"]["stores"]]' \
+  '[["signed-output",true,false,true,true],["docs",true,false,true,false]]'
+HOST_PROJECT_DIR="$absd" PADSIGN_MOUNTINFO="${work}/mountinfo-root" STUB_EXEC=none monitor "$ja" "$e" --format json --compose-dir "$absd"
+check "... inside the wizard container, stores not mounted into it: exit 0 (rc=${rc})" test "$rc" = 0
+jeq "... both: path from the model, exists and size null, inspectable false" "$ja" \
+  '[[s["name"], s["path"].endswith("/abs-storage/" + s["name"]), s["exists"], s["size"], s["inspectable"], s["volume"]] for s in d["disk"]["stores"]]' \
+  '[["signed-output",true,null,null,false,false],["docs",true,null,null,false,false]]'
+HOST_PROJECT_DIR="$absd" PADSIGN_MOUNTINFO="${work}/mountinfo-root" STUB_EXEC=none monitor "$o" "$e" --compose-dir "$absd"
+check "... text report: says it cannot inspect them" grep -q 'abs-storage/signed-output: cannot inspect (outside what the wizard can read)' "$o"
+check "... and never claims they do not exist" bash -c '! grep -q "does not exist" "$1"' _ "$o"
+HOST_PROJECT_DIR="$absd" PADSIGN_MOUNTINFO="${work}/mountinfo-store" STUB_EXEC=none monitor "$ja" "$e" --format json --compose-dir "$absd"
+jeq "... with the storage mounted into the wizard at the same path: inspectable again" "$ja" \
+  '[[s["name"], s["inspectable"], s["exists"]] for s in d["disk"]["stores"]]' \
+  '[["signed-output",true,true],["docs",true,false]]'
 
 jm="${work}/missing-cert.json"
 STUB_EXEC=none monitor "$jm" "$e" --format json --host other.example.com

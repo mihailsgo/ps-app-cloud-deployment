@@ -350,6 +350,32 @@ Dashboard's health checklist and Monitoring, but refuses deploy, upgrade
 and every Settings change, with a banner in the pages and an HTTP 409 from
 the server ([3.3, Overlay-managed hosts](03-03-how-the-wizard-works.md#overlay-managed-hosts)).
 
+### Storage outside the checkout
+
+The signed-document stores (ps-server's `/signed-output` and the fallback archive's `/docs`) are
+wherever the effective compose model mounts them. On a plain checkout that is `./signed-output` and
+`./docs`; on an overlay host, or with a `docker-compose.override.yml`, the mount can name an absolute
+path on another disk, or a named Docker volume. `validate-config.sh`, `monitor-status.sh` and the
+wizard read the mount's source from `docker compose config --format json`, the same rendering that
+`docker compose up` uses, and look there. They never assume `./signed-output` or `./docs`.
+
+What a check can see depends on who runs it:
+
+| Where the store is | Run on the host | Run by the wizard |
+|---|---|---|
+| Inside the checkout (`./signed-output`) | checked | checked |
+| An absolute path, the user can read it | checked | `INFO ... cannot inspect` unless that path is mounted into the wizard |
+| An absolute path, the user cannot read it | `INFO ... permission denied` | `INFO ... cannot inspect` |
+| A named volume | `INFO ... named Docker volume` | `INFO ... named Docker volume` |
+
+`INFO` is neither a pass nor a failure, and it never comes with an `upgrade.sh` or `mkdir` fix: those
+only apply to a store inside the checkout. A store mounted from outside the checkout that is missing on
+the host is a `FAIL` that says to restore or re-point the mount, because the directory is the
+documents' existing home and creating an empty one would hide missing data. To have the wizard check
+a store, run `validate-config.sh` on the host, or mount the storage directory into the wizard
+read-only at the same path as on the host (a `volumes` entry `"/srv/padsign-storage:/srv/padsign-storage:ro"`
+on the `wizard` service in a compose override).
+
 ### Upgrading an overlay host
 
 ```bash

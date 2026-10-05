@@ -96,3 +96,18 @@ test('parses an unreachable-endpoint run', () => {
   assert.equal(result.passed, false);
   assert.ok(result.checks.some((c) => c.status === 'fail' && /no TLS handshake/.test(c.message)));
 });
+
+test('INFO is its own status: a check this run could not look at is neither a pass nor a failure', () => {
+  const out = [
+    '  OK   signed-output volume mount in docker-compose.yml',
+    '  INFO signed-output is mounted from /srv/padsign/signed-output, outside what the wizard can read',
+    '  WARN something else',
+    ''
+  ].join('\n');
+  const result = parseHelperCheckOutput(out);
+  assert.deepEqual(result.checks.map((c) => c.status), ['ok', 'info', 'warn']);
+  assert.equal(result.passed, true, 'an INFO row must not fail the run');
+  assert.match(result.checks[1].message, /^signed-output is mounted from \/srv\/padsign\/signed-output/);
+  // "INFO:" prefixed progress text (bootstrap.sh style) is still not a check row
+  assert.deepEqual(parseHelperCheckOutput('  INFO: No certs found\n').checks, []);
+});

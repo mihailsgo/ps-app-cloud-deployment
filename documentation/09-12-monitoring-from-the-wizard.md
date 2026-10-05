@@ -46,6 +46,12 @@ Cards above the table summarise alerts, certificate expiry, disk use and the rec
 `installation-scripts/monitor-status.sh --format json`, the read-only report of
 [9.10](09-10-monitoring-and-alerting.md): it keeps no state file and sends no webhook.
 
+The disk card lists the two signed-document stores at the paths the compose model mounts them from.
+The wizard container sees the deployment directory only, so a store on another disk shows as "cannot
+inspect from the wizard" with its path, rather than "not created yet"; the disk figures for it come
+from running `monitor-status.sh` on the host
+([9.11](09-11-start-at-boot-backups-and-customized-hosts.md#storage-outside-the-checkout)).
+
 ## Logs
 
 Read a service's log in the browser.
@@ -101,7 +107,7 @@ subset the other filters leave. **Export CSV** downloads the filtered set. The l
 page.
 
 When the tab is empty, it says why: ps-server is older than the version that writes the log,
-`AUDIT_LOG` is disabled in `config/config.js`, the log directory is outside the deployment
+`AUDIT_LOG` is disabled in `config/config.js`, the log directory is on the host outside the deployment
 directory, or nothing has been signed yet. [9.13](09-13-signing-activity-log.md) covers each cause.
 
 ## Diagnostics
