@@ -119,6 +119,11 @@ api_timeout="$(tr -d '\r' < "${src_root}/nginx/nginx.conf" | awk '
 check "nginx /api/ proxy_read_timeout (${api_timeout:-unset}s) > ps-server's worst case (97.3 s)" \
   bash -c '[[ -n "$1" && "$1" -gt 98 ]]' _ "$api_timeout"
 
+# registerPDF takes up to 10 MB (documentation 7.5); nginx's own default is 1 MB and answers 413 first.
+api_body="$(tr -d '' < "${src_root}/nginx/nginx.conf" | awk '
+  /location \/api\/ \{/ { on = 1 } on && /^[[:space:]]*client_max_body_size/ { gsub(/[^0-9]/, "", $2); print $2; exit } on && /^    \}/ { on = 0 }')"
+check "nginx /api/ client_max_body_size (${api_body:-unset} MB) >= registerPDF's 10 MB limit"   bash -c '[[ -n "$1" && "$1" -ge 10 ]]' _ "$api_body"
+
 unit="${src_root}/installation-scripts/assets/padsign.service.example"
 u="$(grep -vE '^\s*#' "$unit" 2>/dev/null | tr -d '\r')"
 check "boot unit: WorkingDirectory is the /opt/padsign checkout" has "$u" "WorkingDirectory=/opt/padsign"

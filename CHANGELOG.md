@@ -2,6 +2,12 @@
 
 Release notes for the PadSign deployment package, newest first; versions follow this repository's git tags (`vX.Y.Z`).
 
+## Unreleased
+
+### Fixed
+
+- `nginx/nginx.conf` sets `client_max_body_size 15m` in the `/api/` location. Without it nginx's 1 MB default answered `413` to any `POST /api/registerPDF` above 1 MB, although ps-server accepts PDFs of up to 10 MB ([7.5](documentation/07-05-register-pdf-api.md)). Found on the AMIT host, which had carried this setting by hand. `test-boot-and-timeouts.sh` now checks it.
+
 ## v1.0.52 - 2026-10-05
 
 ### Fixed
