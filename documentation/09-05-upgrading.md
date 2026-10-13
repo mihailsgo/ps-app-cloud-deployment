@@ -30,6 +30,21 @@ differently: see [9.11, Customized hosts (overlay)](09-11-start-at-boot-backups-
   return `404` and documents stay pending (nothing is lost). Give each
   receive-back company its own key in `REGISTER_PDF_API_KEYS` before you
   upgrade: [11, Per-company API keys](11-document-routing-and-receive-back.md#per-company-api-keys).
+- **Host deployed earlier from a newer container-signature build?** The
+  release pins `trustlynx/container-signature-service` to the build in
+  `release/approved-digests.json` (a `24.3.0.x` build), and that build can
+  be *lower* than one a host already runs (for example `24.3.0.49.x`). The
+  pin is deliberate: newer builds were tried and rejected because they fail
+  to seal or change the signing profile (the `why` field of the entry says
+  how), so the build number going down is expected, not a mistake. After the
+  upgrade, run `./installation-scripts/dmss-seal-smoke.sh`
+  ([10.9](10-09-verifying-it-works.md)) and seal one real document. If you
+  carry an older `application.yml` onto this image, compare
+  `pdf.defaultSignatureLevel` with the one the release ships
+  (`PAdES_BASELINE_LT`, which needs a time-stamp authority): a host that
+  runs `B` seals without a TSA and has to keep `B`, or wire a TSA first
+  ([10.8](10-08-tsa-and-ocsp-for-lt-and-lta.md)). Why builds are pinned:
+  [14.6](14-06-image-approval-and-digest-pinning.md).
 - **Take a backup** of configuration, certificates, the Keycloak volume and
   the document stores ([9.11, Backups](09-11-start-at-boot-backups-and-customized-hosts.md#backups)).
 - **Plan a short maintenance window.** ps-server, ps-client and nginx are
