@@ -272,6 +272,40 @@ EOF
   rm -f "$repo/docker-compose.override.yml"
 fi
 
+# A sub-directory the old root-running ps-server created, below a top
+# directory the image's user already owns: the tree is walked, not just its top.
+# Needs a real foreign owner, so root or passwordless sudo on Linux.
+as_root() { if [[ "$(id -u)" == 0 ]]; then "$@"; else sudo -n "$@"; fi; }
+if [[ "$(uname -s)" == Linux ]] && { [[ "$(id -u)" == 0 ]] || sudo -n true 2>/dev/null; }; then
+  me="$(id -u):$(id -g)"
+  mkdir -p "$storage/signed-output/Acme/user@example.com" "$storage/docs"
+  chmod 750 "$storage/signed-output"
+  : > "$storage/signed-output/Acme/user@example.com/signed.pdf"
+  cat > "$repo/docker-compose.override.yml" <<EOF
+services:
+  ps-server:
+    volumes:
+      - "$(native "$storage")/signed-output:/signed-output"
+  dmss-archive-services-fallback:
+    volumes:
+      - "$(native "$storage")/docs:/docs"
+EOF
+  out="$(validate)"
+  has "signed-output tree owned by the image's user throughout: OK" "$out" "OK   signed-output directory owned by ${me}"
+  as_root chown -R 65534:65534 "$storage/signed-output/Acme"
+  check "first_foreign_path names the foreign sub-directory (the top is ours)" \
+    test "$(lib "first_foreign_path \"$storage/signed-output\" $(id -u) \"\"")" = "$storage/signed-output/Acme"
+  out="$(validate)"; lines="$(section_lines "$out")"
+  has "a root-owned company folder below an owned top directory: FAIL naming it" "$out" "FAIL signed-output directory: ${storage}/signed-output/Acme is not owned by $(id -u)"
+  has "... with the chown -R fix for the whole tree" "$out" "sudo chown -R ${me} ${storage}/signed-output"
+  as_root chown -R "$(id -u):$(id -g)" "$storage/signed-output/Acme"
+  out="$(validate)"
+  has "after the chown -R: OK again" "$out" "OK   signed-output directory owned by ${me}"
+  rm -f "$repo/docker-compose.override.yml"
+else
+  echo "  (skipping the nested-ownership case: needs Linux and root or passwordless sudo)"
+fi
+
 echo ""
 echo "== ${pass} passed, ${failed} failed =="
 [[ "$failed" == 0 ]]
