@@ -2,6 +2,14 @@
 
 Release notes for the PadSign deployment package, newest first; versions follow this repository's git tags (`vX.Y.Z`).
 
+## v1.0.53 - 2026-10-14
+
+### Changed
+
+- [9.5](documentation/09-05-upgrading.md) explains what to expect when a host deployed earlier from a newer container-signature build upgrades to this release: the pinned `24.3.0.x` build can have a lower number than the one the host runs, which is deliberate, and what to check afterwards (`dmss-seal-smoke.sh`, one real seal, and `pdf.defaultSignatureLevel` against the release's `PAdES_BASELINE_LT`).
+
+No image, configuration or script changes: every image is pinned as in v1.0.52, so there is nothing to apply for this release.
+
 ## v1.0.52 - 2026-10-05
 
 ### Fixed
