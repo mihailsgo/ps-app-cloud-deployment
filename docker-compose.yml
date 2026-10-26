@@ -63,7 +63,7 @@ services:
       - './dmss-archive-services:/confs'
     environment:
       - SPRING_CONFIG_LOCATION=/confs/
-    image: 'trustlynx/dmss-archive-services:24.3.0.3@sha256:1acdd68c7616676ab1fb679ee41eac89878786a51991d5eca15dad50b8e98b32'
+    image: 'trustlynx/dmss-archive-services:26.7.0.0@sha256:d94569d9d6da05c44438e2c7fefbd8e472e63ae1044602a1c9ebaa30bf25fd30'
     healthcheck:
       # This service's own request-auth filter returns 403 for
       # /actuator/health (confirmed: consistent 403, not a transient
@@ -92,7 +92,7 @@ services:
       - './dmss-container-and-signature-services:/confs'
     environment:
       - SPRING_CONFIG_LOCATION=/confs/
-    image: 'trustlynx/container-signature-service:24.3.0.36@sha256:255065306b6dc383bed95dcce3037ff9287020e57d0cae367a29b54de4e2fd08'
+    image: 'trustlynx/container-signature-service:26.17.0.0@sha256:94f5fe34eabfaac4ec7eeea7e4d5b8501c25f58a44f404634e592e68b8dbbdc8'
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
@@ -143,7 +143,7 @@ services:
     profiles: ["local-eseal"]
     restart: unless-stopped
     logging: *default-logging
-    image: 'trustlynx/digital-stamping-service:24.0.3.1@sha256:aed47670e42b75f1b1354c9bc5a0397a862db522f1af12c80f404de872ba4eb1'
+    image: 'trustlynx/digital-stamping-service:26.8.1.0@sha256:26da3b6f50c45291d3dc814e3977ea18ae296c9493773de264f7266633721f28'
     environment:
       # ADDITIONAL_LOCATION (not LOCATION) so the in-jar baked YAML still loads;
       # ours layers on top and overrides only what we need to change.
@@ -173,7 +173,7 @@ services:
       - './docs:/docs'
     environment:
       - SPRING_CONFIG_LOCATION=/dmss-archive-services-fallback/application.yml
-    image: 'trustlynx/dmss-archive-services-fallback:24.1.7@sha256:46215e56227c1f85eb226c2183033a22ce4e57b0bf09ed5b88da1a70c8d34177'
+    image: 'trustlynx/dmss-archive-services-fallback:26.5.2@sha256:83b28b13465de5aff5dd7f900ab51e2fa863bada844b8875ba48f6ecf2cc464f'
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8095/actuator/health | grep -q '\"status\":\"UP\"'"]
       interval: 10s
