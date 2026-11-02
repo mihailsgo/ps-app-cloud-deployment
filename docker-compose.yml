@@ -9,7 +9,7 @@ x-logging: &default-logging
 
 services:
   keycloak:
-    image: quay.io/keycloak/keycloak:26.7.4@sha256:82a77884f3af238beab1e7afd63b5f530e1b5c0590bd7aa60b40a40463e29b2c
+    image: quay.io/keycloak/keycloak:26.7.5@sha256:37dbaf6f0722c9ec246335f36e1ef8b2e6cb960f7c27e0d8c615121a3d475a85
     environment:
       - KEYCLOAK_ADMIN=admin
       # Keycloak's master-realm admin password. Keycloak reads it ONLY on its
@@ -218,7 +218,7 @@ services:
       retries: 10
       start_period: 30s
   nginx:
-    image: nginx:1.30.5@sha256:b972f831f200b19ef0767938224f9711e74cd783718738cd7405d5cabf75c442
+    image: nginx:1.30.6@sha256:66b50d24288dba67f3d000b31223daefc4868c58d29aaacb6a4ff9771597b5eb
     container_name: nginx
     ports:
       - "80:80"
